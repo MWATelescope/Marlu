@@ -1,0 +1,40 @@
+[package]
+name = "mwa_rust_core"
+version = "0.1.0"
+authors = ["Christopher H. Jordan <christopherjordan87@gmail.com>"]
+edition = "2018"
+license = "MPL-2.0"
+readme = "README.md"
+description = "Convenience Rust code that handles coordinate transformations, Jones matrices, etc. for the Murchison Widefield Array (MWA) radio telescope."
+repository = "https://github.com/MWATelescope/mwa_rust_core"
+homepage = "https://github.com/MWATelescope/mwa_rust_core"
+exclude = [".github/*"]
+
+[features]
+default = ["mwalib"]
+erfa-static = ["erfa-sys/static"]
+cfitsio-static = ["mwalib/cfitsio-static"]
+all-static = ["erfa-static", "cfitsio-static"]
+
+[dependencies]
+erfa-sys = "0.1.*"
+hifitime = "2.2.*"
+log = "0.4.*"
+num-complex = "0.3.*"
+num-traits = "0.2.*"
+rayon = "~1"
+static_assertions = "1.1.*"
+thiserror = "1.0.*"
+
+# Needed to implement AbsDiffEq on the Jones type. Makes testing much easier!
+approx = { version = "0.4.*", features = ["num-complex"] }
+
+mwalib = { version = ">=0.9.4", optional = true }
+
+[dev-dependencies]
+criterion = "0.3.*"
+ndarray = { version = "0.14.*", features = ["approx"] }
+
+[[bench]]
+name = "bench"
+harness = false
