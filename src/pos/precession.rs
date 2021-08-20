@@ -60,12 +60,13 @@ impl PrecessionInfo {
     }
 }
 
+/// Get the local mean sidereal time.
 pub fn get_lmst(time: Epoch, array_longitude_rad: f64) -> f64 {
     let gmst = pal::palGmst(time.as_mjd_utc_days());
     (gmst + array_longitude_rad) % TAU
 }
 
-// This function is very similar to cotter's `PrepareTimestepUVW`.
+/// This function is very similar to cotter's `PrepareTimestepUVW`.
 pub fn precess_time(
     phase_centre: RADec,
     time: Epoch,

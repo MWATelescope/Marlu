@@ -8,7 +8,6 @@ pub mod constants;
 pub mod jones;
 pub mod math;
 pub mod pos;
-pub mod precession;
 pub mod sexagesimal;
 pub mod time;
 
@@ -20,14 +19,20 @@ pub use pos::{
     enh::ENH,
     hadec::HADec,
     lmn::LMN,
-    pal,
+    pal, precession,
     radec::RADec,
     uvw::UVW,
     xyz::{XyzGeocentric, XyzGeodetic},
 };
 
-pub use num_complex::{Complex32 as c32, Complex64 as c64};
+pub use num_complex::{Complex, Complex32 as c32, Complex64 as c64};
 
 pub use erfa_sys;
+pub use hifitime;
+
+// If "mwalib" is enabled, re-export the crate here, as well its re-exported
+// crates.
 #[cfg(feature = "mwalib")]
 pub use mwalib;
+#[cfg(feature = "mwalib")]
+pub use mwalib::{fitsio, fitsio_sys};

@@ -1,6 +1,6 @@
 [package]
 name = "mwa_rust_core"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Christopher H. Jordan <christopherjordan87@gmail.com>",
            "Derwent McElhinney <derwent.mcelhinney@curtin.edu.au>"]
 edition = "2018"
@@ -21,20 +21,25 @@ all-static = ["erfa-static", "cfitsio-static"]
 erfa-sys = "0.1.*"
 hifitime = "2.2.*"
 log = "0.4.*"
-num-complex = "0.3.*"
+num-complex = ">=0.3,<0.5"
 num-traits = "0.2.*"
 rayon = "~1"
-static_assertions = "1.1.*"
 thiserror = "1.0.*"
 
 # Needed to implement AbsDiffEq on the Jones type. Makes testing much easier!
-approx = { version = "0.4.*", features = ["num-complex"] }
+approx = { version = ">=0.4,<0.6", features = ["num-complex"] }
 
 mwalib = { version = ">=0.9.4", optional = true }
 
 [dev-dependencies]
 criterion = "0.3.*"
+
+# ndarray 0.14.* depends on approx 0.4.0, which in turn uses num-complex 0.3.0.
+# Forcing the versions here means that ndarrays of complex numbers can be
+# tested!
+approx = { version = "0.4.0", features = ["num-complex"] }
 ndarray = { version = "0.14.*", features = ["approx"] }
+num-complex = "0.3.0"
 
 [[bench]]
 name = "bench"

@@ -63,34 +63,6 @@ impl XyzGeodetic {
         self.to_enh(MWA_LAT_RAD)
     }
 
-    /// For each tile listed in an mwalib context, calculate a [XyzGeodetic]
-    /// coordinate.
-    ///
-    /// Note that the RF inputs are ordered by antenna number, **not** the
-    /// "input"; e.g. in the metafits file, Tile104 is often the first tile
-    /// listed ("input" 0), Tile103 second ("input" 2), so the first baseline
-    /// would naively be between Tile104 and Tile103.
-    #[cfg(feature = "mwalib")]
-    pub fn get_tiles_mwalib(context: &mwalib::MetafitsContext) -> Vec<XyzGeodetic> {
-        let (sin_mwa_lat, cos_mwa_lat) = MWA_LAT_RAD.sin_cos();
-        context
-            .rf_inputs
-            .iter()
-            // There is an RF input for both tile polarisations. The ENH
-            // coordinates are the same for both polarisations of a tile; ignore
-            // the RF input if it's associated with Y.
-            .filter(|rf| matches!(rf.pol, mwalib::Pol::Y))
-            .map(|rf| {
-                ENH {
-                    e: rf.east_m,
-                    n: rf.north_m,
-                    h: rf.height_m,
-                }
-                .to_xyz_inner(sin_mwa_lat, cos_mwa_lat)
-            })
-            .collect()
-    }
-
     /// Convert a [XyzGeodetic] coordinate to [XyzGeocentric].
     pub fn to_geocentric(self, earth_pos: LatLngHeight) -> Result<XyzGeocentric, ErfaError> {
         let (sin_longitude, cos_longitude) = earth_pos.longitude_rad.sin_cos();
@@ -128,6 +100,46 @@ impl XyzGeodetic {
     /// location.
     pub fn to_geocentric_mwa(self) -> Result<XyzGeocentric, ErfaError> {
         self.to_geocentric(LatLngHeight::new_mwa())
+    }
+
+    /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
+    /// [XyzGeodetic] coordinate.
+    ///
+    /// Note that the RF inputs are ordered by antenna number, **not** the
+    /// "input"; e.g. in the metafits file, Tile104 is often the first tile
+    /// listed ("input" 0), Tile103 second ("input" 2), so the first baseline
+    /// would naively be between Tile104 and Tile103.
+    #[cfg(feature = "mwalib")]
+    pub fn get_tiles(context: &mwalib::MetafitsContext, latitude_rad: f64) -> Vec<XyzGeodetic> {
+        let (sin_lat, cos_lat) = latitude_rad.sin_cos();
+        context
+            .rf_inputs
+            .iter()
+            // There is an RF input for both tile polarisations. The ENH
+            // coordinates are the same for both polarisations of a tile; ignore
+            // the RF input if it's associated with Y.
+            .filter(|rf| matches!(rf.pol, mwalib::Pol::Y))
+            .map(|rf| {
+                ENH {
+                    e: rf.east_m,
+                    n: rf.north_m,
+                    h: rf.height_m,
+                }
+                .to_xyz_inner(sin_lat, cos_lat)
+            })
+            .collect()
+    }
+
+    /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
+    /// [XyzGeodetic] coordinate assuming the MWA's latitude.
+    ///
+    /// Note that the RF inputs are ordered by antenna number, **not** the
+    /// "input"; e.g. in the metafits file, Tile104 is often the first tile
+    /// listed ("input" 0), Tile103 second ("input" 2), so the first baseline
+    /// would naively be between Tile104 and Tile103.
+    #[cfg(feature = "mwalib")]
+    pub fn get_tiles_mwa(context: &mwalib::MetafitsContext) -> Vec<XyzGeodetic> {
+        Self::get_tiles(context, MWA_LAT_RAD)
     }
 }
 
@@ -174,6 +186,18 @@ pub fn xyzs_to_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<U
             tile_uvws[i] - tile_uvws[j]
         })
         .collect()
+}
+
+impl std::ops::Sub<XyzGeodetic> for XyzGeodetic {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        XyzGeodetic {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z,
+        }
+    }
 }
 
 /// The geocentric (x,y,z) coordinates of an antenna (a.k.a. tile or station).

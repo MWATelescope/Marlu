@@ -26,7 +26,6 @@ pub const MWA_LAT_DEG: f64 = MWA_LAT_RAD * 180.0 / PI;
 pub const MWA_LONG_RAD: f64 = 2.0362898668561042;
 /// MWA latitude \[degrees\]
 pub const MWA_LONG_DEG: f64 = MWA_LONG_RAD * 180.0 / PI;
-
 /// MWA height (a.k.a. altitude) \[metres\]
 pub const MWA_HEIGHT_M: f64 = 377.827;
 
@@ -55,14 +54,3 @@ pub const HIFITIME_GPS_FACTOR: f64 =
 /// converts an epoch to many formats including JD, and accounts for leap
 /// seconds.
 pub const MJD_TAI_EPOCH_DIFF: f64 = 1297728000.0;
-
-// Double check that our constants match mwalib's. This crate would just use
-// mwalib's constants, but mwalib is an optional dependency.
-#[cfg(feature = "mwalib")]
-extern crate static_assertions as sa;
-#[cfg(feature = "mwalib")]
-sa::const_assert!(MWA_LAT_RAD == mwalib::MWA_LATITUDE_RADIANS);
-#[cfg(feature = "mwalib")]
-sa::const_assert!(MWA_LONG_RAD == mwalib::MWA_LONGITUDE_RADIANS);
-#[cfg(feature = "mwalib")]
-sa::const_assert!(MWA_HEIGHT_M == mwalib::MWA_ALTITUDE_METRES);

@@ -10,6 +10,7 @@ pub mod enh;
 pub mod hadec;
 pub mod lmn;
 pub mod pal;
+pub mod precession;
 pub mod radec;
 pub mod uvw;
 pub mod xyz;

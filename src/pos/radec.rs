@@ -140,6 +140,41 @@ impl RADec {
     pub fn separation(&self, b: Self) -> f64 {
         unsafe { erfa_sys::eraSeps(self.ra, self.dec, b.ra, b.dec) }
     }
+
+    /// Given an [`mwalib::MetafitsContext`], make an [Option<RADec>] from the
+    /// `(ra|dec)_phase_center_degrees` if these are available, otherwise
+    /// [None].
+    #[cfg(feature = "mwalib")]
+    pub fn from_mwalib_phase_center(context: &mwalib::MetafitsContext) -> Option<RADec> {
+        match (
+            context.ra_phase_center_degrees,
+            context.dec_phase_center_degrees,
+        ) {
+            (Some(ra), Some(dec)) => Some(RADec::new_degrees(ra, dec)),
+            (..) => None,
+        }
+    }
+
+    /// Given an [`mwalib::MetafitsContext`], make a [RADec] from the
+    /// `(ra|dec)_tile_pointing_degrees`.
+    #[cfg(feature = "mwalib")]
+    pub fn from_mwalib_tile_pointing(context: &mwalib::MetafitsContext) -> RADec {
+        RADec::new_degrees(
+            context.ra_tile_pointing_degrees,
+            context.dec_tile_pointing_degrees,
+        )
+    }
+
+    /// Given an [`mwalib::MetafitsContext`], make a [RADec] from the
+    /// `(ra|dec)_phase_center_degrees` if these are available, otherwise use
+    /// the `(ra|dec)_tile_pointing_degrees`.
+    #[cfg(feature = "mwalib")]
+    pub fn from_mwalib_phase_or_pointing(context: &mwalib::MetafitsContext) -> RADec {
+        match RADec::from_mwalib_phase_center(context) {
+            Some(radec) => radec,
+            None => RADec::from_mwalib_tile_pointing(context),
+        }
+    }
 }
 
 impl std::fmt::Display for RADec {
