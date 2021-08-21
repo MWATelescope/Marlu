@@ -255,7 +255,7 @@ impl XyzGeocentric {
     /// Convert a [XyzGeocentric] coordinate to [XyzGeodetic].
     pub fn to_geodetic(self, earth_pos: LatLngHeight) -> Result<XyzGeodetic, ErfaError> {
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos)?;
-        let (sin_longitude, cos_longitude) = (-earth_pos.longitude_rad).sin_cos();
+        let (sin_longitude, cos_longitude) = earth_pos.longitude_rad.sin_cos();
         let geodetic =
             XyzGeocentric::to_geodetic_inner(self, geocentric_vector, sin_longitude, cos_longitude);
         Ok(geodetic)
@@ -277,8 +277,8 @@ impl XyzGeocentric {
             z: self.z - geocentric_vector.z,
         };
 
-        let xtemp = geodetic.x * cos_longitude - geodetic.y * sin_longitude;
-        let y = geodetic.x * sin_longitude + geodetic.y * cos_longitude;
+        let xtemp = geodetic.x * cos_longitude - geodetic.y * -sin_longitude;
+        let y = geodetic.x * -sin_longitude + geodetic.y * cos_longitude;
         let x = xtemp;
         XyzGeodetic {
             x,
@@ -333,6 +333,40 @@ mod tests {
     use crate::constants::{
         COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
     };
+
+    #[test]
+    fn test_geocentric_to_geodetic() {
+        // Do everything manually.
+        let geocentric_vector = XyzGeocentric {
+            x: -2559453.2905955315,
+            y: 5095371.7354411585,
+            z: -2849056.7735717744,
+        };
+        let sin_longitude = 0.8936001831599957;
+        let cos_longitude = -0.44886380190033387;
+        let geocentric = XyzGeocentric {
+            x: -2559043.7415729975,
+            y: 5095823.023550426,
+            z: -2849455.5775171486,
+        };
+        let result = geocentric.to_geodetic_inner(geocentric_vector, sin_longitude, cos_longitude);
+        let expected = XyzGeodetic {
+            x: 219.43940577989025,
+            y: -568.5399780273752,
+            z: -398.80394537420943,
+        };
+        assert_abs_diff_eq!(result, expected);
+
+        // Do everything automatically.
+        let result = geocentric
+            .to_geodetic(LatLngHeight {
+                longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+                latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+                height_metres: COTTER_MWA_HEIGHT_METRES,
+            })
+            .unwrap();
+        assert_abs_diff_eq!(result, expected);
+    }
 
     #[test]
     fn test_geocentric_to_geodetic_and_back() {
