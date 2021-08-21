@@ -52,3 +52,48 @@ jobs:
 
     - name: Run tests
       run: cargo test
+
+  test-without-mwalib:
+    name: Test ${{ matrix.os }} without mwalib
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Install stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Install Dependencies
+      run: |
+        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa-2.0.0.tar.gz
+        tar -xf erfa-2.0.0.tar.gz
+        rm erfa-2.0.0.tar.gz
+        cd erfa-2.0.0
+        ./configure --prefix=/usr/local
+        sudo make install
+        cd ..
+
+        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-3.49.tar.gz" -o cfitsio.tar.gz
+        tar -xf cfitsio.tar.gz
+        rm cfitsio.tar.gz
+        cd cfitsio-3.49
+        ./configure --prefix=/usr/local --enable-reentrant --disable-curl
+        sudo make shared
+        sudo make install
+        cd ..
+
+        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+          sudo ldconfig
+        fi
+
+    - name: Run tests
+      run: cargo test --no-default-features
