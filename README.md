@@ -3,7 +3,7 @@
 <div class="bg-gray-dark" align="center" style="background-color:#24292e">
 <br/>
 <a href="https://docs.rs/crate/mwa_rust_core"><img src="https://docs.rs/mwa_rust_core/badge.svg" alt="docs"></a>
-<img src="https://github.com/MWATelescope/giant-squid/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
+<img src="https://github.com/MWATelescope/mwa_rust_core/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
 </div>
 
 Convenience Rust code that handles coordinate transformations, Jones matrices,
