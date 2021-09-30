@@ -16,7 +16,7 @@ use std::f64::consts::TAU;
 /// This coordinate system is discussed at length in Interferometry and
 /// Synthesis in Radio Astronomy, Third Edition, Section 3: Analysis of the
 /// Interferometer Response.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct LMN {
     /// l coordinate \[dimensionless\]

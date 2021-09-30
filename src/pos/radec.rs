@@ -7,15 +7,13 @@
 use std::f64::consts::*;
 
 use log::warn;
-// use serde::{Deserialize, Serialize};
 
 use super::hadec::HADec;
 use super::lmn::LMN;
 
 /// A struct containing a Right Ascension and Declination. All units are in
 /// radians.
-// #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct RADec {
     /// Right ascension \[radians\]

@@ -7,7 +7,7 @@
 use crate::{constants::MWA_LAT_RAD, AzEl, RADec};
 
 /// A struct containing an Hour Angle and Declination. All units are in radians.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct HADec {
     /// Hour angle \[radians\]

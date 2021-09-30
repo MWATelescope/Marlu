@@ -10,7 +10,7 @@ use std::f64::consts::FRAC_PI_2;
 use super::hadec::HADec;
 
 /// A struct containing an Azimuth and Elevation. All units are in radians.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AzEl {
     /// Hour angle \[radians\]
     pub az: f64,

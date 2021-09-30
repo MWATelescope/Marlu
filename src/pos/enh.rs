@@ -8,7 +8,7 @@
 use crate::{constants::*, XyzGeodetic};
 
 /// East, North and Height coordinates.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct ENH {
     /// East \[metres\]

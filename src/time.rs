@@ -46,7 +46,7 @@ pub fn gps_to_epoch(gps: f64) -> hifitime::Epoch {
     // The difference between GPS and TAI time is always 19s, but hifitime
     // wants the number of TAI seconds since 1900. GPS time starts at 1980
     // Jan 5.
-    let tai = gps + 19.0 + crate::constants::HIFITIME_GPS_FACTOR;
+    let tai = gps + 19.0 + HIFITIME_GPS_FACTOR;
     Epoch::from_tai_seconds(tai)
 }
 

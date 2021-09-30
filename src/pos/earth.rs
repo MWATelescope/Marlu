@@ -12,7 +12,7 @@ use crate::{
     XyzGeocentric,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 /// An earth position: Latitude, Longitude and Height [radians, meters]
 pub struct LatLngHeight {
     /// Longitude \[radians\]
