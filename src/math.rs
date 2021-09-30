@@ -33,12 +33,21 @@ pub fn baseline_to_tiles(total_num_tiles: usize, baseline: usize) -> (usize, usi
     (tile1 as usize, tile2 as usize)
 }
 
-/// From the number of baselines, get the number of tiles.
+/// From the number of cross-correlation baselines, get the number of tiles.
+// From the definition of how many baselines there are in an array of N tiles,
+// this is just the solved quadratic.
+#[inline]
+pub fn num_tiles_from_num_cross_correlation_baselines(num_baselines: usize) -> usize {
+    (((1 + 8 * num_baselines) as f64).sqrt() as usize + 1) / 2
+}
+
+/// From the number of baselines (which also include auto-correlations as
+/// baselines), get the number of tiles.
 // From the definition of how many baselines there are in an array of N tiles,
 // this is just the solved quadratic.
 #[inline]
 pub fn num_tiles_from_num_baselines(num_baselines: usize) -> usize {
-    (1 + ((1 + 8 * num_baselines) as f64).sqrt() as usize) / 2
+    (((1 + 8 * num_baselines) as f64).sqrt() as usize - 1) / 2
 }
 
 #[cfg(test)]
@@ -172,9 +181,16 @@ mod tests {
     }
 
     #[test]
+    fn test_num_tiles_from_num_cross_correlation_baselines() {
+        assert_eq!(num_tiles_from_num_cross_correlation_baselines(8128), 128);
+        assert_eq!(num_tiles_from_num_cross_correlation_baselines(8001), 127);
+        assert_eq!(num_tiles_from_num_cross_correlation_baselines(15), 6);
+    }
+
+    #[test]
     fn test_num_tiles_from_num_baselines() {
-        assert_eq!(num_tiles_from_num_baselines(8128), 128);
-        assert_eq!(num_tiles_from_num_baselines(8001), 127);
-        assert_eq!(num_tiles_from_num_baselines(15), 6);
+        assert_eq!(num_tiles_from_num_baselines(8256), 128);
+        assert_eq!(num_tiles_from_num_baselines(8128), 127);
+        assert_eq!(num_tiles_from_num_baselines(21), 6);
     }
 }
