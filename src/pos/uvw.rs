@@ -26,7 +26,7 @@ impl UVW {
     /// This is Equation 4.1 of: Interferometry and Synthesis in Radio
     /// Astronomy, Third Edition, Section 4: Geometrical Relationships,
     /// Polarimetry, and the Measurement Equation.
-    pub fn from_xyz(xyz: XyzGeodetic, phase_centre: HADec) -> Self {
+    pub fn from_xyz(xyz: XyzGeodetic, phase_centre: HADec) -> UVW {
         let (s_ha, c_ha) = phase_centre.ha.sin_cos();
         let (s_dec, c_dec) = phase_centre.dec.sin_cos();
         Self::from_xyz_inner(xyz, s_ha, c_ha, s_dec, c_dec)
@@ -40,7 +40,7 @@ impl UVW {
     /// This is Equation 4.1 of: Interferometry and Synthesis in Radio
     /// Astronomy, Third Edition, Section 4: Geometrical Relationships,
     /// Polarimetry, and the Measurement Equation.
-    pub fn from_xyz_inner(xyz: XyzGeodetic, s_ha: f64, c_ha: f64, s_dec: f64, c_dec: f64) -> Self {
+    pub fn from_xyz_inner(xyz: XyzGeodetic, s_ha: f64, c_ha: f64, s_dec: f64, c_dec: f64) -> UVW {
         Self {
             u: s_ha * xyz.x + c_ha * xyz.y,
             v: -s_dec * c_ha * xyz.x + s_dec * s_ha * xyz.y + c_dec * xyz.z,

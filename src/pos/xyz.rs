@@ -19,7 +19,9 @@ use rayon::prelude::*;
 
 use super::ErfaError;
 use crate::{
-    constants::*, math::cross_correlation_baseline_to_tiles, HADec, LatLngHeight, ENH, UVW,
+    constants::*,
+    math::{baseline_to_tiles, cross_correlation_baseline_to_tiles},
+    HADec, LatLngHeight, ENH, UVW,
 };
 
 /// The geodetic (x,y,z) coordinates of an antenna (a.k.a. tile or station). All
@@ -155,6 +157,52 @@ pub fn xyzs_to_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
         .collect();
     // Take the difference of every pair of UVWs.
     let num_tiles = xyzs.len();
+    let num_baselines = (num_tiles * (num_tiles + 1)) / 2;
+    let mut bl_uvws = Vec::with_capacity(num_baselines);
+    for i in 0..num_tiles {
+        for j in i..num_tiles {
+            bl_uvws.push(tile_uvws[i] - tile_uvws[j]);
+        }
+    }
+    bl_uvws
+}
+
+/// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
+/// having to form [XyzGeodetic] baselines first. This function performs
+/// calculations in parallel.
+pub fn xyzs_to_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
+    let (s_ha, c_ha) = phase_centre.ha.sin_cos();
+    let (s_dec, c_dec) = phase_centre.dec.sin_cos();
+    // Get a UVW for each tile.
+    let tile_uvws: Vec<UVW> = xyzs
+        .par_iter()
+        .map(|&xyz| UVW::from_xyz_inner(xyz, s_ha, c_ha, s_dec, c_dec))
+        .collect();
+    // Take the difference of every pair of UVWs.
+    let num_tiles = xyzs.len();
+    let num_baselines = (num_tiles * (num_tiles + 1)) / 2;
+    (0..num_baselines)
+        .into_par_iter()
+        .map(|i_bl| {
+            let (i, j) = baseline_to_tiles(num_tiles, i_bl);
+            tile_uvws[i] - tile_uvws[j]
+        })
+        .collect()
+}
+
+/// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
+/// having to form [XyzGeodetic] baselines first. Cross-correlation baselines
+/// only.
+pub fn xyzs_to_cross_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
+    let (s_ha, c_ha) = phase_centre.ha.sin_cos();
+    let (s_dec, c_dec) = phase_centre.dec.sin_cos();
+    // Get a UVW for each tile.
+    let tile_uvws: Vec<UVW> = xyzs
+        .iter()
+        .map(|&xyz| UVW::from_xyz_inner(xyz, s_ha, c_ha, s_dec, c_dec))
+        .collect();
+    // Take the difference of every pair of UVWs.
+    let num_tiles = xyzs.len();
     let num_baselines = (num_tiles * (num_tiles - 1)) / 2;
     let mut bl_uvws = Vec::with_capacity(num_baselines);
     for i in 0..num_tiles {
@@ -167,8 +215,8 @@ pub fn xyzs_to_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
 
 /// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
 /// having to form [XyzGeodetic] baselines first. This function performs
-/// calculations in parallel.
-pub fn xyzs_to_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
+/// calculations in parallel. Cross-correlation baselines only.
+pub fn xyzs_to_cross_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
     let (s_ha, c_ha) = phase_centre.ha.sin_cos();
     let (s_dec, c_dec) = phase_centre.dec.sin_cos();
     // Get a UVW for each tile.
@@ -443,11 +491,10 @@ mod tests {
             v: -1028.2293398297727,
             w: 0.18220641926160397,
         };
-        assert_abs_diff_eq!(
-            Array1::from(result),
-            Array1::from_elem(1, expected),
-            epsilon = 1e-10
-        );
+        assert_abs_diff_eq!(result[1], expected, epsilon = 1e-10);
+        // Auto-correlations are zero.
+        assert_abs_diff_eq!(result[0], UVW::default(),);
+        assert_abs_diff_eq!(result[2], UVW::default(),);
     }
 
     #[test]
@@ -470,6 +517,59 @@ mod tests {
         let phase = HADec::new(6.0163, -0.453121);
         let serial_result: Vec<UVW> = xyzs_to_uvws(&xyzs, phase);
         let parallel_result: Vec<UVW> = xyzs_to_uvws_parallel(&xyzs, phase);
+        assert_eq!(serial_result.len(), 15);
+        assert_abs_diff_eq!(Array1::from(serial_result), Array1::from(parallel_result));
+    }
+
+    #[test]
+    fn xyzs_to_cross_uvws_test() {
+        let xyzs = vec![
+            XyzGeodetic {
+                x: 289.5692922664971,
+                y: -585.6749877929688,
+                z: -259.3106530519151,
+            },
+            XyzGeodetic {
+                x: 750.5194624923599,
+                y: -565.4390258789063,
+                z: 665.2348852011041,
+            },
+        ];
+        let phase = HADec::new(6.0163, -0.453121);
+        let result: Vec<UVW> = xyzs_to_cross_uvws(&xyzs, phase);
+        let expected = UVW {
+            u: 102.04605530570603,
+            v: -1028.2293398297727,
+            w: 0.18220641926160397,
+        };
+        assert_abs_diff_eq!(
+            Array1::from(result),
+            Array1::from_elem(1, expected),
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn xyzs_to_cross_uvws_parallel_test() {
+        let xyzs = vec![
+            XyzGeodetic {
+                x: 289.5692922664971,
+                y: -585.6749877929688,
+                z: -259.3106530519151,
+            },
+            XyzGeodetic {
+                x: 750.5194624923599,
+                y: -565.4390258789063,
+                z: 665.2348852011041,
+            },
+            XyzGeodetic::default(),
+            XyzGeodetic::default(),
+            XyzGeodetic::default(),
+        ];
+        let phase = HADec::new(6.0163, -0.453121);
+        let serial_result: Vec<UVW> = xyzs_to_cross_uvws(&xyzs, phase);
+        let parallel_result: Vec<UVW> = xyzs_to_cross_uvws_parallel(&xyzs, phase);
+        assert_eq!(serial_result.len(), 10);
         assert_abs_diff_eq!(Array1::from(serial_result), Array1::from(parallel_result));
     }
 }
