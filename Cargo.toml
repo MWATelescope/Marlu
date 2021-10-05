@@ -19,26 +19,31 @@ all-static = ["erfa-static", "cfitsio-static"]
 
 [dependencies]
 erfa-sys = "0.1.*"
+flate2 = "1.0.20"
 hifitime = "2.2.*"
+lazy_static = "1.4.0"
 log = "0.4.*"
 num-complex = ">=0.3,<0.5"
 num-traits = "0.2.*"
 rayon = "~1"
+rubbl_casatables = { git = "https://github.com/derwentx/rubbl", package = "rubbl_casatables", branch = "derive" }
+tar = "0.4.37"
 thiserror = "1.0.*"
 
 # Needed to implement AbsDiffEq on the Jones type. Makes testing much easier!
-approx = { version = ">=0.4,<0.6", features = ["num-complex"] }
-
-mwalib = { version = ">=0.9.4", optional = true }
-
-[dev-dependencies]
-criterion = "0.3.*"
-
 # ndarray 0.14.* depends on approx 0.4.0, which in turn uses num-complex 0.3.0.
 # Forcing the versions here means that ndarrays of complex numbers can be
 # tested!
 approx = { version = "0.4.0", features = ["num-complex"] }
 ndarray = { version = "0.14.*", features = ["approx"] }
+
+mwalib = { version = ">=0.9.4", optional = true }
+
+[dev-dependencies]
+criterion = "0.3.*"
+itertools = "0.10"
+tempfile = "3.2"
+
 num-complex = "0.3.0"
 
 [[bench]]

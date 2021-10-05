@@ -10,6 +10,7 @@ pub mod math;
 pub mod pos;
 pub mod sexagesimal;
 pub mod time;
+pub mod io;
 
 // Re-exports.
 pub use jones::Jones;
