@@ -116,7 +116,7 @@ impl MeasurementSetWriter {
             .unwrap();
     }
 
-    /// Write a row into the spectral window table.
+    /// Write a row into the spectral window table. Return the row index.
     ///
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
@@ -135,7 +135,7 @@ impl MeasurementSetWriter {
         chan_info: Array2<f64>,
         total_bw: f64,
         flag: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         let spw_table_path = self.path.join("SPECTRAL_WINDOW");
@@ -177,7 +177,37 @@ impl MeasurementSetWriter {
             .unwrap();
         spw_table.put_cell("FLAG_ROW", spw_idx, &flag).unwrap();
 
-        Ok(())
+        Ok(spw_idx)
+    }
+
+    /// Write a row into the data description table. Return the row index.
+    ///
+    /// - `spectral_window_id` - Pointer to spectralwindow table
+    /// - `polarization_id` - Pointer to polarization table
+    /// - `flag_row` - Flag this row
+    pub fn write_data_description_row(
+        &self,
+        spectral_window_id: i32,
+        polarization_id: i32,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        let ddesc_table_path = self.path.join("DATA_DESCRIPTION");
+        let mut ddesc_table = Table::open(&ddesc_table_path, TableOpenMode::ReadWrite).unwrap();
+        let ddesc_idx = ddesc_table.n_rows();
+        ddesc_table.add_rows(1).unwrap();
+
+        ddesc_table
+            .put_cell("SPECTRAL_WINDOW_ID", ddesc_idx, &spectral_window_id)
+            .unwrap();
+        ddesc_table
+            .put_cell("POLARIZATION_ID", ddesc_idx, &polarization_id)
+            .unwrap();
+        ddesc_table
+            .put_cell("FLAG_ROW", ddesc_idx, &flag_row)
+            .unwrap();
+        Ok(ddesc_idx)
     }
 }
 
@@ -698,10 +728,12 @@ mod tests {
                 40000.
             }) as f64
         });
-        ms_writer
+        let result = ms_writer
             .write_spectral_window_row("MWA_BAND_182.4", 182395000., chan_info, 30720000., false)
             .unwrap();
         drop(ms_writer);
+
+        assert_eq!(result, 0);
 
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::Read).unwrap();
@@ -736,4 +768,32 @@ mod tests {
             Err(MeasurementSetWriteError::BadSpwChannelInfoShape { .. })
         ))
     }
+
+    
+    #[test]
+    fn test_write_data_description_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let result = ms_writer
+            .write_data_description_row(0, 0, false)
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let ddesc_table_path = table_path.join("DATA_DESCRIPTION");
+        let mut ddesc_table = Table::open(&ddesc_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("DATA_DESCRIPTION"), TableOpenMode::Read).unwrap();
+
+        assert_tables_match!(ddesc_table, expected_table);
+    }
+
 }
