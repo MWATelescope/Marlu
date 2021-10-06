@@ -161,7 +161,9 @@ impl MeasurementSetWriter {
                     .unwrap();
             }
             _ => {
-                return Err(MeasurementSetWriteError::BadSpwChannelInfoShape {
+                return Err(MeasurementSetWriteError::BadArrayShape {
+                    argument: "chan_info".into(),
+                    function: "write_spectral_window_row".into(),
                     expected: "[n, 4]".into(),
                     received: format!("{:?}", chan_info.shape()).into(),
                 })
@@ -236,6 +238,7 @@ impl MeasurementSetWriter {
     /// - `mount` - Mount type e.g. alt-az, equatorial, etc.
     /// - `position` - Antenna X,Y,Z phase reference position
     /// - `dish_diameter` - Physical diameter of dish
+    /// - `flag_row` - Row flag
     pub fn write_antenna_row(
         &self,
         table: Option<&mut Table>,
@@ -245,6 +248,7 @@ impl MeasurementSetWriter {
         mount: &str,
         position: &Vec<f64>,
         dish_diameter: f64,
+        flag_row: bool,
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
@@ -262,14 +266,79 @@ impl MeasurementSetWriter {
         table.add_rows(1).unwrap();
 
         table.put_cell("NAME", ant_idx, &name.to_string()).unwrap();
-        table.put_cell("STATION", ant_idx, &station.to_string()).unwrap();
-        table.put_cell("TYPE", ant_idx, &ant_type.to_string()).unwrap();
-        table.put_cell("MOUNT", ant_idx, &mount.to_string()).unwrap();
+        table
+            .put_cell("STATION", ant_idx, &station.to_string())
+            .unwrap();
+        table
+            .put_cell("TYPE", ant_idx, &ant_type.to_string())
+            .unwrap();
+        table
+            .put_cell("MOUNT", ant_idx, &mount.to_string())
+            .unwrap();
         table.put_cell("POSITION", ant_idx, position).unwrap();
         table
             .put_cell("DISH_DIAMETER", ant_idx, &dish_diameter)
             .unwrap();
+        table.put_cell("FLAG_ROW", ant_idx, &flag_row).unwrap();
         Ok(ant_idx)
+    }
+
+    /// Write a row into the `POLARIZATION` table, unless another table is provided.
+    /// Return the row index.
+    ///
+    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `corr_type` - The polarization type for each correlation product, as a Stokes enum.
+    /// - `corr_product` - Indices describing receptors of feed going into correlation
+    /// - `flag_row` - Row flag
+    ///
+    /// The shape of corr_product should be [n, 2] where n is the length of corr_type
+    pub fn write_polarization_row(
+        &self,
+        table: Option<&mut Table>,
+        corr_type: &Vec<i32>,
+        corr_product: &Array2<i32>,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        // This is to set the default table's lifetime
+        let mut table_deref: Table;
+        let table = match table {
+            Some(table) => table,
+            None => {
+                let table_path = &self.path.join("POLARIZATION");
+                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
+                &mut table_deref
+            }
+        };
+        let pol_idx = table.n_rows();
+
+        let num_corr_type = corr_type.len();
+
+        match corr_product.shape() {
+            [num_corr, 2] if *num_corr == num_corr_type => {
+                table.add_rows(1).unwrap();
+                table
+                    .put_cell("NUM_CORR", pol_idx, &(*num_corr as i32))
+                    .unwrap();
+            }
+            _ => {
+                return Err(MeasurementSetWriteError::BadArrayShape {
+                    argument: "corr_product".into(),
+                    function: "write_polarization_row".into(),
+                    expected: format!("[n, 2] (where n = corr_type.len() = {})", num_corr_type)
+                        .into(),
+                    received: format!("{:?}", corr_product.shape()).into(),
+                })
+            }
+        }
+
+        table.put_cell("CORR_TYPE", pol_idx, corr_type).unwrap();
+        table
+            .put_cell("CORR_PRODUCT", pol_idx, corr_product)
+            .unwrap();
+        table.put_cell("FLAG_ROW", pol_idx, &flag_row).unwrap();
+        Ok(pol_idx)
     }
 }
 
@@ -279,7 +348,7 @@ mod tests {
     use std::path::PathBuf;
 
     use approx::abs_diff_eq;
-    use itertools::{Itertools, izip};
+    use itertools::izip;
     use ndarray::array;
     use tempfile::tempdir;
 
@@ -294,15 +363,7 @@ mod tests {
         ( $left:expr, $right:expr ) => {
             match (&$left.column_names(), &$right.column_names()) {
                 (Ok(left_columns), Ok(right_columns)) => {
-                    for (col_idx, (left_col, right_col)) in
-                        izip!(left_columns, right_columns).enumerate()
-                    {
-                        assert_eq!(
-                            left_col, right_col,
-                            "column names at index {} do not match. {} != {}",
-                            col_idx, left_col, right_col
-                        );
-                    }
+                    assert_eq!(left_columns, right_columns, "column names do not match");
                 }
                 (Err(left_err), _) => {
                     panic!("could not read left table column names. {:?}", left_err);
@@ -816,7 +877,25 @@ mod tests {
         let mut expected_table =
             Table::open(PATH_1254670392.join("SPECTRAL_WINDOW"), TableOpenMode::Read).unwrap();
 
-        assert_tables_match!(spw_table, expected_table);
+        assert_table_nrows_match!(spw_table, expected_table);
+        for col_name in [
+            "MEAS_FREQ_REF",
+            "CHAN_FREQ",
+            "REF_FREQUENCY",
+            "CHAN_WIDTH",
+            "EFFECTIVE_BW",
+            "RESOLUTION",
+            "FLAG_ROW",
+            "FREQ_GROUP",
+            "FREQ_GROUP_NAME",
+            "IF_CONV_CHAIN",
+            "NAME",
+            "NET_SIDEBAND",
+            "NUM_CHAN",
+            "TOTAL_BANDWIDTH",
+        ] {
+            assert_table_columns_match!(spw_table, expected_table, col_name);
+        }
     }
 
     #[test]
@@ -841,7 +920,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(MeasurementSetWriteError::BadSpwChannelInfoShape { .. })
+            Err(MeasurementSetWriteError::BadArrayShape { .. })
         ))
     }
 
@@ -878,7 +957,7 @@ mod tests {
     /// ```python
     /// tb.open('tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms/ANTENNA')
     /// tb.getcol("POSITION").transpose()
-    ///
+    /// tb.getcol("NAME")
     /// ```
     #[test]
     fn test_write_antenna_row() {
@@ -1040,16 +1119,25 @@ mod tests {
             "HexS32", "HexS33", "HexS34", "HexS35", "HexS36",
         ];
 
-        let ddesc_table_path = ms_writer.path.join("ANTENNA");
-        let mut ddesc_table = Table::open(ddesc_table_path, TableOpenMode::ReadWrite).unwrap();
+        let ant_table_path = ms_writer.path.join("ANTENNA");
+        let mut ant_table = Table::open(ant_table_path, TableOpenMode::ReadWrite).unwrap();
 
         for (idx, (name, position)) in izip!(names, positions.outer_iter()).enumerate() {
             let position = position.iter().cloned().collect();
 
             let result = ms_writer
-            .write_antenna_row(Some(&mut ddesc_table), name, "MWA", "GROUND-BASED", "ALT-AZ", &position, 4.0)
-            .unwrap();
-            assert_eq!(result, idx as _);
+                .write_antenna_row(
+                    Some(&mut ant_table),
+                    name,
+                    "MWA",
+                    "GROUND-BASED",
+                    "ALT-AZ",
+                    &position,
+                    4.0,
+                    false,
+                )
+                .unwrap();
+            assert_eq!(result, idx as u64);
         }
 
         drop(ms_writer);
@@ -1057,6 +1145,88 @@ mod tests {
         let mut expected_table =
             Table::open(PATH_1254670392.join("ANTENNA"), TableOpenMode::Read).unwrap();
 
-        assert_tables_match!(ddesc_table, expected_table);
+        assert_table_nrows_match!(ant_table, expected_table);
+        for col_name in [
+            "OFFSET",
+            "POSITION",
+            "TYPE",
+            "DISH_DIAMETER",
+            "FLAG_ROW",
+            "MOUNT",
+            "NAME",
+            "STATION",
+        ] {
+            assert_table_columns_match!(ant_table, expected_table, col_name);
+        }
+    }
+
+    #[test]
+    fn test_write_polarization_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
+        let corr_type = vec![9, 10, 11, 12];
+        let result = ms_writer
+            .write_polarization_row(None, &corr_type, &corr_product, false)
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let pol_table_path = table_path.join("POLARIZATION");
+        let mut pol_table = Table::open(&pol_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("POLARIZATION"), TableOpenMode::Read).unwrap();
+
+        assert_tables_match!(pol_table, expected_table);
+    }
+
+    #[test]
+    fn handle_bad_pol_small_corr_type() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
+        let corr_type = vec![9, 10, 11];
+        let result = ms_writer
+            .write_polarization_row(None, &corr_type, &corr_product, false);
+
+        assert!(matches!(
+            result,
+            Err(MeasurementSetWriteError::BadArrayShape { .. })
+        ))
+    }
+
+    #[test]
+    fn handle_bad_pol_big_corr_product() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let corr_product = array![[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0]];
+        let corr_type = vec![9, 10, 11, 12];
+        let result = ms_writer
+            .write_polarization_row(None, &corr_type, &corr_product, false);
+
+        assert!(matches!(
+            result,
+            Err(MeasurementSetWriteError::BadArrayShape { .. })
+        ))
     }
 }
