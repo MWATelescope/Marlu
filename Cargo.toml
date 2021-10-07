@@ -26,7 +26,8 @@ log = "0.4.*"
 num-complex = ">=0.3,<0.5"
 num-traits = "0.2.*"
 rayon = "~1"
-rubbl_casatables = { git = "https://github.com/derwentx/rubbl", package = "rubbl_casatables", branch = "derive" }
+rubbl_core = "0.3.0"
+rubbl_casatables = "0.4.0"
 tar = "0.4.37"
 thiserror = "1.0.*"
 
