@@ -1,5 +1,5 @@
 use flate2::read::GzDecoder;
-use ndarray::{Array2, Axis};
+use ndarray::{Array2, Array3, Axis};
 use rubbl_casatables::{GlueDataType, Table, TableOpenMode};
 use std::{
     fs::create_dir_all,
@@ -288,10 +288,9 @@ impl MeasurementSetWriter {
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
     /// - `corr_type` - The polarization type for each correlation product, as a Stokes enum.
-    /// - `corr_product` - Indices describing receptors of feed going into correlation
+    /// - `corr_product` - Indices describing receptors of feed going into correlation.
+    ///     Shape should be [n, 2] where n is the length of `corr_type`
     /// - `flag_row` - Row flag
-    ///
-    /// The shape of corr_product should be [n, 2] where n is the length of corr_type
     pub fn write_polarization_row(
         &self,
         table: Option<&mut Table>,
@@ -339,6 +338,83 @@ impl MeasurementSetWriter {
             .unwrap();
         table.put_cell("FLAG_ROW", pol_idx, &flag_row).unwrap();
         Ok(pol_idx)
+    }
+
+    /// Write a row into the `FIELD` table, unless another table is provided.
+    /// Return the row index.
+    ///
+    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `name` - Name of this field
+    /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
+    /// - `time` - Time origin for direction and rate
+    /// - `dir_info` - An array of polynomial coefficients to calculate a direction
+    ///     (RA, DEC) relative to `time`. The shape is  [3, p, 2], where p is the maximum
+    ///     order of all polynomials, and there are three direction polynomials:
+    ///     - `DELAY_DIR` - Direction of delay center (e.g. RA, DEC) in time
+    ///     - `PHASE_DIR` - Direction of phase center (e.g. RA, DEC) in time
+    ///     - `REFERENCE_DIR` - Direction of reference center (e.g. RA, DEC) in time
+    /// - `source_id` - Source id
+    /// - `flag_row` - Row Flag
+    pub fn write_field_row(
+        &self,
+        table: Option<&mut Table>,
+        name: &str,
+        code: &str,
+        time: f64,
+        dir_info: &Array3<f64>,
+        source_id: i32,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        // This is to set the default table's lifetime
+        let mut table_deref: Table;
+        let table = match table {
+            Some(table) => table,
+            None => {
+                let table_path = &self.path.join("FIELD");
+                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
+                &mut table_deref
+            }
+        };
+        let field_idx = table.n_rows();
+
+        match dir_info.shape() {
+            [3, p, 2] if *p > 0 => {
+                table.add_rows(1).unwrap();
+                table
+                    .put_cell("NUM_POLY", field_idx, &((*p - 1) as i32))
+                    .unwrap();
+            }
+            _ => {
+                return Err(MeasurementSetWriteError::BadArrayShape {
+                    argument: "dir_info".into(),
+                    function: "write_field_row".into(),
+                    expected: format!("[3, p, 2] (where p is highest polynomial order)").into(),
+                    received: format!("{:?}", dir_info.shape()).into(),
+                })
+            }
+        }
+
+        table
+            .put_cell("NAME", field_idx, &name.to_string())
+            .unwrap();
+        table
+            .put_cell("CODE", field_idx, &code.to_string())
+            .unwrap();
+        table.put_cell("TIME", field_idx, &time).unwrap();
+
+        let col_names = ["DELAY_DIR", "PHASE_DIR", "REFERENCE_DIR"];
+        for (value, &col_name) in dir_info.outer_iter().zip(col_names.iter()) {
+            println!("{:?}", value.shape());
+            table
+                .put_cell(col_name, field_idx, &value.to_owned())
+                .unwrap();
+        }
+
+        table.put_cell("SOURCE_ID", field_idx, &source_id).unwrap();
+        table.put_cell("FLAG_ROW", field_idx, &flag_row).unwrap();
+        Ok(field_idx)
     }
 }
 
@@ -1200,8 +1276,7 @@ mod tests {
 
         let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
         let corr_type = vec![9, 10, 11];
-        let result = ms_writer
-            .write_polarization_row(None, &corr_type, &corr_product, false);
+        let result = ms_writer.write_polarization_row(None, &corr_type, &corr_product, false);
 
         assert!(matches!(
             result,
@@ -1221,8 +1296,92 @@ mod tests {
 
         let corr_product = array![[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0]];
         let corr_type = vec![9, 10, 11, 12];
+        let result = ms_writer.write_polarization_row(None, &corr_type, &corr_product, false);
+
+        assert!(matches!(
+            result,
+            Err(MeasurementSetWriteError::BadArrayShape { .. })
+        ))
+    }
+
+    #[test]
+    fn test_write_field_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let dir_info = array![
+            [[0., -0.471238898038468967]],
+            [[0., -0.471238898038468967]],
+            [[0., -0.471238898038468967]]
+        ];
         let result = ms_writer
-            .write_polarization_row(None, &corr_type, &corr_product, false);
+            .write_field_row(
+                None,
+                "high_2019B_2458765_EOR0_RADec0.0,-27.0",
+                "",
+                5077351974.,
+                &dir_info,
+                -1,
+                false,
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let field_table_path = table_path.join("FIELD");
+        let mut field_table = Table::open(&field_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("FIELD"), TableOpenMode::Read).unwrap();
+
+        assert_table_nrows_match!(field_table, expected_table);
+        for col_name in [
+            "DELAY_DIR",
+            "PHASE_DIR",
+            "REFERENCE_DIR",
+            "CODE",
+            "FLAG_ROW",
+            "NAME",
+            "NUM_POLY",
+            "SOURCE_ID",
+            "TIME",
+        ] {
+            assert_table_columns_match!(field_table, expected_table, col_name);
+        }
+    }
+
+    #[test]
+    fn handle_bad_field_shape() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let dir_info = array![
+            [[0., -0.471238898038468967]],
+            [[0., -0.471238898038468967]],
+            [[0., -0.471238898038468967]],
+            [[0., 1.]]
+        ];
+        let result = ms_writer
+            .write_field_row(
+                None,
+                "high_2019B_2458765_EOR0_RADec0.0,-27.0",
+                "",
+                5077351974.,
+                &dir_info,
+                -1,
+                false,
+            );
 
         assert!(matches!(
             result,
