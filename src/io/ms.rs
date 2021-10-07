@@ -416,6 +416,64 @@ impl MeasurementSetWriter {
         table.put_cell("FLAG_ROW", field_idx, &flag_row).unwrap();
         Ok(field_idx)
     }
+
+    /// Write a row into the `OBSERVATION` table, unless another table is provided.
+    /// Return the row index.
+    ///
+    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `telescope_name` - Telescope Name (e.g. WSRT, VLBA)
+    /// - `time_range` - Start and end of observation
+    /// - `observer` - Antenna type (e.g. SPACE-BASED)
+    /// - `schedule_type` - Observing schedule type
+    /// - `project` - Project identification string
+    /// - `release_date` - Release date when data becomes public
+    /// - `flag_row` - Row flag
+    pub fn write_observation_row(
+        &self,
+        table: Option<&mut Table>,
+        telescope_name: &str,
+        time_range: (f64, f64),
+        observer: &str,
+        schedule_type: &str,
+        project: &str,
+        release_date: f64,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        // This is to set the default table's lifetime
+        let mut table_deref: Table;
+        let table = match table {
+            Some(table) => table,
+            None => {
+                let table_path = &self.path.join("OBSERVATION");
+                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
+                &mut table_deref
+            }
+        };
+        let obs_idx = table.n_rows();
+        table.add_rows(1).unwrap();
+
+        table
+            .put_cell("TELESCOPE_NAME", obs_idx, &telescope_name.to_string())
+            .unwrap();
+        let time_range = vec![time_range.0, time_range.1];
+        table.put_cell("TIME_RANGE", obs_idx, &time_range).unwrap();
+        table
+            .put_cell("OBSERVER", obs_idx, &observer.to_string())
+            .unwrap();
+        table
+            .put_cell("SCHEDULE_TYPE", obs_idx, &schedule_type.to_string())
+            .unwrap();
+        table
+            .put_cell("PROJECT", obs_idx, &project.to_string())
+            .unwrap();
+        table
+            .put_cell("RELEASE_DATE", obs_idx, &release_date)
+            .unwrap();
+        table.put_cell("FLAG_ROW", obs_idx, &flag_row).unwrap();
+        Ok(obs_idx)
+    }
 }
 
 #[cfg(test)]
@@ -563,9 +621,11 @@ mod tests {
                         {
                             assert!(
                                 abs_diff_eq!(left_cell, right_cell, epsilon = 1e-7),
-                                "cells don't match in column {}, row {}.",
+                                "cells don't match in column {}, row {}. {:?} != {:?}",
                                 $col_name,
                                 row_idx,
+                                left_cell,
+                                right_cell
                             );
                         }
                     }
@@ -594,10 +654,12 @@ mod tests {
                             {
                                 assert!(
                                     abs_diff_eq!(left_value, right_value, epsilon = 1e-7),
-                                    "cells don't match at index {} in column {}, row {}.",
+                                    "cells don't match at index {} in column {}, row {}. {:?} != {:?}",
                                     vec_idx,
                                     $col_name,
                                     row_idx,
+                                    left_cell,
+                                    right_cell
                                 );
                             }
                         }
@@ -1372,20 +1434,67 @@ mod tests {
             [[0., -0.471238898038468967]],
             [[0., 1.]]
         ];
-        let result = ms_writer
-            .write_field_row(
-                None,
-                "high_2019B_2458765_EOR0_RADec0.0,-27.0",
-                "",
-                5077351974.,
-                &dir_info,
-                -1,
-                false,
-            );
+        let result = ms_writer.write_field_row(
+            None,
+            "high_2019B_2458765_EOR0_RADec0.0,-27.0",
+            "",
+            5077351974.,
+            &dir_info,
+            -1,
+            false,
+        );
 
         assert!(matches!(
             result,
             Err(MeasurementSetWriteError::BadArrayShape { .. })
         ))
+    }
+
+    #[test]
+    fn test_write_observation_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        // let table_path: PathBuf = "/tmp/marlu.ms".into();
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let result = ms_writer
+            .write_observation_row(
+                None,
+                "MWA",
+                (5077351975.0, 5077351983.0),
+                "andrew",
+                "MWA",
+                "G0009",
+                0.,
+                false,
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let obs_table_path = table_path.join("OBSERVATION");
+        let mut obs_table = Table::open(&obs_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("OBSERVATION"), TableOpenMode::Read).unwrap();
+
+        assert_table_nrows_match!(obs_table, expected_table);
+        for col_name in [
+            "TIME_RANGE",
+            // "LOG",
+            // "SCHEDULE",
+            "FLAG_ROW",
+            "OBSERVER",
+            "PROJECT",
+            "RELEASE_DATE",
+            "SCHEDULE_TYPE",
+            "TELESCOPE_NAME",
+        ] {
+            assert_table_columns_match!(obs_table, expected_table, col_name);
+        }
     }
 }
