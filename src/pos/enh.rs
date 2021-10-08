@@ -58,7 +58,7 @@ impl ENH {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::*;
+    use crate::approx::assert_abs_diff_eq;
 
     #[test]
     fn convert_enh_to_xyz_test() {

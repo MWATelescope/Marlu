@@ -86,7 +86,10 @@ impl std::ops::Div<f64> for UVW {
 }
 
 #[cfg(test)]
-impl approx::AbsDiffEq for UVW {
+use crate::approx::AbsDiffEq;
+
+#[cfg(test)]
+impl AbsDiffEq for UVW {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -103,7 +106,7 @@ impl approx::AbsDiffEq for UVW {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::*;
+    use crate::approx::assert_abs_diff_eq;
 
     #[test]
     fn test_uvw_mul() {

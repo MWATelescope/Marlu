@@ -4,6 +4,14 @@
 
 //! Core code to describe coordinate transformations, Jones matrices, etc.
 
+pub use rubbl_core::{Complex};
+#[allow(non_camel_case_types)]
+pub type c32 = Complex<f32>;
+#[allow(non_camel_case_types)]
+pub type c64 = Complex<f64>;
+pub use ndarray;
+pub use approx;
+
 pub mod constants;
 pub mod jones;
 pub mod math;
@@ -25,8 +33,6 @@ pub use pos::{
     uvw::UVW,
     xyz::{XyzGeocentric, XyzGeodetic},
 };
-
-pub use num_complex::{Complex, Complex32 as c32, Complex64 as c64};
 
 pub use erfa_sys;
 pub use hifitime;

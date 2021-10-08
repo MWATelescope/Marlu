@@ -5,8 +5,12 @@
 //! Benchmarks
 
 use criterion::*;
-use mwa_rust_core::{c64, pos::xyz, HADec, Jones, XyzGeodetic};
-use ndarray::{Array1, Array3};
+use mwa_rust_core::{
+    c64,
+    ndarray::{Array1, Array3},
+    pos::xyz,
+    HADec, Jones, XyzGeodetic,
+};
 
 #[inline]
 fn mul(j1: [c64; 4], j2: [c64; 4]) -> [c64; 4] {

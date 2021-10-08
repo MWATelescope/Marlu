@@ -1,5 +1,5 @@
 use flate2::read::GzDecoder;
-use ndarray::{Array2, Array3, Axis};
+use crate::ndarray::{Array2, Array3, Axis};
 use rubbl_casatables::{GlueDataType, Table, TableOpenMode};
 use std::{
     fs::create_dir_all,
@@ -481,12 +481,10 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use approx::abs_diff_eq;
     use itertools::izip;
-    use ndarray::array;
+    use crate::{Complex, approx::abs_diff_eq, ndarray::array};
     use tempfile::tempdir;
 
-    use rubbl_core::Complex;
 
     lazy_static! {
         static ref PATH_1254670392: PathBuf =
