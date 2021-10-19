@@ -135,7 +135,7 @@ impl MeasurementSetWriter {
     /// - `flag` - Row flag (`FLAG_ROW` column)
     pub fn write_spectral_window_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         name: &str,
         ref_freq: f64,
         chan_info: Array2<f64>,
@@ -144,16 +144,6 @@ impl MeasurementSetWriter {
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        // This is to set the default table's lifetime
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                let table_path = &self.path.join("SPECTRAL_WINDOW");
-                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let spw_idx = table.n_rows();
 
         match chan_info.shape() {
@@ -201,23 +191,13 @@ impl MeasurementSetWriter {
     /// - `flag_row` - Flag this row
     pub fn write_data_description_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         spectral_window_id: i32,
         polarization_id: i32,
         flag_row: bool,
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        // This is to set the default table's lifetime
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                let table_path = &self.path.join("DATA_DESCRIPTION");
-                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let ddesc_idx = table.n_rows();
         table.add_rows(1).unwrap();
 
@@ -244,7 +224,7 @@ impl MeasurementSetWriter {
     /// - `flag_row` - Row flag
     pub fn write_antenna_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         name: &str,
         station: &str,
         ant_type: &str,
@@ -255,16 +235,6 @@ impl MeasurementSetWriter {
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        // This is to set the default table's lifetime
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                let table_path = &self.path.join("ANTENNA");
-                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let ant_idx = table.n_rows();
         table.add_rows(1).unwrap();
 
@@ -296,23 +266,13 @@ impl MeasurementSetWriter {
     /// - `flag_row` - Row flag
     pub fn write_polarization_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         corr_type: &Vec<i32>,
         corr_product: &Array2<i32>,
         flag_row: bool,
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        // This is to set the default table's lifetime
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                let table_path = &self.path.join("POLARIZATION");
-                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let pol_idx = table.n_rows();
 
         let num_corr_type = corr_type.len();
@@ -360,7 +320,7 @@ impl MeasurementSetWriter {
     /// - `flag_row` - Row Flag
     pub fn write_field_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         name: &str,
         code: &str,
         time: f64,
@@ -370,16 +330,6 @@ impl MeasurementSetWriter {
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        // This is to set the default table's lifetime
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                let table_path = &self.path.join("FIELD");
-                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let field_idx = table.n_rows();
 
         match dir_info.shape() {
@@ -433,7 +383,7 @@ impl MeasurementSetWriter {
     /// - `flag_row` - Row flag
     pub fn write_observation_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         telescope_name: &str,
         time_range: (f64, f64),
         observer: &str,
@@ -444,16 +394,6 @@ impl MeasurementSetWriter {
     ) -> Result<u64, MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        // This is to set the default table's lifetime
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                let table_path = &self.path.join("OBSERVATION");
-                table_deref = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let obs_idx = table.n_rows();
         table.add_rows(1).unwrap();
 
@@ -510,7 +450,7 @@ impl MeasurementSetWriter {
     ///
     pub fn write_main_row(
         &self,
-        table: Option<&mut Table>,
+        table: &mut Table,
         time: f64,
         time_centroid: f64,
         antenna1: i32,
@@ -528,14 +468,6 @@ impl MeasurementSetWriter {
         flags: Array2<bool>,
         weights: Array1<f32>,
     ) -> Result<u64, MeasurementSetWriteError> {
-        let mut table_deref: Table;
-        let table = match table {
-            Some(table) => table,
-            None => {
-                table_deref = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
-                &mut table_deref
-            }
-        };
         let idx = table.n_rows();
         let num_pols = 4;
 
@@ -1124,9 +1056,12 @@ mod tests {
                 40000.
             }) as f64
         });
+        let spw_table_path = table_path.join("SPECTRAL_WINDOW");
+        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let result = ms_writer
             .write_spectral_window_row(
-                None,
+                &mut spw_table,
                 "MWA_BAND_182.4",
                 182395000.,
                 chan_info,
@@ -1138,7 +1073,6 @@ mod tests {
 
         assert_eq!(result, 0);
 
-        let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::Read).unwrap();
 
         let mut expected_table =
@@ -1176,8 +1110,12 @@ mod tests {
         ms_writer.add_cotter_mods(768);
 
         let chan_info = Array2::from_shape_fn((768, 3), |(_, _)| 40000.);
+
+        let spw_table_path = table_path.join("SPECTRAL_WINDOW");
+        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let result = ms_writer.write_spectral_window_row(
-            None,
+            &mut spw_table,
             "MWA_BAND_182.4",
             182395000.,
             chan_info,
@@ -1201,14 +1139,16 @@ mod tests {
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
 
+        let ddesc_table_path = table_path.join("DATA_DESCRIPTION");
+        let mut ddesc_table = Table::open(&ddesc_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let result = ms_writer
-            .write_data_description_row(None, 0, 0, false)
+            .write_data_description_row(&mut ddesc_table, 0, 0, false)
             .unwrap();
         drop(ms_writer);
 
         assert_eq!(result, 0);
 
-        let ddesc_table_path = table_path.join("DATA_DESCRIPTION");
         let mut ddesc_table = Table::open(&ddesc_table_path, TableOpenMode::Read).unwrap();
 
         let mut expected_table = Table::open(
@@ -1394,7 +1334,7 @@ mod tests {
 
             let result = ms_writer
                 .write_antenna_row(
-                    Some(&mut ant_table),
+                    &mut ant_table,
                     name,
                     "MWA",
                     "GROUND-BASED",
@@ -1439,14 +1379,17 @@ mod tests {
 
         let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
         let corr_type = vec![9, 10, 11, 12];
+
+        let pol_table_path = table_path.join("POLARIZATION");
+        let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let result = ms_writer
-            .write_polarization_row(None, &corr_type, &corr_product, false)
+            .write_polarization_row(&mut pol_table, &corr_type, &corr_product, false)
             .unwrap();
         drop(ms_writer);
 
         assert_eq!(result, 0);
 
-        let pol_table_path = table_path.join("POLARIZATION");
         let mut pol_table = Table::open(&pol_table_path, TableOpenMode::Read).unwrap();
 
         let mut expected_table =
@@ -1467,7 +1410,12 @@ mod tests {
 
         let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
         let corr_type = vec![9, 10, 11];
-        let result = ms_writer.write_polarization_row(None, &corr_type, &corr_product, false);
+
+        let pol_table_path = table_path.join("POLARIZATION");
+        let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        let result =
+            ms_writer.write_polarization_row(&mut pol_table, &corr_type, &corr_product, false);
 
         assert!(matches!(
             result,
@@ -1487,7 +1435,12 @@ mod tests {
 
         let corr_product = array![[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0]];
         let corr_type = vec![9, 10, 11, 12];
-        let result = ms_writer.write_polarization_row(None, &corr_type, &corr_product, false);
+
+        let pol_table_path = table_path.join("POLARIZATION");
+        let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        let result =
+            ms_writer.write_polarization_row(&mut pol_table, &corr_type, &corr_product, false);
 
         assert!(matches!(
             result,
@@ -1505,6 +1458,9 @@ mod tests {
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
 
+        let field_table_path = table_path.join("FIELD");
+        let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let dir_info = array![
             [[0., -0.471238898038468967]],
             [[0., -0.471238898038468967]],
@@ -1512,7 +1468,7 @@ mod tests {
         ];
         let result = ms_writer
             .write_field_row(
-                None,
+                &mut field_table,
                 "high_2019B_2458765_EOR0_RADec0.0,-27.0",
                 "",
                 5077351974.,
@@ -1525,7 +1481,6 @@ mod tests {
 
         assert_eq!(result, 0);
 
-        let field_table_path = table_path.join("FIELD");
         let mut field_table = Table::open(&field_table_path, TableOpenMode::Read).unwrap();
 
         let mut expected_table =
@@ -1557,6 +1512,9 @@ mod tests {
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
 
+        let field_table_path = table_path.join("FIELD");
+        let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let dir_info = array![
             [[0., -0.471238898038468967]],
             [[0., -0.471238898038468967]],
@@ -1564,7 +1522,7 @@ mod tests {
             [[0., 1.]]
         ];
         let result = ms_writer.write_field_row(
-            None,
+            &mut field_table,
             "high_2019B_2458765_EOR0_RADec0.0,-27.0",
             "",
             5077351974.,
@@ -1589,9 +1547,12 @@ mod tests {
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
 
+        let obs_table_path = table_path.join("OBSERVATION");
+        let mut obs_table = Table::open(&obs_table_path, TableOpenMode::ReadWrite).unwrap();
+
         let result = ms_writer
             .write_observation_row(
-                None,
+                &mut obs_table,
                 "MWA",
                 (5077351975.0, 5077351983.0),
                 "andrew",
@@ -1605,7 +1566,6 @@ mod tests {
 
         assert_eq!(result, 0);
 
-        let obs_table_path = table_path.join("OBSERVATION");
         let mut obs_table = Table::open(&obs_table_path, TableOpenMode::Read).unwrap();
 
         let mut expected_table =
@@ -2411,9 +2371,11 @@ mod tests {
         let flags = Array::from_elem((768, 4), true);
         let weights = Array::from_elem((4,), 6144_f32);
 
+        let mut main_table = Table::open(&table_path, TableOpenMode::ReadWrite).unwrap();
+
         ms_writer
             .write_main_row(
-                None,
+                &mut main_table,
                 5077351976.000001,
                 5077351976.000001,
                 0,
