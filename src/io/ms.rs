@@ -5,7 +5,9 @@ use crate::{
 };
 use flate2::read::GzDecoder;
 use ndarray::Array1;
-use rubbl_casatables::{GlueDataType, Table, TableOpenMode};
+use rubbl_casatables::{
+    GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
+};
 use std::{
     fs::create_dir_all,
     path::{Path, PathBuf},
@@ -64,7 +66,7 @@ impl MeasurementSetWriter {
         Ok(())
     }
 
-    /// Add additional columns / tables which are created in `cotter::MSWriter::initialize()`
+    /// Add additional columns / tables / keywords from `cotter::MSWriter::initialize()`
     pub fn add_cotter_mods(&self, num_channels: usize) {
         let comment = format!(
             "added by {} {}, emulating cotter::MSWriter::initialize()",
@@ -107,7 +109,7 @@ impl MeasurementSetWriter {
             )
             .unwrap();
 
-        // TODO: whatever the hell this is
+        // TODO: TableMeasDesc for REST_FREQUENCY
         // TableMeasRefDesc measRef(MFrequency::DEFAULT);
         // TableMeasValueDesc measVal(sourceTableDesc, MSSource::columnName(MSSourceEnums::REST_FREQUENCY));
         // TableMeasDesc<MFrequency> restFreqColMeas(measVal, measRef);
@@ -117,6 +119,297 @@ impl MeasurementSetWriter {
         main_table
             .put_table_keyword("SOURCE", source_table)
             .unwrap();
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWAAntennaFields()`
+    pub fn add_mwa_ant_mods(&self) {
+        let comment = format!(
+            "added by {} {}, emulating cotter::MWAMS::addMWAAntennaFields()",
+            PKG_VERSION, PKG_NAME
+        );
+
+        let ant_table_path = self.path.join("ANTENNA");
+        let mut ant_table = Table::open(&ant_table_path, TableOpenMode::ReadWrite).unwrap();
+        ant_table
+            .add_array_column(
+                GlueDataType::TpInt,
+                "MWA_INPUT",
+                Some(comment.as_str()),
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+        ant_table
+            .add_scalar_column(
+                GlueDataType::TpInt,
+                "MWA_TILE_NR",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        ant_table
+            .add_scalar_column(
+                GlueDataType::TpInt,
+                "MWA_RECEIVER",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        ant_table
+            .add_array_column(
+                GlueDataType::TpInt,
+                "MWA_SLOT",
+                Some(comment.as_str()),
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+        ant_table
+            .add_array_column(
+                GlueDataType::TpDouble,
+                "MWA_CABLE_LENGTH",
+                Some(comment.as_str()),
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWAFieldFields()`
+    pub fn add_mwa_field_mods(&self) {
+        let comment = format!(
+            "added by {} {}, emulating cotter::MWAMS::addMWAFieldFields()",
+            PKG_VERSION, PKG_NAME
+        );
+
+        let field_table_path = self.path.join("FIELD");
+        let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
+        field_table
+            .add_scalar_column(
+                GlueDataType::TpBool,
+                "MWA_HAS_CALIBRATOR",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWAObservationFields()`
+    pub fn add_mwa_obs_mods(&self) {
+        let comment = format!(
+            "added by {} {}, emulating cotter::MWAMS::addMWAObservationFields()",
+            PKG_VERSION, PKG_NAME
+        );
+
+        let obs_table_path = self.path.join("OBSERVATION");
+        let mut obs_table = Table::open(&obs_table_path, TableOpenMode::ReadWrite).unwrap();
+        obs_table
+            .add_scalar_column(
+                GlueDataType::TpDouble,
+                "MWA_GPS_TIME",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        obs_table
+            .add_scalar_column(
+                GlueDataType::TpString,
+                "MWA_FILENAME",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        obs_table
+            .add_scalar_column(
+                GlueDataType::TpString,
+                "MWA_OBSERVATION_MODE",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        obs_table
+            .add_scalar_column(
+                GlueDataType::TpInt,
+                "MWA_FLAG_WINDOW_SIZE",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        obs_table
+            .add_scalar_column(
+                GlueDataType::TpDouble,
+                "MWA_DATE_REQUESTED",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+
+        // TODO: TableMeasDesc for MWA_DATE_REQUESTED
+        // casacore::Vector<Unit> unitVec(1);
+        // unitVec[0] = Unit("s");
+        // TableMeasRefDesc measRef(MEpoch::DEFAULT);
+        // TableMeasValueDesc measVal(columnName(MWAMSEnums::MWA_DATE_REQUESTED));
+        // TableMeasDesc<MEpoch> intervalColMeas(measVal, measRef, unitVec);
+        // intervalColMeas.write(obsTable);
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWASpectralWindowFields()`
+    pub fn add_mwa_spw_mods(&self) {
+        let comment = format!(
+            "added by {} {}, emulating cotter::MWAMS::addMWASpectralWindowFields()",
+            PKG_VERSION, PKG_NAME
+        );
+
+        let spw_table_path = self.path.join("SPECTRAL_WINDOW");
+        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
+        spw_table
+            .add_scalar_column(
+                GlueDataType::TpInt,
+                "MWA_CENTRE_SUBBAND_NR",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWATilePointingFields()`
+    pub fn add_mwa_pointing_mods(&self) {
+        let comment = format!(
+            "added by {} {}, emulating cotter::MWAMS::addMWATilePointingFields()",
+            PKG_VERSION, PKG_NAME
+        );
+
+        let mut pointing_table_desc =
+            TableDesc::new("MWA_TILE_POINTING", TableDescCreateMode::TDM_SCRATCH).unwrap();
+
+        // let mut pointing_table = Table::open(&pointing_table_path, TableOpenMode::ReadWrite).unwrap();
+        pointing_table_desc
+            .add_array_column(
+                GlueDataType::TpDouble,
+                "INTERVAL",
+                Some(comment.as_str()),
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+        pointing_table_desc
+            .add_array_column(
+                GlueDataType::TpInt,
+                "DELAYS",
+                Some(comment.as_str()),
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+        pointing_table_desc
+            .add_array_column(
+                GlueDataType::TpDouble,
+                "DIRECTION",
+                Some(comment.as_str()),
+                None,
+                false,
+                false,
+            )
+            .unwrap();
+
+        let pointing_table_path = self.path.join("MWA_TILE_POINTING");
+        let pointing_table = Table::new(
+            pointing_table_path,
+            pointing_table_desc,
+            0,
+            TableCreateMode::New,
+        )
+        .unwrap();
+
+        // TODO: TableMeasDesc for INTERVAL
+        // casacore::Vector<Unit> unitVec(1);
+        // unitVec[0] = Unit("s");
+        // TableMeasRefDesc measRef(MEpoch::DEFAULT);
+        // TableMeasValueDesc measVal(tilePointingTableDesc, columnName(MWAMSEnums::INTERVAL));
+        // TableMeasDesc<MEpoch> intervalColMeas(measVal, measRef, unitVec);
+        // intervalColMeas.write(tilePointingTableDesc);
+
+        let mut main_table = Table::open(self.path.clone(), TableOpenMode::ReadWrite).unwrap();
+        main_table
+            .put_table_keyword("MWA_TILE_POINTING", pointing_table)
+            .unwrap();
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWASubbandFields()`
+    pub fn add_mwa_subband_mods(&self) {
+        let comment = format!(
+            "added by {} {}, emulating cotter::MWAMS::addMWASubbandFields()",
+            PKG_VERSION, PKG_NAME
+        );
+
+        let mut subband_table_desc =
+            TableDesc::new("MWA_SUBBAND", TableDescCreateMode::TDM_SCRATCH).unwrap();
+
+        subband_table_desc
+            .add_scalar_column(
+                GlueDataType::TpInt,
+                "NUMBER",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        subband_table_desc
+            .add_scalar_column(
+                GlueDataType::TpDouble,
+                "GAIN",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+        subband_table_desc
+            .add_scalar_column(
+                GlueDataType::TpBool,
+                "FLAG_ROW",
+                Some(comment.as_str()),
+                false,
+                false,
+            )
+            .unwrap();
+
+        let subband_table_path = self.path.join("MWA_SUBBAND");
+        let subband_table = Table::new(
+            subband_table_path,
+            subband_table_desc,
+            0,
+            TableCreateMode::New,
+        )
+        .unwrap();
+
+        let mut main_table = Table::open(self.path.clone(), TableOpenMode::ReadWrite).unwrap();
+        main_table
+            .put_table_keyword("MWA_SUBBAND", subband_table)
+            .unwrap();
+    }
+
+    /// Add additional columns / tables / keywords from `cotter::MWAMS::InitializeMWAFields()`
+    pub fn add_mwa_mods(&self) {
+        self.add_mwa_ant_mods();
+        self.add_mwa_field_mods();
+        self.add_mwa_obs_mods();
+        self.add_mwa_spw_mods();
+        self.add_mwa_pointing_mods();
+        self.add_mwa_subband_mods();
     }
 
     /// Write a row into the SPECTRAL_WINDOW table, unless another table is provided.
@@ -1015,7 +1308,6 @@ mod tests {
     fn test_add_cotter_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1034,16 +1326,68 @@ mod tests {
             }
         }
 
+        // TODO: check TableMeasDesc
+
         let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
         let main_table_keywords = main_table.table_keyword_names().unwrap();
         assert!(main_table_keywords.contains(&"SOURCE".into()));
     }
 
     #[test]
+    fn test_add_mwa_mods() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.add_mwa_mods();
+        drop(ms_writer);
+
+        for (table_name, col_names) in [
+            (
+                "ANTENNA",
+                vec![
+                    "MWA_INPUT",
+                    "MWA_TILE_NR",
+                    "MWA_RECEIVER",
+                    "MWA_SLOT",
+                    "MWA_CABLE_LENGTH",
+                ],
+            ),
+            ("FIELD", vec!["MWA_HAS_CALIBRATOR"]),
+            (
+                "OBSERVATION",
+                vec![
+                    "MWA_GPS_TIME",
+                    "MWA_FILENAME",
+                    "MWA_OBSERVATION_MODE",
+                    "MWA_FLAG_WINDOW_SIZE",
+                    "MWA_DATE_REQUESTED",
+                ],
+            ),
+            ("SPECTRAL_WINDOW", vec!["MWA_CENTRE_SUBBAND_NR"]),
+            ("MWA_TILE_POINTING", vec!["INTERVAL", "DELAYS", "DIRECTION"]),
+            ("MWA_SUBBAND", vec!["NUMBER", "GAIN", "FLAG_ROW"]),
+        ] {
+            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut exp_table =
+                Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
+            for col_name in col_names {
+                assert_table_column_descriptions_match!(table, exp_table, col_name);
+            }
+        }
+
+        // TODO: check TableMeasDesc
+
+        let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
+        let main_table_keywords = main_table.table_keyword_names().unwrap();
+        assert!(main_table_keywords.contains(&"MWA_TILE_POINTING".into()));
+        assert!(main_table_keywords.contains(&"MWA_SUBBAND".into()));
+    }
+
+    #[test]
     fn test_write_spectral_window_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1103,7 +1447,6 @@ mod tests {
     fn handle_bad_spw_chan_info() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1133,7 +1476,6 @@ mod tests {
     fn test_write_data_description_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1170,7 +1512,6 @@ mod tests {
     fn test_write_antenna_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1371,7 +1712,6 @@ mod tests {
     fn test_write_polarization_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1402,7 +1742,6 @@ mod tests {
     fn handle_bad_pol_small_corr_type() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1427,7 +1766,6 @@ mod tests {
     fn handle_bad_pol_big_corr_product() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1452,7 +1790,6 @@ mod tests {
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1506,7 +1843,6 @@ mod tests {
     fn handle_bad_field_shape() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1541,7 +1877,6 @@ mod tests {
     fn test_write_observation_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -1591,7 +1926,6 @@ mod tests {
     fn test_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        // let table_path: PathBuf = "/tmp/marlu.ms".into();
         let ms_writer = MeasurementSetWriter::new(table_path.clone());
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
