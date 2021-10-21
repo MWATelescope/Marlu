@@ -749,7 +749,7 @@ impl MeasurementSetWriter {
 
         let col_names = ["DELAY_DIR", "PHASE_DIR", "REFERENCE_DIR"];
         for (value, &col_name) in dir_info.outer_iter().zip(col_names.iter()) {
-            println!("{:?}", value.shape());
+            // println!("{:?}", value.shape());
             table
                 .put_cell(col_name, field_idx, &value.to_owned())
                 .unwrap();
@@ -757,6 +757,46 @@ impl MeasurementSetWriter {
 
         table.put_cell("SOURCE_ID", field_idx, &source_id).unwrap();
         table.put_cell("FLAG_ROW", field_idx, &flag_row).unwrap();
+        Ok(field_idx)
+    }
+
+    /// Write a row into the `FIELD` table with extra mwa columns enabled.
+    /// Return the row index.
+    ///
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `name` - Name of this field
+    /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
+    /// - `time` - Time origin for direction and rate
+    /// - `dir_info` - An array of polynomial coefficients to calculate a direction
+    ///     (RA, DEC) relative to `time`. The shape is  [3, p, 2], where p is the maximum
+    ///     order of all polynomials, and there are three direction polynomials:
+    ///     - `DELAY_DIR` - Direction of delay center (e.g. RA, DEC) in time
+    ///     - `PHASE_DIR` - Direction of phase center (e.g. RA, DEC) in time
+    ///     - `REFERENCE_DIR` - Direction of reference center (e.g. RA, DEC) in time
+    /// - `source_id` - Source id
+    /// - `has_calibrator` - whether this observation is intended for calibration (from metafits:CALIBRAT)
+    /// - `flag_row` - Row Flag
+    pub fn write_field_row_mwa(
+        &self,
+        table: &mut Table,
+        name: &str,
+        code: &str,
+        time: f64,
+        dir_info: &Array3<f64>,
+        source_id: i32,
+        has_calibrator: bool,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        let field_idx = self
+            .write_field_row(table, name, code, time, dir_info, source_id, flag_row)
+            .unwrap();
+
+        table
+            .put_cell("MWA_HAS_CALIBRATOR", field_idx, &has_calibrator)
+            .unwrap();
+
         Ok(field_idx)
     }
 
@@ -2369,6 +2409,48 @@ mod tests {
         ] {
             assert_table_columns_match!(field_table, expected_table, col_name);
         }
+    }
+
+    #[test]
+    fn test_write_field_row_mwa() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+        ms_writer.add_mwa_mods();
+
+        let field_table_path = table_path.join("FIELD");
+        let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        let dir_info = array![
+            [[0., -0.471238898038468967]],
+            [[0., -0.471238898038468967]],
+            [[0., -0.471238898038468967]]
+        ];
+        let result = ms_writer
+            .write_field_row_mwa(
+                &mut field_table,
+                "high_2019B_2458765_EOR0_RADec0.0,-27.0",
+                "",
+                5077351974.,
+                &dir_info,
+                -1,
+                false,
+                false,
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let mut field_table = Table::open(&field_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("FIELD"), TableOpenMode::Read).unwrap();
+
+        assert_tables_match!(field_table, expected_table);
     }
 
     #[test]
