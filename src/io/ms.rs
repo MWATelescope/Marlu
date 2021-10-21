@@ -415,7 +415,7 @@ impl MeasurementSetWriter {
     /// Write a row into the SPECTRAL_WINDOW table.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
     /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
@@ -478,7 +478,7 @@ impl MeasurementSetWriter {
     /// Write a row into the SPECTRAL_WINDOW table with extra mwa columns enabled.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
     /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
@@ -517,7 +517,7 @@ impl MeasurementSetWriter {
     /// Write a row into the DATA_DESCRIPTION table.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `spectral_window_id` - Pointer to spectralwindow table
     /// - `polarization_id` - Pointer to polarization table
     /// - `flag_row` - Flag this row
@@ -546,7 +546,7 @@ impl MeasurementSetWriter {
     /// Write a row into the `ANTENNA` table.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `name` - Antenna name, e.g. VLA22, CA03
     /// - `station` - Station (antenna pad) name
     /// - `ant_type` - Antenna type (e.g. SPACE-BASED)
@@ -591,7 +591,7 @@ impl MeasurementSetWriter {
     /// Write a row into the `POLARIZATION` table.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `corr_type` - The polarization type for each correlation product, as a Stokes enum.
     /// - `corr_product` - Indices describing receptors of feed going into correlation.
     ///     Shape should be [n, 2] where n is the length of `corr_type`
@@ -638,7 +638,7 @@ impl MeasurementSetWriter {
     /// Write a row into the `FIELD` table.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `name` - Name of this field
     /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
     /// - `time` - Time origin for direction and rate
@@ -705,7 +705,7 @@ impl MeasurementSetWriter {
     /// Write a row into the `OBSERVATION` table.
     /// Return the row index.
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `telescope_name` - Telescope Name (e.g. WSRT, VLBA)
     /// - `time_range` - Start and end of observation
     /// - `observer` - Antenna type (e.g. SPACE-BASED)
@@ -750,6 +750,73 @@ impl MeasurementSetWriter {
         Ok(obs_idx)
     }
 
+    /// Write a row into the `OBSERVATION` table with extra mwa columns enabled.
+    /// Return the row index.
+    ///
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `telescope_name` - Telescope Name (e.g. WSRT, VLBA)
+    /// - `time_range` - Start and end of observation
+    /// - `observer` - Antenna type (e.g. SPACE-BASED)
+    /// - `schedule_type` - Observing schedule type
+    /// - `project` - Project identification string
+    /// - `release_date` - Release date when data becomes public
+    /// - `gps_time` - Scheduled start (gps time) of observation (obsid, from metafits:GPSTIME)
+    /// - `filename` - Name of observation (from metafits:FILENAME)
+    /// - `observation_mode` - Observation mode (from metafits:MODE)
+    /// - `flag_window_size` - Number of scans in this partition
+    /// - `date_requested` - from metafits:DATE-OBS
+    /// - `flag_row` - Row flag
+    pub fn write_observation_row_mwa(
+        &self,
+        table: &mut Table,
+        telescope_name: &str,
+        time_range: (f64, f64),
+        observer: &str,
+        schedule_type: &str,
+        project: &str,
+        release_date: f64,
+        gps_time: f64,
+        filename: &str,
+        observation_mode: &str,
+        flag_window_size: i32,
+        date_requested: f64,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        let obs_idx = self
+            .write_observation_row(
+                table,
+                telescope_name,
+                time_range,
+                observer,
+                schedule_type,
+                project,
+                release_date,
+                flag_row,
+            )
+            .unwrap();
+
+        table.put_cell("MWA_GPS_TIME", obs_idx, &gps_time).unwrap();
+        table
+            .put_cell("MWA_FILENAME", obs_idx, &filename.to_string())
+            .unwrap();
+        table
+            .put_cell(
+                "MWA_OBSERVATION_MODE",
+                obs_idx,
+                &observation_mode.to_string(),
+            )
+            .unwrap();
+        table
+            .put_cell("MWA_FLAG_WINDOW_SIZE", obs_idx, &flag_window_size)
+            .unwrap();
+        table
+            .put_cell("MWA_DATE_REQUESTED", obs_idx, &date_requested)
+            .unwrap();
+        Ok(obs_idx)
+    }
+
     /// TODO
     ///
     /// Write a row into the `HISTORY_ITERM` table.
@@ -763,7 +830,7 @@ impl MeasurementSetWriter {
     ///
     /// The main table holds measurements from a Telescope
     ///
-    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `time` - Modified Julian Day, at start of scan
     /// - `time_centroid` - Modified Julian Day, at centroid of scan
     /// - `antenna1` - ID of first antenna in interferometer
@@ -1999,6 +2066,66 @@ mod tests {
             "RELEASE_DATE",
             "SCHEDULE_TYPE",
             "TELESCOPE_NAME",
+        ] {
+            assert_table_columns_match!(obs_table, expected_table, col_name);
+        }
+    }
+
+    #[test]
+    fn test_write_observation_row_mwa() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+        ms_writer.add_mwa_mods();
+
+        let obs_table_path = table_path.join("OBSERVATION");
+        let mut obs_table = Table::open(&obs_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        let result = ms_writer
+            .write_observation_row_mwa(
+                &mut obs_table,
+                "MWA",
+                (5077351975.0, 5077351983.0),
+                "andrew",
+                "MWA",
+                "G0009",
+                0.,
+                1254670392.,
+                "high_2019B_2458765_EOR0_RADec0.0,-27.0_143",
+                "HW_LFILES",
+                4,
+                5077351974.,
+                false,
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let mut obs_table = Table::open(&obs_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("OBSERVATION"), TableOpenMode::Read).unwrap();
+
+        assert_table_nrows_match!(obs_table, expected_table);
+        for col_name in [
+            "TIME_RANGE",
+            // "LOG",
+            // "SCHEDULE",
+            "FLAG_ROW",
+            "OBSERVER",
+            "PROJECT",
+            "RELEASE_DATE",
+            "SCHEDULE_TYPE",
+            "TELESCOPE_NAME",
+            "MWA_GPS_TIME",
+            "MWA_FILENAME",
+            "MWA_OBSERVATION_MODE",
+            "MWA_FLAG_WINDOW_SIZE",
+            "MWA_DATE_REQUESTED",
         ] {
             assert_table_columns_match!(obs_table, expected_table, col_name);
         }
