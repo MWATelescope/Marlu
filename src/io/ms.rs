@@ -919,8 +919,43 @@ impl MeasurementSetWriter {
     ///
     /// Write a row into the `HISTORY_ITERM` table.
     /// Return the row index.
-    pub fn write_history_item_row() -> Result<u64, MeasurementSetWriteError> {
+    pub fn write_history_item_row(
+        &self,
+        table: &mut Table,
+    ) -> Result<u64, MeasurementSetWriteError> {
         Ok(0)
+    }
+
+    /// TODO
+    ///
+    /// Write a row into the `MWA_TILE_POINTING` table.
+    /// Return the row index.
+    ///
+    /// - `start` - start MJD of observation
+    /// - `end` - end MJD of observation
+    /// - `delays` - beamformer delays, from metafits:DELAYS
+    /// - `direction_{ra|dec}` - pointing direction [Ra/Dec]
+    pub fn write_mwa_tile_pointing_row(
+        &self,
+        table: &mut Table,
+        start: f64,
+        end: f64,
+        delays: &Vec<i32>,
+        direction_ra: f64,
+        direction_dec: f64,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        let point_idx = table.n_rows();
+        table.add_rows(1).unwrap();
+
+        table
+            .put_cell("INTERVAL", point_idx, &vec![start, end])
+            .unwrap();
+        table.put_cell("DELAYS", point_idx, delays).unwrap();
+        table
+            .put_cell("DIRECTION", point_idx, &vec![direction_ra, direction_dec])
+            .unwrap();
+
+        Ok(point_idx)
     }
 
     /// Write a row into the main table.
@@ -940,11 +975,10 @@ impl MeasurementSetWriter {
     /// - `scan_number` - Sequential scan number from on-line system
     /// - `state_id` - ID for this observing state
     /// - `sigma` - Estimated rms noise for channel with unity bandpass response
-    /// - `data` -
-    /// - `flags`
-    /// - `weights`
-    ///
-    ///
+    /// - `data` - an `[n, p]` shaped ndarray of complex visibilities, where `n`
+    ///     is the number of channels, and p is the number of polarizations
+    /// - `flags` - an `[n, p]` shaped ndarray of boolean flags.
+    /// - `weights` - a `[p]` shaped ndarray of weights for each polarization
     pub fn write_main_row(
         &self,
         table: &mut Table,
@@ -2585,6 +2619,44 @@ mod tests {
         ] {
             assert_table_columns_match!(obs_table, expected_table, col_name);
         }
+    }
+
+    #[test]
+    fn test_write_mwa_tile_pointing_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+        ms_writer.add_mwa_mods();
+
+        let point_table_path = table_path.join("MWA_TILE_POINTING");
+        let mut point_table = Table::open(&point_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        let result = ms_writer
+            .write_mwa_tile_pointing_row(
+                &mut point_table,
+                5077351975.,
+                5077351984.,
+                &vec![3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0],
+                6.28310690918895887,
+                -0.464403366228935188,
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let mut point_table = Table::open(&point_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table = Table::open(
+            PATH_1254670392.join("MWA_TILE_POINTING"),
+            TableOpenMode::Read,
+        )
+        .unwrap();
+
+        assert_tables_match!(point_table, expected_table);
     }
 
     #[test]
