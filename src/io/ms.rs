@@ -926,8 +926,6 @@ impl MeasurementSetWriter {
         Ok(0)
     }
 
-    /// TODO
-    ///
     /// Write a row into the `MWA_TILE_POINTING` table.
     /// Return the row index.
     ///
@@ -954,6 +952,29 @@ impl MeasurementSetWriter {
         table
             .put_cell("DIRECTION", point_idx, &vec![direction_ra, direction_dec])
             .unwrap();
+
+        Ok(point_idx)
+    }
+
+    /// Write a row into the `MWA_SUBBAND` table.
+    /// Return the row index.
+    ///
+    /// - `number` - Subband (coarse channel) index
+    /// - `gain` - (deprecated) - from metafits:CHANGAIN, use 0.
+    /// - `flag_row` - flag this subband
+    pub fn write_mwa_subband_row(
+        &self,
+        table: &mut Table,
+        number: i32,
+        gain: f64,
+        flag_row: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        let point_idx = table.n_rows();
+        table.add_rows(1).unwrap();
+
+        table.put_cell("NUMBER", point_idx, &number).unwrap();
+        table.put_cell("GAIN", point_idx, &gain).unwrap();
+        table.put_cell("FLAG_ROW", point_idx, &flag_row).unwrap();
 
         Ok(point_idx)
     }
@@ -2657,6 +2678,36 @@ mod tests {
         .unwrap();
 
         assert_tables_match!(point_table, expected_table);
+    }
+
+    #[test]
+    fn test_write_mwa_subband_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+        ms_writer.add_mwa_mods();
+
+        let subband_table_path = table_path.join("MWA_SUBBAND");
+        let mut subband_table = Table::open(&subband_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        for idx in 0..24 {
+            let result = ms_writer
+                .write_mwa_subband_row(&mut subband_table, idx, 0., false)
+                .unwrap();
+            assert_eq!(result, idx as u64);
+        }
+
+        drop(ms_writer);
+
+        let mut subband_table = Table::open(&subband_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("MWA_SUBBAND"), TableOpenMode::Read).unwrap();
+
+        assert_tables_match!(subband_table, expected_table);
     }
 
     #[test]
