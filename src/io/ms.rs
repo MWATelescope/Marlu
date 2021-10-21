@@ -4,12 +4,14 @@ use crate::{
     ndarray::{Array2, Array3, Axis},
 };
 use flate2::read::GzDecoder;
+use mwalib::CorrelatorContext;
 use ndarray::Array1;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
 };
 use std::{
     fs::create_dir_all,
+    ops::Range,
     path::{Path, PathBuf},
 };
 use tar::Archive;
@@ -413,9 +415,9 @@ impl MeasurementSetWriter {
     }
 
     /// Write a row into the SPECTRAL_WINDOW table.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
     /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
@@ -429,21 +431,19 @@ impl MeasurementSetWriter {
     pub fn write_spectral_window_row(
         &self,
         table: &mut Table,
+        idx: u64,
         name: &str,
         ref_freq: f64,
         chan_info: Array2<f64>,
         total_bw: f64,
         flag: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
-
-        let spw_idx = table.n_rows();
 
         match chan_info.shape() {
             [num_chans, 4] => {
-                table.add_rows(1).unwrap();
                 table
-                    .put_cell("NUM_CHAN", spw_idx, &(*num_chans as i32))
+                    .put_cell("NUM_CHAN", idx, &(*num_chans as i32))
                     .unwrap();
             }
             sh => {
@@ -456,29 +456,25 @@ impl MeasurementSetWriter {
             }
         }
 
-        table.put_cell("NAME", spw_idx, &name.to_string()).unwrap();
-        table.put_cell("REF_FREQUENCY", spw_idx, &ref_freq).unwrap();
+        table.put_cell("NAME", idx, &name.to_string()).unwrap();
+        table.put_cell("REF_FREQUENCY", idx, &ref_freq).unwrap();
 
         let col_names = ["CHAN_FREQ", "CHAN_WIDTH", "EFFECTIVE_BW", "RESOLUTION"];
         for (value, &col_name) in chan_info.lanes(Axis(0)).into_iter().zip(col_names.iter()) {
-            table
-                .put_cell(col_name, spw_idx, &value.to_owned())
-                .unwrap();
+            table.put_cell(col_name, idx, &value.to_owned()).unwrap();
         }
 
-        table.put_cell("MEAS_FREQ_REF", spw_idx, &5).unwrap(); // 5 means "TOPO"
-        table
-            .put_cell("TOTAL_BANDWIDTH", spw_idx, &total_bw)
-            .unwrap();
-        table.put_cell("FLAG_ROW", spw_idx, &flag).unwrap();
+        table.put_cell("MEAS_FREQ_REF", idx, &5).unwrap(); // 5 means "TOPO"
+        table.put_cell("TOTAL_BANDWIDTH", idx, &total_bw).unwrap();
+        table.put_cell("FLAG_ROW", idx, &flag).unwrap();
 
-        Ok(spw_idx)
+        Ok(())
     }
 
     /// Write a row into the SPECTRAL_WINDOW table with extra mwa columns enabled.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
     /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
@@ -494,59 +490,57 @@ impl MeasurementSetWriter {
     pub fn write_spectral_window_row_mwa(
         &self,
         table: &mut Table,
+        idx: u64,
         name: &str,
         ref_freq: f64,
         chan_info: Array2<f64>,
         total_bw: f64,
         centre_subband_nr: i32,
         flag: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let spw_idx = self
-            .write_spectral_window_row(table, name, ref_freq, chan_info, total_bw, flag)
+        self.write_spectral_window_row(table, idx, name, ref_freq, chan_info, total_bw, flag)
             .unwrap();
 
         table
-            .put_cell("MWA_CENTRE_SUBBAND_NR", spw_idx, &centre_subband_nr)
+            .put_cell("MWA_CENTRE_SUBBAND_NR", idx, &centre_subband_nr)
             .unwrap();
 
-        Ok(spw_idx)
+        Ok(())
     }
 
     /// Write a row into the DATA_DESCRIPTION table.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `spectral_window_id` - Pointer to spectralwindow table
     /// - `polarization_id` - Pointer to polarization table
     /// - `flag_row` - Flag this row
     pub fn write_data_description_row(
         &self,
         table: &mut Table,
+        idx: u64,
         spectral_window_id: i32,
         polarization_id: i32,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let ddesc_idx = table.n_rows();
-        table.add_rows(1).unwrap();
-
         table
-            .put_cell("SPECTRAL_WINDOW_ID", ddesc_idx, &spectral_window_id)
+            .put_cell("SPECTRAL_WINDOW_ID", idx, &spectral_window_id)
             .unwrap();
         table
-            .put_cell("POLARIZATION_ID", ddesc_idx, &polarization_id)
+            .put_cell("POLARIZATION_ID", idx, &polarization_id)
             .unwrap();
-        table.put_cell("FLAG_ROW", ddesc_idx, &flag_row).unwrap();
-        Ok(ddesc_idx)
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        Ok(())
     }
 
     /// Write a row into the `ANTENNA` table.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Antenna name, e.g. VLA22, CA03
     /// - `station` - Station (antenna pad) name
     /// - `ant_type` - Antenna type (e.g. SPACE-BASED)
@@ -557,6 +551,7 @@ impl MeasurementSetWriter {
     pub fn write_antenna_row(
         &self,
         table: &mut Table,
+        idx: u64,
         name: &str,
         station: &str,
         ant_type: &str,
@@ -564,34 +559,27 @@ impl MeasurementSetWriter {
         position: &Vec<f64>,
         dish_diameter: f64,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let ant_idx = table.n_rows();
-        table.add_rows(1).unwrap();
-
-        table.put_cell("NAME", ant_idx, &name.to_string()).unwrap();
+        table.put_cell("NAME", idx, &name.to_string()).unwrap();
         table
-            .put_cell("STATION", ant_idx, &station.to_string())
+            .put_cell("STATION", idx, &station.to_string())
             .unwrap();
+        table.put_cell("TYPE", idx, &ant_type.to_string()).unwrap();
+        table.put_cell("MOUNT", idx, &mount.to_string()).unwrap();
+        table.put_cell("POSITION", idx, position).unwrap();
         table
-            .put_cell("TYPE", ant_idx, &ant_type.to_string())
+            .put_cell("DISH_DIAMETER", idx, &dish_diameter)
             .unwrap();
-        table
-            .put_cell("MOUNT", ant_idx, &mount.to_string())
-            .unwrap();
-        table.put_cell("POSITION", ant_idx, position).unwrap();
-        table
-            .put_cell("DISH_DIAMETER", ant_idx, &dish_diameter)
-            .unwrap();
-        table.put_cell("FLAG_ROW", ant_idx, &flag_row).unwrap();
-        Ok(ant_idx)
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        Ok(())
     }
 
     /// Write a row into the `ANTENNA` table with extra mwa columns enabled.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Antenna name, e.g. VLA22, CA03
     /// - `station` - Station (antenna pad) name
     /// - `ant_type` - Antenna type (e.g. SPACE-BASED)
@@ -607,6 +595,7 @@ impl MeasurementSetWriter {
     pub fn write_antenna_row_mwa(
         &self,
         table: &mut Table,
+        idx: u64,
         name: &str,
         station: &str,
         ant_type: &str,
@@ -619,37 +608,37 @@ impl MeasurementSetWriter {
         slot: &Vec<i32>,
         cable_length: &Vec<f64>,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let ant_idx = self
-            .write_antenna_row(
-                table,
-                name,
-                station,
-                ant_type,
-                mount,
-                position,
-                dish_diameter,
-                flag_row,
-            )
-            .unwrap();
+        self.write_antenna_row(
+            table,
+            idx,
+            name,
+            station,
+            ant_type,
+            mount,
+            position,
+            dish_diameter,
+            flag_row,
+        )
+        .unwrap();
 
-        table.put_cell("MWA_INPUT", ant_idx, input).unwrap();
-        table.put_cell("MWA_TILE_NR", ant_idx, &tile_nr).unwrap();
-        table.put_cell("MWA_RECEIVER", ant_idx, &receiver).unwrap();
-        table.put_cell("MWA_SLOT", ant_idx, slot).unwrap();
+        table.put_cell("MWA_INPUT", idx, input).unwrap();
+        table.put_cell("MWA_TILE_NR", idx, &tile_nr).unwrap();
+        table.put_cell("MWA_RECEIVER", idx, &receiver).unwrap();
+        table.put_cell("MWA_SLOT", idx, slot).unwrap();
         table
-            .put_cell("MWA_CABLE_LENGTH", ant_idx, cable_length)
+            .put_cell("MWA_CABLE_LENGTH", idx, cable_length)
             .unwrap();
 
-        Ok(ant_idx)
+        Ok(())
     }
 
     /// Write a row into the `POLARIZATION` table.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `corr_type` - The polarization type for each correlation product, as a Stokes enum.
     /// - `corr_product` - Indices describing receptors of feed going into correlation.
     ///     Shape should be [n, 2] where n is the length of `corr_type`
@@ -657,21 +646,19 @@ impl MeasurementSetWriter {
     pub fn write_polarization_row(
         &self,
         table: &mut Table,
+        idx: u64,
         corr_type: &Vec<i32>,
         corr_product: &Array2<i32>,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
-
-        let pol_idx = table.n_rows();
 
         let num_corr_type = corr_type.len();
 
         match corr_product.shape() {
             [num_corr, 2] if *num_corr == num_corr_type => {
-                table.add_rows(1).unwrap();
                 table
-                    .put_cell("NUM_CORR", pol_idx, &(*num_corr as i32))
+                    .put_cell("NUM_CORR", idx, &(*num_corr as i32))
                     .unwrap();
             }
             sh => {
@@ -685,18 +672,16 @@ impl MeasurementSetWriter {
             }
         }
 
-        table.put_cell("CORR_TYPE", pol_idx, corr_type).unwrap();
-        table
-            .put_cell("CORR_PRODUCT", pol_idx, corr_product)
-            .unwrap();
-        table.put_cell("FLAG_ROW", pol_idx, &flag_row).unwrap();
-        Ok(pol_idx)
+        table.put_cell("CORR_TYPE", idx, corr_type).unwrap();
+        table.put_cell("CORR_PRODUCT", idx, corr_product).unwrap();
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        Ok(())
     }
 
     /// Write a row into the `FIELD` table.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Name of this field
     /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
     /// - `time` - Time origin for direction and rate
@@ -711,23 +696,19 @@ impl MeasurementSetWriter {
     pub fn write_field_row(
         &self,
         table: &mut Table,
+        idx: u64,
         name: &str,
         code: &str,
         time: f64,
         dir_info: &Array3<f64>,
         source_id: i32,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
-
-        let field_idx = table.n_rows();
 
         match dir_info.shape() {
             [3, p, 2] if *p > 0 => {
-                table.add_rows(1).unwrap();
-                table
-                    .put_cell("NUM_POLY", field_idx, &((*p - 1) as i32))
-                    .unwrap();
+                table.put_cell("NUM_POLY", idx, &((*p - 1) as i32)).unwrap();
             }
             sh => {
                 return Err(MeasurementSetWriteError::BadArrayShape {
@@ -739,31 +720,25 @@ impl MeasurementSetWriter {
             }
         }
 
-        table
-            .put_cell("NAME", field_idx, &name.to_string())
-            .unwrap();
-        table
-            .put_cell("CODE", field_idx, &code.to_string())
-            .unwrap();
-        table.put_cell("TIME", field_idx, &time).unwrap();
+        table.put_cell("NAME", idx, &name.to_string()).unwrap();
+        table.put_cell("CODE", idx, &code.to_string()).unwrap();
+        table.put_cell("TIME", idx, &time).unwrap();
 
         let col_names = ["DELAY_DIR", "PHASE_DIR", "REFERENCE_DIR"];
         for (value, &col_name) in dir_info.outer_iter().zip(col_names.iter()) {
             // println!("{:?}", value.shape());
-            table
-                .put_cell(col_name, field_idx, &value.to_owned())
-                .unwrap();
+            table.put_cell(col_name, idx, &value.to_owned()).unwrap();
         }
 
-        table.put_cell("SOURCE_ID", field_idx, &source_id).unwrap();
-        table.put_cell("FLAG_ROW", field_idx, &flag_row).unwrap();
-        Ok(field_idx)
+        table.put_cell("SOURCE_ID", idx, &source_id).unwrap();
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        Ok(())
     }
 
     /// Write a row into the `FIELD` table with extra mwa columns enabled.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Name of this field
     /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
     /// - `time` - Time origin for direction and rate
@@ -779,6 +754,7 @@ impl MeasurementSetWriter {
     pub fn write_field_row_mwa(
         &self,
         table: &mut Table,
+        idx: u64,
         name: &str,
         code: &str,
         time: f64,
@@ -786,24 +762,23 @@ impl MeasurementSetWriter {
         source_id: i32,
         has_calibrator: bool,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let field_idx = self
-            .write_field_row(table, name, code, time, dir_info, source_id, flag_row)
+        self.write_field_row(table, idx, name, code, time, dir_info, source_id, flag_row)
             .unwrap();
 
         table
-            .put_cell("MWA_HAS_CALIBRATOR", field_idx, &has_calibrator)
+            .put_cell("MWA_HAS_CALIBRATOR", idx, &has_calibrator)
             .unwrap();
 
-        Ok(field_idx)
+        Ok(())
     }
 
     /// Write a row into the `OBSERVATION` table.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `telescope_name` - Telescope Name (e.g. WSRT, VLBA)
     /// - `time_range` - Start and end of observation
     /// - `observer` - Antenna type (e.g. SPACE-BASED)
@@ -814,6 +789,7 @@ impl MeasurementSetWriter {
     pub fn write_observation_row(
         &self,
         table: &mut Table,
+        idx: u64,
         telescope_name: &str,
         time_range: (f64, f64),
         observer: &str,
@@ -821,37 +797,32 @@ impl MeasurementSetWriter {
         project: &str,
         release_date: f64,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let obs_idx = table.n_rows();
-        table.add_rows(1).unwrap();
-
         table
-            .put_cell("TELESCOPE_NAME", obs_idx, &telescope_name.to_string())
+            .put_cell("TELESCOPE_NAME", idx, &telescope_name.to_string())
             .unwrap();
         let time_range = vec![time_range.0, time_range.1];
-        table.put_cell("TIME_RANGE", obs_idx, &time_range).unwrap();
+        table.put_cell("TIME_RANGE", idx, &time_range).unwrap();
         table
-            .put_cell("OBSERVER", obs_idx, &observer.to_string())
+            .put_cell("OBSERVER", idx, &observer.to_string())
             .unwrap();
         table
-            .put_cell("SCHEDULE_TYPE", obs_idx, &schedule_type.to_string())
+            .put_cell("SCHEDULE_TYPE", idx, &schedule_type.to_string())
             .unwrap();
         table
-            .put_cell("PROJECT", obs_idx, &project.to_string())
+            .put_cell("PROJECT", idx, &project.to_string())
             .unwrap();
-        table
-            .put_cell("RELEASE_DATE", obs_idx, &release_date)
-            .unwrap();
-        table.put_cell("FLAG_ROW", obs_idx, &flag_row).unwrap();
-        Ok(obs_idx)
+        table.put_cell("RELEASE_DATE", idx, &release_date).unwrap();
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        Ok(())
     }
 
     /// Write a row into the `OBSERVATION` table with extra mwa columns enabled.
-    /// Return the row index.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `telescope_name` - Telescope Name (e.g. WSRT, VLBA)
     /// - `time_range` - Start and end of observation
     /// - `observer` - Antenna type (e.g. SPACE-BASED)
@@ -867,6 +838,7 @@ impl MeasurementSetWriter {
     pub fn write_observation_row_mwa(
         &self,
         table: &mut Table,
+        idx: u64,
         telescope_name: &str,
         time_range: (f64, f64),
         observer: &str,
@@ -879,55 +851,50 @@ impl MeasurementSetWriter {
         flag_window_size: i32,
         date_requested: f64,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
+    ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        let obs_idx = self
-            .write_observation_row(
-                table,
-                telescope_name,
-                time_range,
-                observer,
-                schedule_type,
-                project,
-                release_date,
-                flag_row,
-            )
-            .unwrap();
+        self.write_observation_row(
+            table,
+            idx,
+            telescope_name,
+            time_range,
+            observer,
+            schedule_type,
+            project,
+            release_date,
+            flag_row,
+        )
+        .unwrap();
 
-        table.put_cell("MWA_GPS_TIME", obs_idx, &gps_time).unwrap();
+        table.put_cell("MWA_GPS_TIME", idx, &gps_time).unwrap();
         table
-            .put_cell("MWA_FILENAME", obs_idx, &filename.to_string())
+            .put_cell("MWA_FILENAME", idx, &filename.to_string())
             .unwrap();
         table
-            .put_cell(
-                "MWA_OBSERVATION_MODE",
-                obs_idx,
-                &observation_mode.to_string(),
-            )
+            .put_cell("MWA_OBSERVATION_MODE", idx, &observation_mode.to_string())
             .unwrap();
         table
-            .put_cell("MWA_FLAG_WINDOW_SIZE", obs_idx, &flag_window_size)
+            .put_cell("MWA_FLAG_WINDOW_SIZE", idx, &flag_window_size)
             .unwrap();
         table
-            .put_cell("MWA_DATE_REQUESTED", obs_idx, &date_requested)
+            .put_cell("MWA_DATE_REQUESTED", idx, &date_requested)
             .unwrap();
-        Ok(obs_idx)
+        Ok(())
     }
 
     /// TODO
     ///
     /// Write a row into the `HISTORY_ITERM` table.
-    /// Return the row index.
     pub fn write_history_item_row(
         &self,
         table: &mut Table,
-    ) -> Result<u64, MeasurementSetWriteError> {
-        Ok(0)
+        idx: u64,
+    ) -> Result<(), MeasurementSetWriteError> {
+        Ok(())
     }
 
     /// Write a row into the `MWA_TILE_POINTING` table.
-    /// Return the row index.
     ///
     /// - `start` - start MJD of observation
     /// - `end` - end MJD of observation
@@ -936,28 +903,23 @@ impl MeasurementSetWriter {
     pub fn write_mwa_tile_pointing_row(
         &self,
         table: &mut Table,
+        idx: u64,
         start: f64,
         end: f64,
         delays: &Vec<i32>,
         direction_ra: f64,
         direction_dec: f64,
-    ) -> Result<u64, MeasurementSetWriteError> {
-        let point_idx = table.n_rows();
-        table.add_rows(1).unwrap();
-
+    ) -> Result<(), MeasurementSetWriteError> {
+        table.put_cell("INTERVAL", idx, &vec![start, end]).unwrap();
+        table.put_cell("DELAYS", idx, delays).unwrap();
         table
-            .put_cell("INTERVAL", point_idx, &vec![start, end])
-            .unwrap();
-        table.put_cell("DELAYS", point_idx, delays).unwrap();
-        table
-            .put_cell("DIRECTION", point_idx, &vec![direction_ra, direction_dec])
+            .put_cell("DIRECTION", idx, &vec![direction_ra, direction_dec])
             .unwrap();
 
-        Ok(point_idx)
+        Ok(())
     }
 
     /// Write a row into the `MWA_SUBBAND` table.
-    /// Return the row index.
     ///
     /// - `number` - Subband (coarse channel) index
     /// - `gain` - (deprecated) - from metafits:CHANGAIN, use 0.
@@ -965,26 +927,24 @@ impl MeasurementSetWriter {
     pub fn write_mwa_subband_row(
         &self,
         table: &mut Table,
+        idx: u64,
         number: i32,
         gain: f64,
         flag_row: bool,
-    ) -> Result<u64, MeasurementSetWriteError> {
-        let point_idx = table.n_rows();
-        table.add_rows(1).unwrap();
+    ) -> Result<(), MeasurementSetWriteError> {
+        table.put_cell("NUMBER", idx, &number).unwrap();
+        table.put_cell("GAIN", idx, &gain).unwrap();
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
 
-        table.put_cell("NUMBER", point_idx, &number).unwrap();
-        table.put_cell("GAIN", point_idx, &gain).unwrap();
-        table.put_cell("FLAG_ROW", point_idx, &flag_row).unwrap();
-
-        Ok(point_idx)
+        Ok(())
     }
 
     /// Write a row into the main table.
-    /// Return the row index.
     ///
     /// The main table holds measurements from a Telescope
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `time` - Modified Julian Day, at start of scan
     /// - `time_centroid` - Modified Julian Day, at centroid of scan
     /// - `antenna1` - ID of first antenna in interferometer
@@ -1003,6 +963,7 @@ impl MeasurementSetWriter {
     pub fn write_main_row(
         &self,
         table: &mut Table,
+        idx: u64,
         time: f64,
         time_centroid: f64,
         antenna1: i32,
@@ -1019,8 +980,7 @@ impl MeasurementSetWriter {
         data: Array2<c32>,
         flags: Array2<bool>,
         weights: Array1<f32>,
-    ) -> Result<u64, MeasurementSetWriteError> {
-        let idx = table.n_rows();
+    ) -> Result<(), MeasurementSetWriteError> {
         let num_pols = 4;
 
         if uvw.len() != 3 {
@@ -1060,8 +1020,6 @@ impl MeasurementSetWriter {
 
         // TODO: calculate weight aggregate
 
-        table.add_rows(1).unwrap();
-
         table.put_cell("TIME", idx, &time).unwrap();
         table
             .put_cell("TIME_CENTROID", idx, &time_centroid)
@@ -1081,7 +1039,7 @@ impl MeasurementSetWriter {
         table.put_cell("WEIGHT", idx, &weights).unwrap();
         table.put_cell("FLAG", idx, &flags).unwrap();
 
-        Ok(idx)
+        Ok(())
     }
 }
 
@@ -1662,9 +1620,12 @@ mod tests {
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
+        spw_table.add_rows(1).unwrap();
+
+        ms_writer
             .write_spectral_window_row(
                 &mut spw_table,
+                0,
                 "MWA_BAND_182.4",
                 182395000.,
                 chan_info,
@@ -1673,8 +1634,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::Read).unwrap();
 
@@ -1722,9 +1681,12 @@ mod tests {
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
+        spw_table.add_rows(1).unwrap();
+
+        ms_writer
             .write_spectral_window_row_mwa(
                 &mut spw_table,
+                0,
                 "MWA_BAND_182.4",
                 182395000.,
                 chan_info,
@@ -1734,8 +1696,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::Read).unwrap();
 
@@ -1759,8 +1719,11 @@ mod tests {
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        spw_table.add_rows(1).unwrap();
+
         let result = ms_writer.write_spectral_window_row(
             &mut spw_table,
+            0,
             "MWA_BAND_182.4",
             182395000.,
             chan_info,
@@ -1786,12 +1749,12 @@ mod tests {
         let ddesc_table_path = table_path.join("DATA_DESCRIPTION");
         let mut ddesc_table = Table::open(&ddesc_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
-            .write_data_description_row(&mut ddesc_table, 0, 0, false)
+        ddesc_table.add_rows(1).unwrap();
+
+        ms_writer
+            .write_data_description_row(&mut ddesc_table, 0, 0, 0, false)
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut ddesc_table = Table::open(&ddesc_table_path, TableOpenMode::Read).unwrap();
 
@@ -2244,12 +2207,15 @@ mod tests {
         let ant_table_path = ms_writer.path.join("ANTENNA");
         let mut ant_table = Table::open(ant_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        ant_table.add_rows(ANT_NAMES.len()).unwrap();
+
         for (idx, (name, position)) in izip!(ANT_NAMES, ANT_POSITIONS).enumerate() {
             let position = position.iter().cloned().collect();
 
-            let result = ms_writer
+            ms_writer
                 .write_antenna_row(
                     &mut ant_table,
+                    idx as _,
                     name,
                     "MWA",
                     "GROUND-BASED",
@@ -2259,7 +2225,6 @@ mod tests {
                     false,
                 )
                 .unwrap();
-            assert_eq!(result, idx as u64);
         }
 
         drop(ms_writer);
@@ -2295,6 +2260,8 @@ mod tests {
         let ant_table_path = ms_writer.path.join("ANTENNA");
         let mut ant_table = Table::open(ant_table_path.clone(), TableOpenMode::ReadWrite).unwrap();
 
+        ant_table.add_rows(ANT_NAMES.len()).unwrap();
+
         for (idx, (name, position, input, tile_nr, cable_length)) in izip!(
             ANT_NAMES,
             ANT_POSITIONS,
@@ -2306,9 +2273,10 @@ mod tests {
         {
             let position = position.iter().cloned().collect();
 
-            let result = ms_writer
+            ms_writer
                 .write_antenna_row_mwa(
                     &mut ant_table,
+                    idx as _,
                     name,
                     "MWA",
                     "GROUND-BASED",
@@ -2323,7 +2291,6 @@ mod tests {
                     false,
                 )
                 .unwrap();
-            assert_eq!(result, idx as u64);
         }
 
         drop(ms_writer);
@@ -2350,12 +2317,12 @@ mod tests {
         let pol_table_path = table_path.join("POLARIZATION");
         let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
-            .write_polarization_row(&mut pol_table, &corr_type, &corr_product, false)
+        pol_table.add_rows(1).unwrap();
+
+        ms_writer
+            .write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false)
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut pol_table = Table::open(&pol_table_path, TableOpenMode::Read).unwrap();
 
@@ -2380,8 +2347,10 @@ mod tests {
         let pol_table_path = table_path.join("POLARIZATION");
         let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        pol_table.add_rows(1).unwrap();
+
         let result =
-            ms_writer.write_polarization_row(&mut pol_table, &corr_type, &corr_product, false);
+            ms_writer.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false);
 
         assert!(matches!(
             result,
@@ -2404,8 +2373,10 @@ mod tests {
         let pol_table_path = table_path.join("POLARIZATION");
         let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        pol_table.add_rows(1).unwrap();
+
         let result =
-            ms_writer.write_polarization_row(&mut pol_table, &corr_type, &corr_product, false);
+            ms_writer.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false);
 
         assert!(matches!(
             result,
@@ -2425,14 +2396,17 @@ mod tests {
         let field_table_path = table_path.join("FIELD");
         let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        field_table.add_rows(1).unwrap();
+
         let dir_info = array![
             [[0., -0.471238898038468967]],
             [[0., -0.471238898038468967]],
             [[0., -0.471238898038468967]]
         ];
-        let result = ms_writer
+        ms_writer
             .write_field_row(
                 &mut field_table,
+                0,
                 "high_2019B_2458765_EOR0_RADec0.0,-27.0",
                 "",
                 5077351974.,
@@ -2442,8 +2416,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut field_table = Table::open(&field_table_path, TableOpenMode::Read).unwrap();
 
@@ -2479,14 +2451,17 @@ mod tests {
         let field_table_path = table_path.join("FIELD");
         let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        field_table.add_rows(1).unwrap();
+
         let dir_info = array![
             [[0., -0.471238898038468967]],
             [[0., -0.471238898038468967]],
             [[0., -0.471238898038468967]]
         ];
-        let result = ms_writer
+        ms_writer
             .write_field_row_mwa(
                 &mut field_table,
+                0,
                 "high_2019B_2458765_EOR0_RADec0.0,-27.0",
                 "",
                 5077351974.,
@@ -2497,8 +2472,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut field_table = Table::open(&field_table_path, TableOpenMode::Read).unwrap();
 
@@ -2528,6 +2501,7 @@ mod tests {
         ];
         let result = ms_writer.write_field_row(
             &mut field_table,
+            0,
             "high_2019B_2458765_EOR0_RADec0.0,-27.0",
             "",
             5077351974.,
@@ -2554,9 +2528,12 @@ mod tests {
         let obs_table_path = table_path.join("OBSERVATION");
         let mut obs_table = Table::open(&obs_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
+        obs_table.add_rows(1).unwrap();
+
+        ms_writer
             .write_observation_row(
                 &mut obs_table,
+                0,
                 "MWA",
                 (5077351975.0, 5077351983.0),
                 "andrew",
@@ -2567,8 +2544,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut obs_table = Table::open(&obs_table_path, TableOpenMode::Read).unwrap();
 
@@ -2604,9 +2579,12 @@ mod tests {
         let obs_table_path = table_path.join("OBSERVATION");
         let mut obs_table = Table::open(&obs_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
+        obs_table.add_rows(1).unwrap();
+
+        ms_writer
             .write_observation_row_mwa(
                 &mut obs_table,
+                0,
                 "MWA",
                 (5077351975.0, 5077351983.0),
                 "andrew",
@@ -2622,8 +2600,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut obs_table = Table::open(&obs_table_path, TableOpenMode::Read).unwrap();
 
@@ -2655,9 +2631,12 @@ mod tests {
         let point_table_path = table_path.join("MWA_TILE_POINTING");
         let mut point_table = Table::open(&point_table_path, TableOpenMode::ReadWrite).unwrap();
 
-        let result = ms_writer
+        point_table.add_rows(1).unwrap();
+
+        ms_writer
             .write_mwa_tile_pointing_row(
                 &mut point_table,
+                0,
                 5077351975.,
                 5077351984.,
                 &vec![3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0],
@@ -2666,8 +2645,6 @@ mod tests {
             )
             .unwrap();
         drop(ms_writer);
-
-        assert_eq!(result, 0);
 
         let mut point_table = Table::open(&point_table_path, TableOpenMode::Read).unwrap();
 
@@ -2693,11 +2670,12 @@ mod tests {
         let subband_table_path = table_path.join("MWA_SUBBAND");
         let mut subband_table = Table::open(&subband_table_path, TableOpenMode::ReadWrite).unwrap();
 
+        subband_table.add_rows(24).unwrap();
+
         for idx in 0..24 {
-            let result = ms_writer
-                .write_mwa_subband_row(&mut subband_table, idx, 0., false)
+            ms_writer
+                .write_mwa_subband_row(&mut subband_table, idx, idx as _, 0., false)
                 .unwrap();
-            assert_eq!(result, idx as u64);
         }
 
         drop(ms_writer);
@@ -3495,9 +3473,12 @@ mod tests {
 
         let mut main_table = Table::open(&table_path, TableOpenMode::ReadWrite).unwrap();
 
+        main_table.add_rows(1).unwrap();
+
         ms_writer
             .write_main_row(
                 &mut main_table,
+                0,
                 5077351976.000001,
                 5077351976.000001,
                 0,
