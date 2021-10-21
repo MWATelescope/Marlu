@@ -412,7 +412,7 @@ impl MeasurementSetWriter {
         self.add_mwa_subband_mods();
     }
 
-    /// Write a row into the SPECTRAL_WINDOW table, unless another table is provided.
+    /// Write a row into the SPECTRAL_WINDOW table.
     /// Return the row index.
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
@@ -475,7 +475,46 @@ impl MeasurementSetWriter {
         Ok(spw_idx)
     }
 
-    /// Write a row into the DATA_DESCRIPTION table, unless another table is provided.
+    /// Write a row into the SPECTRAL_WINDOW table with extra mwa columns enabled.
+    /// Return the row index.
+    ///
+    /// - `table` - optional [`rubbl_casatables::Table`] object.
+    /// - `name` - Spectral Window name (`NAME` column)
+    /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
+    /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
+    ///     following for each channel:
+    ///     - `CHAN_FREQ` - the center frequencies
+    ///     - `CHAN_WIDTH` - channel widths,
+    ///     - `EFFECTIVE_BW` - effective noise bandwidths
+    ///     - `RESOLUTION` - resolutions.
+    /// - `total_bw` - Total bandwidth (`TOTAL_BANDWIDTH` column)
+    /// - `centre_subband_nr` - This is the "sky" channel number of the center coarse channel in
+    ///     the spectral window.
+    /// - `flag` - Row flag (`FLAG_ROW` column)
+    pub fn write_spectral_window_row_mwa(
+        &self,
+        table: &mut Table,
+        name: &str,
+        ref_freq: f64,
+        chan_info: Array2<f64>,
+        total_bw: f64,
+        centre_subband_nr: i32,
+        flag: bool,
+    ) -> Result<u64, MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        let spw_idx = self
+            .write_spectral_window_row(table, name, ref_freq, chan_info, total_bw, flag)
+            .unwrap();
+
+        table
+            .put_cell("MWA_CENTRE_SUBBAND_NR", spw_idx, &centre_subband_nr)
+            .unwrap();
+
+        Ok(spw_idx)
+    }
+
+    /// Write a row into the DATA_DESCRIPTION table.
     /// Return the row index.
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
@@ -504,7 +543,7 @@ impl MeasurementSetWriter {
         Ok(ddesc_idx)
     }
 
-    /// Write a row into the `ANTENNA` table, unless another table is provided.
+    /// Write a row into the `ANTENNA` table.
     /// Return the row index.
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
@@ -549,7 +588,7 @@ impl MeasurementSetWriter {
         Ok(ant_idx)
     }
 
-    /// Write a row into the `POLARIZATION` table, unless another table is provided.
+    /// Write a row into the `POLARIZATION` table.
     /// Return the row index.
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
@@ -596,7 +635,7 @@ impl MeasurementSetWriter {
         Ok(pol_idx)
     }
 
-    /// Write a row into the `FIELD` table, unless another table is provided.
+    /// Write a row into the `FIELD` table.
     /// Return the row index.
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
@@ -663,7 +702,7 @@ impl MeasurementSetWriter {
         Ok(field_idx)
     }
 
-    /// Write a row into the `OBSERVATION` table, unless another table is provided.
+    /// Write a row into the `OBSERVATION` table.
     /// Return the row index.
     ///
     /// - `table` - optional [`rubbl_casatables::Table`] object.
@@ -713,13 +752,13 @@ impl MeasurementSetWriter {
 
     /// TODO
     ///
-    /// Write a row into the `HISTORY_ITERM` table, unless another table is provided.
+    /// Write a row into the `HISTORY_ITERM` table.
     /// Return the row index.
     pub fn write_history_item_row() -> Result<u64, MeasurementSetWriteError> {
         Ok(0)
     }
 
-    /// Write a row into the main table, unless another table is provided.
+    /// Write a row into the main table.
     /// Return the row index.
     ///
     /// The main table holds measurements from a Telescope
@@ -1441,6 +1480,49 @@ mod tests {
         ] {
             assert_table_columns_match!(spw_table, expected_table, col_name);
         }
+    }
+
+    #[test]
+    fn test_write_spectral_window_row_mwa() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+        ms_writer.add_mwa_mods();
+
+        let chan_info = Array2::from_shape_fn((768, 4), |(c, i)| {
+            (if i == 0 {
+                167055000. + (c as f64) * 40000.
+            } else {
+                40000.
+            }) as f64
+        });
+        let spw_table_path = table_path.join("SPECTRAL_WINDOW");
+        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        let result = ms_writer
+            .write_spectral_window_row_mwa(
+                &mut spw_table,
+                "MWA_BAND_182.4",
+                182395000.,
+                chan_info,
+                30720000.,
+                143,
+                false,
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        assert_eq!(result, 0);
+
+        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("SPECTRAL_WINDOW"), TableOpenMode::Read).unwrap();
+
+        assert_tables_match!(spw_table, expected_table);
     }
 
     #[test]
