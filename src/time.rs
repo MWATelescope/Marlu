@@ -40,7 +40,7 @@ pub fn mjd_to_epoch(mjd_days: f64) -> hifitime::Epoch {
     Epoch::from_mjd_tai(mjd_days + num_leap_seconds)
 }
 
-/// Convert a GPS time to a [hifitime::Epoch].
+/// Convert a GPS time (seconds) to a [hifitime::Epoch].
 pub fn gps_to_epoch(gps: f64) -> hifitime::Epoch {
     // https://en.wikipedia.org/wiki/Global_Positioning_System#Timekeeping
     // The difference between GPS and TAI time is always 19s, but hifitime
@@ -48,6 +48,11 @@ pub fn gps_to_epoch(gps: f64) -> hifitime::Epoch {
     // Jan 5.
     let tai = gps + 19.0 + crate::constants::HIFITIME_GPS_FACTOR;
     Epoch::from_tai_seconds(tai)
+}
+
+/// Convert a GPS time (milliseconds) to a [hifitime::Epoch].
+pub fn gps_millis_to_epoch(gps_ms: u64) -> hifitime::Epoch {
+    gps_to_epoch(gps_ms as f64 / 1000.0)
 }
 
 /// Convert a casacore time to a [hifitime::Epoch]. This function is especially
@@ -67,6 +72,14 @@ pub fn casacore_utc_to_epoch(utc_seconds: f64) -> hifitime::Epoch {
     };
     Epoch::from_tai_seconds(utc_seconds - MJD_TAI_EPOCH_DIFF + num_leap_seconds)
 }
+
+// pub fn epoch_to_casacore_utc(epoch: hifitime:Epoch) -> f64 {
+//     let num_leap_seconds = {
+//         let naive_obs_epoch = Epoch::from_tai_seconds(utc_seconds - MJD_TAI_EPOCH_DIFF);
+//         utc_seconds - MJD_TAI_EPOCH_DIFF - naive_obs_epoch.as_utc_seconds()
+//     };
+
+// }
 
 #[cfg(test)]
 mod tests {
