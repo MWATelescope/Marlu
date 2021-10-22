@@ -2,14 +2,17 @@ use crate::{
     c32,
     io::error::MeasurementSetWriteError,
     ndarray::{Array2, Array3, Axis},
+    time::gps_millis_to_epoch,
+    LatLngHeight, ENH,
 };
 use flate2::read::GzDecoder;
 use mwalib::CorrelatorContext;
-use ndarray::Array1;
+use ndarray::{array, Array1};
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
 };
 use std::{
+    f64::consts::PI,
     fs::create_dir_all,
     ops::Range,
     path::{Path, PathBuf},
@@ -939,6 +942,249 @@ impl MeasurementSetWriter {
         Ok(())
     }
 
+    /// Create an MWA measurement set, with all tables (except the main visibility table)
+    /// prefilled with metadata from a [`mwalib::CorrelatorContext`]
+    ///
+    /// `mwalib_timestep_range` the range of timestep indices (according to mwalib)
+    /// of the current chunk being written to the measurement set.
+    ///
+    /// `mwalib_coarse_chan_range` the range of coarse channel indices (according to mwalib)
+    /// of the current chunk being written to the measurement set.
+    pub fn initialize_from_mwalib(
+        &self,
+        context: &CorrelatorContext,
+        mwalib_timestep_range: &Range<usize>,
+        mwalib_coarse_chan_range: &Range<usize>,
+        array_pos: Option<LatLngHeight>,
+    ) -> Result<(), MeasurementSetWriteError> {
+        let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
+        let num_img_coarse_chans = mwalib_coarse_chan_range.len();
+        let num_img_chans = fine_chans_per_coarse * num_img_coarse_chans;
+
+        let array_pos = match array_pos {
+            Some(pos) => pos,
+            None => {
+                // The results here are slightly different to those given by cotter.
+                // This is at least partly due to different constants (the altitude is
+                // definitely slightly different), but possibly also because ERFA is
+                // more accurate than cotter's "homebrewed" Geodetic2XYZ.
+                LatLngHeight::new_mwa()
+            }
+        };
+
+        self.decompress_default_tables().unwrap();
+        self.decompress_source_table().unwrap();
+        self.add_cotter_mods(num_img_chans);
+        self.add_mwa_mods();
+
+        // /////////////// //
+        // Spectral Window //
+        // /////////////// //
+
+        let mut spw_table =
+            Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
+
+        let mwalib_centre_coarse_chan_idx =
+            mwalib_coarse_chan_range.start + (num_img_coarse_chans / 2);
+        let centre_coarse_chan =
+            context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx].clone();
+        let fine_chan_width_hz = context.metafits_context.corr_fine_chan_width_hz;
+        let mwalib_start_fine_chan_idx = mwalib_coarse_chan_range.start * fine_chans_per_coarse;
+
+        let chan_info = Array2::from_shape_fn((num_img_chans, 4), |(c, i)| {
+            if i == 0 {
+                context.metafits_context.metafits_fine_chan_freqs_hz[c + mwalib_start_fine_chan_idx]
+            } else {
+                fine_chan_width_hz as f64
+            }
+        });
+
+        let img_center_freq_hz = if num_img_chans % 2 == 0 {
+            (context.metafits_context.metafits_fine_chan_freqs_hz
+                [mwalib_start_fine_chan_idx + (num_img_chans / 2)]
+                + context.metafits_context.metafits_fine_chan_freqs_hz
+                    [mwalib_start_fine_chan_idx + (num_img_chans / 2) - 1])
+                * 0.5
+        } else {
+            context.metafits_context.metafits_fine_chan_freqs_hz
+                [mwalib_start_fine_chan_idx + (num_img_chans / 2)]
+        };
+
+        spw_table.add_rows(1).unwrap();
+        self.write_spectral_window_row_mwa(
+            &mut spw_table,
+            0,
+            format!("MWA_BAND_{:.1}", img_center_freq_hz / 1_000_000.).as_str(),
+            img_center_freq_hz,
+            chan_info,
+            fine_chan_width_hz as f64 * num_img_chans as f64,
+            centre_coarse_chan.rec_chan_number as _,
+            false,
+        )
+        .unwrap();
+
+        // //////// //
+        // Antennae //
+        // //////// //
+
+        let mut ant_table =
+            Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite).unwrap();
+
+        let antennae = context.metafits_context.antennas.clone();
+        ant_table.add_rows(antennae.len()).unwrap();
+        for (idx, antenna) in antennae.into_iter().enumerate() {
+            let position_enh = ENH {
+                e: antenna.east_m,
+                n: antenna.north_m,
+                h: antenna.height_m,
+            };
+            let position = position_enh
+                .to_xyz(array_pos.latitude_rad)
+                .to_geocentric(array_pos)
+                .unwrap();
+            self.write_antenna_row_mwa(
+                &mut ant_table,
+                idx as _,
+                &antenna.tile_name.as_str(),
+                "MWA",
+                "GROUND-BASED",
+                "ALT-AZ",
+                &vec![position.x, position.y, position.z],
+                4.0,
+                &vec![
+                    antenna.rfinput_x.input as i32,
+                    antenna.rfinput_y.input as i32,
+                ],
+                antenna.tile_id as i32,
+                antenna.rfinput_x.rec_number as i32,
+                &vec![
+                    antenna.rfinput_x.rec_slot_number as i32,
+                    antenna.rfinput_y.rec_slot_number as i32,
+                ],
+                &vec![
+                    antenna.rfinput_x.electrical_length_m,
+                    antenna.rfinput_y.electrical_length_m,
+                ],
+                false,
+            )
+            .unwrap();
+        }
+
+        // //////////// //
+        // Polarization //
+        // //////////// //
+        //
+        // MWA always has the following polarizations (feeds):
+        // - XX (0, 0)
+        // - XY (0, 1)
+        // - YX (1, 0)
+        // - YY (1, 1)
+
+        let mut pol_table =
+            Table::open(&self.path.join("POLARIZATION"), TableOpenMode::ReadWrite).unwrap();
+
+        let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
+        let corr_type = vec![9, 10, 11, 12];
+        pol_table.add_rows(1).unwrap();
+
+        self.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false)
+            .unwrap();
+
+        // ///// //
+        // Field //
+        // ///// //
+
+        let mut field_table =
+            Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite).unwrap();
+
+        let ra_phase_rad = context.metafits_context.ra_phase_center_degrees.unwrap() * (PI / 180.);
+        let dec_phase_rad =
+            context.metafits_context.dec_phase_center_degrees.unwrap() * (PI / 180.);
+
+        // TODO: is dir_info right?
+        //  - `DELAY_DIR` - Direction of delay center (e.g. RA, DEC) in time
+        //  - `PHASE_DIR` - Direction of phase center (e.g. RA, DEC) in time
+        //  - `REFERENCE_DIR` - Direction of reference center (e.g. RA, DEC) in time
+
+        let dir_info = array![
+            [[ra_phase_rad, dec_phase_rad]],
+            [[ra_phase_rad, dec_phase_rad]],
+            [[ra_phase_rad, dec_phase_rad]],
+        ];
+
+        // TODO: read has_calibrator from metafits:CALIBRAT
+        let has_calibrator = false;
+
+        let file_name = context.metafits_context.obs_name.clone();
+        let field_name = file_name
+            .rsplit_once("_")
+            .unwrap_or((file_name.as_str(), ""))
+            .0;
+
+        let sched_start_time_mjd_utc_s =
+            gps_millis_to_epoch(context.metafits_context.sched_start_gps_time_ms)
+                .as_mjd_utc_seconds();
+
+        field_table.add_rows(1).unwrap();
+        self.write_field_row_mwa(
+            &mut field_table,
+            0,
+            &field_name,
+            "",
+            sched_start_time_mjd_utc_s,
+            &dir_info,
+            -1,
+            has_calibrator,
+            false,
+        )
+        .unwrap();
+
+        // ////// //
+        // Source //
+        // ////// //
+
+        // /////////// //
+        // Observation //
+        // /////////// //
+
+        let mut obs_table =
+            Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite).unwrap();
+        obs_table.add_rows(1).unwrap();
+
+        let int_time_ms = context.metafits_context.corr_int_time_ms;
+
+        let start_time_centroid_mjd_utc_s =
+            gps_millis_to_epoch(context.metafits_context.sched_start_gps_time_ms + int_time_ms / 2)
+                .as_mjd_utc_seconds();
+        let end_time_centroid_mjd_utc_s =
+            gps_millis_to_epoch(context.metafits_context.sched_end_gps_time_ms + int_time_ms / 2)
+                .as_mjd_utc_seconds();
+
+        self.write_observation_row_mwa(
+            &mut obs_table,
+            0,
+            "MWA",
+            (start_time_centroid_mjd_utc_s, end_time_centroid_mjd_utc_s),
+            &context.metafits_context.creator,
+            "MWA",
+            &context.metafits_context.project_id,
+            0.,
+            context.metafits_context.obs_id as _,
+            &context.metafits_context.obs_name,
+            &context.metafits_context.mode.to_string(),
+            (mwalib_timestep_range.len() + 1) as _,
+            sched_start_time_mjd_utc_s,
+            false,
+        )
+        .unwrap();
+
+        // /////// //
+        // History //
+        // /////// //
+
+        Ok(())
+    }
+
     /// Write a row into the main table.
     ///
     /// The main table holds measurements from a Telescope
@@ -1050,7 +1296,10 @@ mod tests {
 
     use crate::{
         approx::abs_diff_eq,
-        c32,
+        c32, c64,
+        constants::{
+            COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
+        },
         ndarray::{arr2, array, Array},
     };
     use itertools::izip;
@@ -1178,6 +1427,9 @@ mod tests {
 
     macro_rules! assert_table_column_values_match_approx {
         ( $left:expr, $right:expr, $col_name:expr, $col_desc:expr, $type_:ty ) => {
+            assert_table_column_values_match_approx!($left, $right, $col_name, $col_desc, $type_, 1e-7)
+        };
+        ( $left:expr, $right:expr, $col_name:expr, $col_desc:expr, $type_:ty, $epsilon:expr ) => {
             if $col_desc.is_scalar() {
                 match (
                     &$left.get_col_as_vec::<$type_>($col_name),
@@ -1188,7 +1440,7 @@ mod tests {
                             izip!(left_col, right_col).enumerate()
                         {
                             assert!(
-                                abs_diff_eq!(left_cell, right_cell, epsilon = 1e-7),
+                                abs_diff_eq!(left_cell, right_cell, epsilon = $epsilon),
                                 "cells don't match in column {}, row {}. {:?} != {:?}",
                                 $col_name,
                                 row_idx,
@@ -1251,6 +1503,9 @@ mod tests {
 
     macro_rules! assert_table_columns_match {
         ( $left:expr, $right:expr, $col_name:expr ) => {
+            assert_table_columns_match!($left, $right, $col_name, 1e-7)
+        };
+        ( $left:expr, $right:expr, $col_name:expr, $epsilon:expr ) => {
             assert_table_column_descriptions_match!($left, $right, $col_name);
             let col_desc = $left.get_col_desc($col_name).unwrap();
             match col_desc.data_type() {
@@ -1282,16 +1537,36 @@ mod tests {
                     assert_table_column_values_match!($left, $right, $col_name, col_desc, String)
                 }
                 GlueDataType::TpFloat => assert_table_column_values_match_approx!(
-                    $left, $right, $col_name, col_desc, f32
+                    $left,
+                    $right,
+                    $col_name,
+                    col_desc,
+                    f32,
+                    $epsilon as f32
                 ),
                 GlueDataType::TpDouble => assert_table_column_values_match_approx!(
-                    $left, $right, $col_name, col_desc, f64
+                    $left,
+                    $right,
+                    $col_name,
+                    col_desc,
+                    f64,
+                    $epsilon as f64
                 ),
                 GlueDataType::TpComplex => assert_table_column_values_match_approx!(
-                    $left, $right, $col_name, col_desc, c32
+                    $left,
+                    $right,
+                    $col_name,
+                    col_desc,
+                    c32,
+                    $epsilon as f32
                 ),
                 GlueDataType::TpDComplex => assert_table_column_values_match_approx!(
-                    $left, $right, $col_name, col_desc, c32
+                    $left,
+                    $right,
+                    $col_name,
+                    col_desc,
+                    c64,
+                    $epsilon as f64
                 ),
                 x => println!("unhandled data type in column {}: {:?}", $col_name, x),
             }
@@ -2686,6 +2961,355 @@ mod tests {
             Table::open(PATH_1254670392.join("MWA_SUBBAND"), TableOpenMode::Read).unwrap();
 
         assert_tables_match!(subband_table, expected_table);
+    }
+
+    #[test]
+    fn test_initialize_from_mwalib_all() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+
+        let context = CorrelatorContext::new(
+            &String::from("tests/data/1254670392_avg/1254670392.metafits"),
+            &((1..=24)
+                .map(|i| {
+                    format!(
+                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
+                        i
+                    )
+                })
+                .collect::<Vec<_>>()),
+        )
+        .unwrap();
+
+        // let mwalib_timestep_range = (*context.common_timestep_indices.first().unwrap())
+        //     ..(*context.provided_timestep_indices.last().unwrap() + 1);
+        let mwalib_timestep_range = 0..(context.metafits_context.num_metafits_timesteps - 1);
+        let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
+            ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
+
+        let array_pos = Some(LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        });
+
+        ms_writer
+            .initialize_from_mwalib(
+                &context,
+                &mwalib_timestep_range,
+                &mwalib_coarse_chan_range,
+                array_pos,
+            )
+            .unwrap();
+
+        for (table_name, col_names) in [
+            (
+                "ANTENNA",
+                vec![
+                    "OFFSET",
+                    "POSITION",
+                    "TYPE",
+                    "DISH_DIAMETER",
+                    "FLAG_ROW",
+                    "MOUNT",
+                    "NAME",
+                    "STATION",
+                    "MWA_INPUT",
+                    "MWA_TILE_NR",
+                    "MWA_CABLE_LENGTH",
+                    // These are wrong in Cotter
+                    // "MWA_RECEIVER",
+                    // "MWA_SLOT",
+                ],
+            ),
+            // (
+            //     "DATA_DESCRIPTION",
+            //     vec!["FLAG_ROW", "POLARIZATION_ID", "SPECTRAL_WINDOW_ID"],
+            // ),
+            // (
+            //     "FEED",
+            //     vec![
+            //         "POSITION",
+            //         "BEAM_OFFSET",
+            //         "POLARIZATION_TYPE",
+            //         "POL_RESPONSE",
+            //         "RECEPTOR_ANGLE",
+            //         "ANTENNA_ID",
+            //         "BEAM_ID",
+            //         "FEED_ID",
+            //         "INTERVAL",
+            //         "NUM_RECEPTORS",
+            //         "SPECTRAL_WINDOW_ID",
+            //         "TIME",
+            //     ],
+            // ),
+            (
+                "FIELD",
+                vec![
+                    "DELAY_DIR",
+                    "PHASE_DIR",
+                    "REFERENCE_DIR",
+                    "CODE",
+                    "FLAG_ROW",
+                    "NAME",
+                    "NUM_POLY",
+                    "SOURCE_ID",
+                    "TIME",
+                    "MWA_HAS_CALIBRATOR",
+                ],
+            ),
+            // (
+            //     "FLAG_CMD",
+            //     vec![
+            //         "APPLIED", "COMMAND", "INTERVAL", "LEVEL", "REASON", "SEVERITY", "TIME", "TYPE",
+            //     ],
+            // ),
+            // (
+            //     "HISTORY",
+            //     vec![
+            //         "APP_PARAMS",
+            //         "CLI_COMMAND",
+            //         "APPLICATION",
+            //         "MESSAGE",
+            //         "OBJECT_ID",
+            //         "OBSERVATION_ID",
+            //         "ORIGIN",
+            //         "PRIORITY",
+            //         "TIME",
+            //     ],
+            // ),
+            (
+                "OBSERVATION",
+                vec![
+                    "TIME_RANGE",
+                    // "LOG",
+                    // "SCHEDULE",
+                    "FLAG_ROW",
+                    "OBSERVER",
+                    "PROJECT",
+                    "RELEASE_DATE",
+                    "SCHEDULE_TYPE",
+                    "TELESCOPE_NAME",
+                    "MWA_GPS_TIME",
+                    "MWA_FILENAME",
+                    "MWA_OBSERVATION_MODE",
+                    "MWA_FLAG_WINDOW_SIZE",
+                    "MWA_DATE_REQUESTED",
+                ],
+            ),
+            // (
+            //     "POINTING",
+            //     vec![
+            //         "DIRECTION",
+            //         "ANTENNA_ID",
+            //         "INTERVAL",
+            //         "NAME",
+            //         "NUM_POLY",
+            //         "TARGET",
+            //         "TIME",
+            //         "TIME_ORIGIN",
+            //         "TRACKING",
+            //     ],
+            // ),
+            (
+                "POLARIZATION",
+                vec!["CORR_TYPE", "CORR_PRODUCT", "FLAG_ROW", "NUM_CORR"],
+            ),
+            // (
+            //     "PROCESSOR",
+            //     vec!["FLAG_ROW", "MODE_ID", "TYPE", "TYPE_ID", "SUB_TYPE"],
+            // ),
+            (
+                "SPECTRAL_WINDOW",
+                vec![
+                    "MEAS_FREQ_REF",
+                    "CHAN_FREQ",
+                    // Ref frequency is wrong, test separately
+                    "REF_FREQUENCY",
+                    "CHAN_WIDTH",
+                    "EFFECTIVE_BW",
+                    "RESOLUTION",
+                    "FLAG_ROW",
+                    "FREQ_GROUP",
+                    "FREQ_GROUP_NAME",
+                    "IF_CONV_CHAIN",
+                    "NAME",
+                    "NET_SIDEBAND",
+                    "NUM_CHAN",
+                    "TOTAL_BANDWIDTH",
+                    "MWA_CENTRE_SUBBAND_NR",
+                ],
+            ),
+            // (
+            //     "STATE",
+            //     vec![
+            //         "CAL", "FLAG_ROW", "LOAD", "OBS_MODE", "REF", "SIG", "SUB_SCAN",
+            //     ],
+            // ),
+        ] {
+            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut exp_table =
+                Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
+            if col_names.is_empty() {
+                assert_tables_match!(table, exp_table);
+            } else {
+                assert_table_nrows_match!(table, exp_table);
+                for col_name in col_names {
+                    assert_table_columns_match!(table, exp_table, col_name);
+                }
+            }
+        }
+
+        let mut ant_table = Table::open(&table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
+        let receivers: Vec<i32> = ant_table.get_col_as_vec("MWA_RECEIVER").unwrap();
+        assert_eq!(
+            receivers,
+            [
+                1, 1, 1, 1, 1, 1, 1, 1, 14, 14, 14, 14, 14, 14, 12, 14, 2, 2, 2, 2, 2, 2, 2, 2, 12,
+                12, 12, 12, 12, 12, 14, 12, 11, 11, 11, 11, 11, 11, 11, 11, 8, 8, 8, 8, 8, 8, 8, 8,
+                9, 9, 9, 9, 9, 9, 9, 9, 13, 13, 13, 13, 13, 13, 13, 13, 15, 15, 15, 15, 15, 15, 15,
+                15, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 16, 16, 16, 16, 16, 16, 16, 16,
+                7, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 10, 10, 10,
+                10, 10, 10, 10, 10
+            ]
+        );
+        let num_ants = ant_table.n_rows();
+        let exp_slots = array![
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [4, 4],
+            [5, 5],
+            [6, 6],
+            [7, 7],
+            [8, 8],
+        ];
+        assert_eq!(num_ants, exp_slots.shape()[0] as _);
+        for (idx, exp_slot) in exp_slots.outer_iter().enumerate() {
+            let slot: Vec<i32> = ant_table.get_cell_as_vec("MWA_SLOT", idx as _).unwrap();
+            assert_eq!(slot, exp_slot.to_vec());
+        }
     }
 
     #[test]
