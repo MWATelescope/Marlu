@@ -8,6 +8,7 @@ use crate::{
 };
 use flate2::read::GzDecoder;
 use itertools::izip;
+#[cfg(feature = "mwalib")]
 use mwalib::CorrelatorContext;
 use ndarray::{array, Array1, ArrayView3};
 use rubbl_casatables::{
@@ -975,6 +976,7 @@ impl MeasurementSetWriter {
     ///
     /// `mwalib_coarse_chan_range` the range of coarse channel indices (according to mwalib)
     /// of the current chunk being written to the measurement set.
+    #[cfg(feature = "mwalib")]
     pub fn initialize_from_mwalib(
         &self,
         context: &CorrelatorContext,
@@ -1303,6 +1305,7 @@ impl MeasurementSetWriter {
 }
 
 impl VisWritable for MeasurementSetWriter {
+    #[cfg(feature = "mwalib")]
     fn write_vis_mwalib(
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
@@ -3124,6 +3127,7 @@ mod tests {
         assert_tables_match!(subband_table, expected_table);
     }
 
+    #[cfg(feature = "mwalib")]
     #[test]
     fn test_initialize_from_mwalib_all() {
         let temp_dir = tempdir().unwrap();
@@ -4303,6 +4307,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "mwalib")]
     #[test]
     fn test_write_vis_from_mwalib() {
         let temp_dir = tempdir().unwrap();

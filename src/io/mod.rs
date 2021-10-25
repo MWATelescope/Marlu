@@ -3,7 +3,9 @@ mod ms;
 
 use std::ops::Range;
 
-use crate::{Jones, mwalib::CorrelatorContext};
+use crate::Jones;
+#[cfg(feature = "mwalib")]
+use crate::mwalib::CorrelatorContext;
 use ndarray::{ArrayView3, ArrayViewMut3};
 
 use self::error::IOError;
@@ -20,6 +22,7 @@ pub trait VisReadable: Sync + Send {
     ///
     /// TODO: reduce number of arguments.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "mwalib")]
     fn read_vis_mwalib(
         &self,
         jones_array: ArrayViewMut3<Jones<f32>>,
@@ -60,6 +63,7 @@ pub trait VisWritable: Sync + Send {
     /// Can throw IOError if there is an issue writing to the file, or the indices
     /// into `context` are invalid.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "mwalib")]
     fn write_vis_mwalib(
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
