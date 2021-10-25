@@ -1,13 +1,7 @@
-use crate::{
-    c32,
-    io::error::MeasurementSetWriteError,
-    ndarray::{Array2, Array3, Axis},
-    time::gps_millis_to_epoch,
-    LatLngHeight, ENH,
-};
+use crate::{ENH, Jones, LatLngHeight, c32, io::error::MeasurementSetWriteError, ndarray::{Array2, Array3, Axis}, time::gps_millis_to_epoch};
 use flate2::read::GzDecoder;
 use mwalib::CorrelatorContext;
-use ndarray::{array, Array1};
+use ndarray::{Array1, ArrayView3, array};
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
 };
@@ -20,6 +14,8 @@ use std::{
 use tar::Archive;
 
 use lazy_static::lazy_static;
+
+use super::{WriteableVis, error::IOError};
 
 lazy_static! {
     static ref DEFAULT_TABLES_GZ: &'static [u8] =
@@ -35,16 +31,33 @@ const PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
 /// TODO: reading
 // pub struct MeasurementSetWriter<'a> {
 pub struct MeasurementSetWriter {
-    /// The path to the root of the measurement set (should end in .ms)
+    /// The path to the root of the measurement set (typically ends in .ms)
     path: PathBuf,
+
+    /// Array Position [Latitude (radians), Longitude (radians), Height (m)]
+    array_pos: LatLngHeight,
 }
 
 // impl<'a> MeasurementSetWriter<'a> {
 impl MeasurementSetWriter {
-    pub fn new<T: AsRef<Path>>(path: T) -> Self {
-        // let
+    pub fn new<T: AsRef<Path>>(
+        path: T,
+        array_pos: Option<LatLngHeight>,
+    ) -> Self {
+        let array_pos = match array_pos {
+            Some(pos) => pos,
+            None => {
+                // The results here are slightly different to those given by cotter.
+                // This is at least partly due to different constants (the altitude is
+                // definitely slightly different), but possibly also because ERFA is
+                // more accurate than cotter's "homebrewed" Geodetic2XYZ.
+                LatLngHeight::new_mwa()
+            }
+        };
+
         MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
+            array_pos
         }
     }
 
@@ -955,22 +968,10 @@ impl MeasurementSetWriter {
         context: &CorrelatorContext,
         mwalib_timestep_range: &Range<usize>,
         mwalib_coarse_chan_range: &Range<usize>,
-        array_pos: Option<LatLngHeight>,
     ) -> Result<(), MeasurementSetWriteError> {
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
         let num_img_coarse_chans = mwalib_coarse_chan_range.len();
         let num_img_chans = fine_chans_per_coarse * num_img_coarse_chans;
-
-        let array_pos = match array_pos {
-            Some(pos) => pos,
-            None => {
-                // The results here are slightly different to those given by cotter.
-                // This is at least partly due to different constants (the altitude is
-                // definitely slightly different), but possibly also because ERFA is
-                // more accurate than cotter's "homebrewed" Geodetic2XYZ.
-                LatLngHeight::new_mwa()
-            }
-        };
 
         self.decompress_default_tables().unwrap();
         self.decompress_source_table().unwrap();
@@ -1039,8 +1040,8 @@ impl MeasurementSetWriter {
                 h: antenna.height_m,
             };
             let position = position_enh
-                .to_xyz(array_pos.latitude_rad)
-                .to_geocentric(array_pos)
+                .to_xyz(self.array_pos.latitude_rad)
+                .to_geocentric(self.array_pos)
                 .unwrap();
             self.write_antenna_row_mwa(
                 &mut ant_table,
@@ -1597,7 +1598,7 @@ mod tests {
     fn test_decompress_default_tables() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
 
@@ -1773,7 +1774,7 @@ mod tests {
     fn test_add_source_table() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
 
@@ -1800,7 +1801,7 @@ mod tests {
     fn test_add_cotter_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -1829,7 +1830,7 @@ mod tests {
     fn test_add_mwa_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods();
         drop(ms_writer);
@@ -1880,7 +1881,7 @@ mod tests {
     fn test_write_spectral_window_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -1940,7 +1941,7 @@ mod tests {
     fn test_write_spectral_window_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -1984,7 +1985,7 @@ mod tests {
     fn handle_bad_spw_chan_info() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2016,7 +2017,7 @@ mod tests {
     fn test_write_data_description_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2474,7 +2475,7 @@ mod tests {
     fn test_write_antenna_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2526,7 +2527,7 @@ mod tests {
     fn test_write_antenna_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2581,7 +2582,7 @@ mod tests {
     fn test_write_polarization_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2611,7 +2612,7 @@ mod tests {
     fn handle_bad_pol_small_corr_type() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2637,7 +2638,7 @@ mod tests {
     fn handle_bad_pol_big_corr_product() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2663,7 +2664,7 @@ mod tests {
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2717,7 +2718,7 @@ mod tests {
     fn test_write_field_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2760,7 +2761,7 @@ mod tests {
     fn handle_bad_field_shape() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2795,7 +2796,7 @@ mod tests {
     fn test_write_observation_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2845,7 +2846,7 @@ mod tests {
     fn test_write_observation_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2897,7 +2898,7 @@ mod tests {
     fn test_write_mwa_tile_pointing_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2936,7 +2937,7 @@ mod tests {
     fn test_write_mwa_subband_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2967,7 +2968,13 @@ mod tests {
     fn test_initialize_from_mwalib_all() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let array_pos = Some(LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        });
+
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), array_pos);
 
         let context = CorrelatorContext::new(
             &String::from("tests/data/1254670392_avg/1254670392.metafits"),
@@ -2988,18 +2995,11 @@ mod tests {
         let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
             ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
 
-        let array_pos = Some(LatLngHeight {
-            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
-            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
-            height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
-
         ms_writer
             .initialize_from_mwalib(
                 &context,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
-                array_pos,
             )
             .unwrap();
 
@@ -3316,7 +3316,7 @@ mod tests {
     fn test_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let ms_writer = MeasurementSetWriter::new(table_path.clone());
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
