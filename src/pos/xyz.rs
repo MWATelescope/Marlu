@@ -295,7 +295,10 @@ impl XyzGeocentric {
 }
 
 #[cfg(test)]
-impl approx::AbsDiffEq for XyzGeodetic {
+use crate::approx::AbsDiffEq;
+
+#[cfg(test)]
+impl AbsDiffEq for XyzGeodetic {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -310,7 +313,7 @@ impl approx::AbsDiffEq for XyzGeodetic {
 }
 
 #[cfg(test)]
-impl approx::AbsDiffEq for XyzGeocentric {
+impl AbsDiffEq for XyzGeocentric {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -327,8 +330,7 @@ impl approx::AbsDiffEq for XyzGeocentric {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::*;
-    use ndarray::Array1;
+    use crate::{approx::assert_abs_diff_eq, ndarray::Array1};
 
     use crate::constants::{
         COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,

@@ -6,7 +6,6 @@
 //! coordinates).
 
 use std::f64::consts::FRAC_PI_2;
-
 use super::hadec::HADec;
 
 /// A struct containing an Azimuth and Elevation. All units are in radians.
@@ -69,7 +68,10 @@ impl std::fmt::Display for AzEl {
 }
 
 #[cfg(test)]
-impl approx::AbsDiffEq for AzEl {
+use crate::approx::AbsDiffEq;
+
+#[cfg(test)]
+impl AbsDiffEq for AzEl {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -85,7 +87,7 @@ impl approx::AbsDiffEq for AzEl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::*;
+    use crate::approx::assert_abs_diff_eq;
 
     #[test]
     fn to_hadec() {
