@@ -21,6 +21,7 @@ all-static = ["erfa-static", "cfitsio-static"]
 erfa-sys = "0.1.*"
 flate2 = "1.0.20"
 hifitime = "2.2.*"
+itertools = "0.10"
 lazy_static = "1.4.0"
 log = "0.4.*"
 num-traits = "0.2.*"
@@ -40,7 +41,6 @@ ndarray = { version = "0.14.*", features = ["approx"] }
 mwalib = { version = ">=0.9.4", optional = true }
 [dev-dependencies]
 criterion = "0.3.*"
-itertools = "0.10"
 tempfile = "3.2"
 
 [[bench]]

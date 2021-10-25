@@ -17,3 +17,13 @@ pub enum MeasurementSetWriteError {
     // RubblError(#[from] CasacoreError)
         
 }
+
+
+#[derive(Error, Debug)]
+#[allow(clippy::upper_case_acronyms)]
+/// All the errors that can occur in file io operations
+pub enum IOError {
+    #[error("{0}")]
+    /// Error derived from [`io::errors::MeasurementSetWriteError`]
+    MeasurementSetWriteError(#[from] MeasurementSetWriteError),
+}
