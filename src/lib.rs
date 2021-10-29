@@ -4,7 +4,7 @@
 
 //! Core code to describe coordinate transformations, Jones matrices, etc.
 
-pub use rubbl_core::{Complex};
+pub use rubbl_core::Complex;
 #[allow(non_camel_case_types)]
 pub type c32 = Complex<f32>;
 #[allow(non_camel_case_types)]

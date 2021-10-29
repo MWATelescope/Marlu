@@ -26,8 +26,11 @@ lazy_static = "1.4.0"
 log = "0.4.*"
 num-traits = "0.2.*"
 rayon = "~1"
-rubbl_core = "0.3.0"
-rubbl_casatables = "0.4.0"
+# rubbl_core = "0.3.0"
+# rubbl_casatables = "0.4.0"
+# this is only necessary until the next casatables release https://github.com/pkgw/rubbl/pull/174
+rubbl_core = { git = "https://github.com/derwentx/rubbl.git", branch="ndims" }
+rubbl_casatables = { git = "https://github.com/derwentx/rubbl.git", branch="ndims" }
 tar = "0.4.37"
 thiserror = "1.0.*"
 
