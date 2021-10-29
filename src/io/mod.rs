@@ -1,5 +1,5 @@
 mod error;
-mod ms;
+pub mod ms;
 
 use std::ops::Range;
 
