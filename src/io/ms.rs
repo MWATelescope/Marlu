@@ -1,7 +1,7 @@
 use crate::{
     c32,
     io::error::MeasurementSetWriteError,
-    ndarray::{Array2, Array3, Axis},
+    ndarray::{Array2, Array3, Axis, array, ArrayView3, ArrayView4},
     precession::precess_time,
     time::{gps_millis_to_epoch, gps_to_epoch},
     Jones, LatLngHeight, RADec, XyzGeodetic, ENH, UVW,
@@ -10,7 +10,6 @@ use flate2::read::GzDecoder;
 use itertools::izip;
 #[cfg(feature = "mwalib")]
 use mwalib::CorrelatorContext;
-use ndarray::{array, Array1, ArrayView3};
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
 };
@@ -1338,7 +1337,8 @@ impl MeasurementSetWriter {
         sigma: &Vec<f32>,
         data: Array2<c32>,
         flags: Array2<bool>,
-        weights: Array1<f32>,
+        weights: Array2<f32>,
+        flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
         let num_pols = 4;
 
@@ -1361,14 +1361,14 @@ impl MeasurementSetWriter {
         }
 
         match (data.shape(), flags.shape(), weights.shape()) {
-            ([d0, d1], [f0, f1], [w0])
-                if f0 == d0 && d1 == &num_pols && f1 == &num_pols && w0 == &num_pols => {}
+            ([d0, d1], [f0, f1], [w0, w1])
+                if d0 == f0 && f0 == w0 && d1 == &num_pols && f1 == &num_pols && w1 == &num_pols => {}
             (dsh, fsh, wsh) => {
                 return Err(MeasurementSetWriteError::BadArrayShape {
                     argument: "data|flags|weights".into(),
                     function: "write_main_row".into(),
                     expected: format!(
-                        "[n, p]|[n, p]|[p] where n=num_chans, p=num_pols({})",
+                        "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({})",
                         num_pols
                     )
                     .into(),
@@ -1377,7 +1377,9 @@ impl MeasurementSetWriter {
             }
         }
 
-        // TODO: calculate weight aggregate
+        let weight_pol = weights.axis_iter(Axis(1)).map(|weights_pol_view| {
+            weights_pol_view.sum()
+        }).collect::<Vec<f32>>();
 
         table.put_cell("TIME", idx, &time).unwrap();
         table
@@ -1395,8 +1397,10 @@ impl MeasurementSetWriter {
         table.put_cell("STATE_ID", idx, &state_id).unwrap();
         table.put_cell("SIGMA", idx, sigma).unwrap();
         table.put_cell("DATA", idx, &data).unwrap();
-        table.put_cell("WEIGHT", idx, &weights).unwrap();
+        table.put_cell("WEIGHT_SPECTRUM", idx, &weights).unwrap();
+        table.put_cell("WEIGHT", idx, &weight_pol).unwrap();
         table.put_cell("FLAG", idx, &flags).unwrap();
+        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
 
         Ok(())
     }
@@ -1407,12 +1411,13 @@ impl VisWritable for MeasurementSetWriter {
     fn write_vis_mwalib(
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
-        weight_array: ArrayView3<f32>,
+        weight_array: ArrayView4<f32>,
         context: &CorrelatorContext,
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
         baseline_idxs: &[usize],
     ) -> Result<(), IOError> {
+
         trace!(
             "timestep range {:?}, coarse chan range {:?}, baseline idxs {:?}",
             &timestep_range,
@@ -1423,8 +1428,10 @@ impl VisWritable for MeasurementSetWriter {
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
 
         let jones_dims = jones_array.dim();
-        // let weight_dims = weight_array.dim();
-        // assert_eq!(jones_dims, weight_dims);
+        let weight_dims = weight_array.dim();
+        assert_eq!(jones_dims.0, weight_dims.0);
+        assert_eq!(jones_dims.1, weight_dims.1);
+        assert_eq!(jones_dims.2, weight_dims.2);
 
         let num_img_timesteps = timestep_range.len();
         assert_eq!(num_img_timesteps, jones_dims.0);
@@ -1469,11 +1476,11 @@ impl VisWritable for MeasurementSetWriter {
         for (
             timestep, 
             jones_timestep_view, 
-            // weight_timestep_view
+            weight_timestep_view
         ) in izip!(
             img_timesteps.iter(),
             jones_array.outer_iter(),
-            // weight_array.outer_iter()
+            weight_array.outer_iter()
         ) {
             let gps_time_s = timestep.gps_time_ms as f64 / 1000.0;
             let centroid_epoch = gps_to_epoch(gps_time_s + integration_time_s / 2.0);
@@ -1497,12 +1504,11 @@ impl VisWritable for MeasurementSetWriter {
             for (
                 baseline, 
                 jones_baseline_view, 
-                // TODO: actually read weights
-                // weight_baseline_view
+                weight_baseline_view
             ) in izip!(
                 img_baselines.iter(),
                 jones_timestep_view.axis_iter(Axis(1)),
-                // weight_timestep_view.axis_iter(Axis(1))
+                weight_timestep_view.axis_iter(Axis(1))
             ) {
                 let ant1_idx = baseline.ant1_index;
                 let ant2_idx = baseline.ant2_index;
@@ -1517,10 +1523,6 @@ impl VisWritable for MeasurementSetWriter {
                 // TODO: actually read flags
                 let flags = Array2::from_elem((num_img_chans, 4), false);
 
-                // TODO: what's up with this?
-                let weights =
-                    Array1::from_shape_vec((4,), vec![6144., 6144., 6144., 6144.]).unwrap();
-
                 self.write_main_row(
                     &mut main_table,
                     main_idx,
@@ -1534,10 +1536,12 @@ impl VisWritable for MeasurementSetWriter {
                     -1,
                     1,
                     -1,
+                    // TODO
                     &vec![1., 1., 1., 1.],
                     data,
                     flags,
-                    weights,
+                    weight_baseline_view.to_owned(),
+                    false,
                 )?;
 
                 main_idx += 1;
@@ -3191,8 +3195,8 @@ mod tests {
             .write_history_row(
                 &mut hist_table,
                 0,
-                5139173173.39999962,
-                "\"cotter\" \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.corrected.ms\" \"-noantennapruning\" \"-noflagautos\" \"-noflagdcchannels\" \"-nosbgains\" \"-sbpassband\" \"tests/data/subband-passband-32ch-unitary.txt\" \"-flag-strategy\" \"/usr/local/share/aoflagger/strategies/mwa-default.lua\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"",
+                5140115737.974,
+                "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.ms\" \"-allowmissing\" \"-norfi\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \"-nosbgains\" \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \"-edgewidth\" \"0\" \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \"-flag-strategy\" \"/usr/local/share/aoflagger/strategies/mwa-default.lua\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"",
                 "Preprocessed & AOFlagged",
                 "Cotter MWA preprocessor",
                 "timeavg=1,freqavg=1,windowSize=4",
@@ -4427,7 +4431,7 @@ mod tests {
         ms_writer.add_cotter_mods(768);
 
         let flags = Array::from_elem((768, 4), true);
-        let weights = Array::from_elem((4,), 6144_f32);
+        let weights = Array::from_elem((768, 4), 8_f32);
 
         let mut main_table = Table::open(&table_path, TableOpenMode::ReadWrite).unwrap();
 
@@ -4451,6 +4455,7 @@ mod tests {
                 arr2(VIS_DATA_1254670392),
                 flags,
                 weights,
+                false,
             )
             .unwrap();
         drop(ms_writer);
@@ -4461,20 +4466,30 @@ mod tests {
 
         assert_table_nrows_match!(main_table, expected_table);
         for col_name in [
-            "TIME",
-            "TIME_CENTROID",
             "ANTENNA1",
             "ANTENNA2",
+            "ARRAY_ID",
             "DATA_DESC_ID",
-            "UVW",
-            "INTERVAL",
+            "DATA",
             "EXPOSURE",
+            "FEED1",
+            "FEED2",
+            "FIELD_ID",
+            // TODO
+            // "FLAG_CATEGORY",
+            "FLAG_ROW",
+            "FLAG",
+            "INTERVAL",
+            "OBSERVATION_ID",
             "PROCESSOR_ID",
             "SCAN_NUMBER",
-            "STATE_ID",
             "SIGMA",
+            "STATE_ID",
+            "TIME_CENTROID",
+            "TIME",
+            "UVW",
+            "WEIGHT_SPECTRUM",
             "WEIGHT",
-            "FLAG",
         ] {
             assert_table_columns_match!(main_table, expected_table, col_name);
         }
@@ -4483,6 +4498,8 @@ mod tests {
     #[cfg(feature = "mwalib")]
     #[test]
     fn test_write_vis_from_mwalib() {
+        use ndarray::Array4;
+
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let array_pos = Some(LatLngHeight {
@@ -4527,7 +4544,7 @@ mod tests {
             ])
         });
 
-        let weight_array = Array3::from_elem((1, 768, 1), 1.);
+        let weight_array = Array4::from_elem((1, 768, 1, 4), 8.);
 
         ms_writer
             .write_vis_mwalib(
@@ -4560,7 +4577,10 @@ mod tests {
             "STATE_ID",
             "SIGMA",
             "WEIGHT",
-            "FLAG",
+            "WEIGHT_SPECTRUM",
+            // "FLAG",
+            // "FLAG_CATEGORY"
+            "FLAG_ROW",
         ] {
             if col_name == "TIME_CENTROID" {
                 assert_table_columns_match!(main_table, expected_table, col_name, 1e-5);

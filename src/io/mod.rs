@@ -6,7 +6,7 @@ use std::ops::Range;
 use crate::Jones;
 #[cfg(feature = "mwalib")]
 use crate::mwalib::CorrelatorContext;
-use ndarray::{ArrayView3, ArrayViewMut3};
+use ndarray::{ArrayView3, ArrayView4, ArrayViewMut3};
 
 use self::error::IOError;
 
@@ -67,7 +67,7 @@ pub trait VisWritable: Sync + Send {
     fn write_vis_mwalib(
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
-        weight_array: ArrayView3<f32>,
+        weight_array: ArrayView4<f32>,
         context: &CorrelatorContext,
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
