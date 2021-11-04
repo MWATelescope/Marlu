@@ -1412,6 +1412,7 @@ impl VisWritable for MeasurementSetWriter {
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
         weight_array: ArrayView4<f32>,
+        flag_array: ArrayView4<bool>,
         context: &CorrelatorContext,
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
@@ -1476,11 +1477,13 @@ impl VisWritable for MeasurementSetWriter {
         for (
             timestep, 
             jones_timestep_view, 
-            weight_timestep_view
+            weight_timestep_view,
+            flag_timestep_view,
         ) in izip!(
             img_timesteps.iter(),
             jones_array.outer_iter(),
-            weight_array.outer_iter()
+            weight_array.outer_iter(),
+            flag_array.outer_iter()
         ) {
             let gps_time_s = timestep.gps_time_ms as f64 / 1000.0;
             let centroid_epoch = gps_to_epoch(gps_time_s + integration_time_s / 2.0);
@@ -1504,11 +1507,13 @@ impl VisWritable for MeasurementSetWriter {
             for (
                 baseline, 
                 jones_baseline_view, 
-                weight_baseline_view
+                weight_baseline_view,
+                flag_baseline_view,
             ) in izip!(
                 img_baselines.iter(),
                 jones_timestep_view.axis_iter(Axis(1)),
-                weight_timestep_view.axis_iter(Axis(1))
+                weight_timestep_view.axis_iter(Axis(1)),
+                flag_timestep_view.axis_iter(Axis(1))
             ) {
                 let ant1_idx = baseline.ant1_index;
                 let ant2_idx = baseline.ant2_index;
@@ -1520,8 +1525,7 @@ impl VisWritable for MeasurementSetWriter {
                 let data: Array2<c32> =
                     Array2::from_shape_fn((num_img_chans, 4), |(c, p)| jones_baseline_view[c][p]);
 
-                // TODO: actually read flags
-                let flags = Array2::from_elem((num_img_chans, 4), false);
+                let flag_row = flag_baseline_view.iter().all(|&x| x);
 
                 self.write_main_row(
                     &mut main_table,
@@ -1539,9 +1543,9 @@ impl VisWritable for MeasurementSetWriter {
                     // TODO
                     &vec![1., 1., 1., 1.],
                     data,
-                    flags,
+                    flag_baseline_view.to_owned(),
                     weight_baseline_view.to_owned(),
-                    false,
+                    flag_row,
                 )?;
 
                 main_idx += 1;
@@ -4545,11 +4549,13 @@ mod tests {
         });
 
         let weight_array = Array4::from_elem((1, 768, 1, 4), 8.);
+        let flag_array = Array4::from_elem((1, 768, 1, 4), true);
 
         ms_writer
             .write_vis_mwalib(
                 jones_array.view(),
                 weight_array.view(),
+                flag_array.view(),
                 &context,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
@@ -4578,9 +4584,11 @@ mod tests {
             "SIGMA",
             "WEIGHT",
             "WEIGHT_SPECTRUM",
-            // "FLAG",
-            // "FLAG_CATEGORY"
-            "FLAG_ROW",
+            "FLAG",
+            // TODO: flag category
+            // "FLAG_CATEGORY",
+            // Cotter is wrong, it doesn't flag a row when all of its' flags are set
+            // "FLAG_ROW",
         ] {
             if col_name == "TIME_CENTROID" {
                 assert_table_columns_match!(main_table, expected_table, col_name, 1e-5);

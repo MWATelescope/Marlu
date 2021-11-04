@@ -43,6 +43,12 @@ pub trait VisWritable: Sync + Send {
     /// `jones_array` - a three dimensional array of jones matrix visibilities. 
     ///     The dimensions of the array are `[timestep][channel][baseline]`
     /// 
+    /// `weight_array` - a four dimensional array of visibility weights. 
+    ///     The dimensions of the array are `[timestep][channel][baseline][pol]`
+    /// 
+    /// `flag_array` - a four dimensional array of visibility flags. 
+    ///     The dimensions of the array are `[timestep][channel][baseline][pol]`
+    /// 
     /// `context` - a [`mwalib::CorrelatorContext`] object containing information
     ///     about the timesteps, channels and baselines referred to in the jones 
     ///     array.
@@ -68,6 +74,7 @@ pub trait VisWritable: Sync + Send {
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
         weight_array: ArrayView4<f32>,
+        flag_array: ArrayView4<bool>,
         context: &CorrelatorContext,
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
