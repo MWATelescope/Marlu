@@ -52,9 +52,6 @@ jobs:
 
     - name: Run tests
       run: |
-        # TODO: kill this with fire.
-        cargo update -p approx:0.5.0 --precise 0.4.0
-        cargo update -p ndarray:0.15.3 --precise 0.14.0
         cargo test
 
   test-without-mwalib:
@@ -99,9 +96,6 @@ jobs:
           sudo ldconfig
         fi
 
-    - name: Run tests
+    - name: Run tests, no default feaures
       run: |
-        # TODO: kill this with fire.
-        cargo update -p approx:0.5.0 --precise 0.4.0
-        cargo update -p ndarray:0.15.3 --precise 0.14.0
         cargo test --no-default-features
