@@ -2,7 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-//! Code to handle precession.
+//! Code to handle precession (including nutation).
+//!
+//! A lot of easy-to-read info is here:
+//! https://en.wikipedia.org/wiki/Astronomical_nutation
+//!
+//! A harder to read source of info is here:
+//! https://www.aanda.org/articles/aa/pdf/2003/48/aa4068.pdf
 
 use std::f64::consts::TAU;
 
@@ -241,6 +247,10 @@ mod tests {
 
     #[test]
     fn test_no_precession_at_j2000() {
+        // Jack is (pretty) confident that the relatively large errors here are
+        // due to nutation, which gets corrected at the same time as precession.
+
+        // https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_dates_and_J2000
         let j2000_epoch = Epoch::from_str("2000-01-01T11:58:55.816 UTC").unwrap();
 
         let phase_centre = RADec::new_degrees(0.0, -27.0);
