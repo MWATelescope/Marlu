@@ -4558,8 +4558,6 @@ mod tests {
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, array_pos);
 
-        // let mwalib_timestep_range = (*context.common_timestep_indices.first().unwrap())
-        //     ..(*context.provided_timestep_indices.last().unwrap() + 1);
         let mwalib_timestep_range = 0..1_usize;
         let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
             ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
