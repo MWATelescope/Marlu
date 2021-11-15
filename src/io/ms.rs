@@ -12,6 +12,7 @@ use itertools::izip;
 use mwalib::CorrelatorContext;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
+    TableRecord,
 };
 use std::{
     f64::consts::PI,
@@ -141,12 +142,19 @@ impl MeasurementSetWriter {
             )
             .unwrap();
 
-        // TODO: TableMeasDesc for REST_FREQUENCY
-        // TableMeasRefDesc measRef(MFrequency::DEFAULT);
-        // TableMeasValueDesc measVal(sourceTableDesc, MSSource::columnName(MSSourceEnums::REST_FREQUENCY));
-        // TableMeasDesc<MFrequency> restFreqColMeas(measVal, measRef);
-        // // write makes the Measure column persistent.
-        // restFreqColMeas.write(sourceTableDesc);
+        source_table
+            .put_column_keyword("REST_FREQUENCY", "QuantumUnits", &vec!["s".to_string()])
+            .unwrap();
+
+        let mut meas_info = TableRecord::new().unwrap();
+        meas_info
+            .put_field("type", &"frequency".to_string())
+            .unwrap();
+        meas_info.put_field("Ref", &"LSRK".to_string()).unwrap();
+
+        source_table
+            .put_column_keyword("REST_FREQUENCY", "MEASINFO", &meas_info)
+            .unwrap();
 
         main_table
             .put_table_keyword("SOURCE", source_table)
@@ -287,13 +295,17 @@ impl MeasurementSetWriter {
             )
             .unwrap();
 
-        // TODO: TableMeasDesc for MWA_DATE_REQUESTED
-        // casacore::Vector<Unit> unitVec(1);
-        // unitVec[0] = Unit("s");
-        // TableMeasRefDesc measRef(MEpoch::DEFAULT);
-        // TableMeasValueDesc measVal(columnName(MWAMSEnums::MWA_DATE_REQUESTED));
-        // TableMeasDesc<MEpoch> intervalColMeas(measVal, measRef, unitVec);
-        // intervalColMeas.write(obsTable);
+        obs_table
+            .put_column_keyword("MWA_DATE_REQUESTED", "QuantumUnits", &vec!["s".to_string()])
+            .unwrap();
+
+        let mut meas_info = TableRecord::new().unwrap();
+        meas_info.put_field("type", &"epoch".to_string()).unwrap();
+        meas_info.put_field("Ref", &"UTC".to_string()).unwrap();
+
+        obs_table
+            .put_column_keyword("MWA_DATE_REQUESTED", "MEASINFO", &meas_info)
+            .unwrap();
     }
 
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWASpectralWindowFields()`
@@ -358,6 +370,18 @@ impl MeasurementSetWriter {
             )
             .unwrap();
 
+        pointing_table_desc
+            .put_column_keyword("INTERVAL", "QuantumUnits", &vec!["s".to_string()])
+            .unwrap();
+
+        let mut meas_info = TableRecord::new().unwrap();
+        meas_info.put_field("type", &"epoch".to_string()).unwrap();
+        meas_info.put_field("Ref", &"UTC".to_string()).unwrap();
+
+        pointing_table_desc
+            .put_column_keyword("INTERVAL", "MEASINFO", &meas_info)
+            .unwrap();
+
         let pointing_table_path = self.path.join("MWA_TILE_POINTING");
         let pointing_table = Table::new(
             pointing_table_path,
@@ -366,14 +390,6 @@ impl MeasurementSetWriter {
             TableCreateMode::New,
         )
         .unwrap();
-
-        // TODO: TableMeasDesc for INTERVAL
-        // casacore::Vector<Unit> unitVec(1);
-        // unitVec[0] = Unit("s");
-        // TableMeasRefDesc measRef(MEpoch::DEFAULT);
-        // TableMeasValueDesc measVal(tilePointingTableDesc, columnName(MWAMSEnums::INTERVAL));
-        // TableMeasDesc<MEpoch> intervalColMeas(measVal, measRef, unitVec);
-        // intervalColMeas.write(tilePointingTableDesc);
 
         let mut main_table = Table::open(self.path.clone(), TableOpenMode::ReadWrite).unwrap();
         main_table
@@ -707,6 +723,66 @@ impl MeasurementSetWriter {
         table.put_cell("CORR_TYPE", idx, corr_type).unwrap();
         table.put_cell("CORR_PRODUCT", idx, corr_product).unwrap();
         table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        Ok(())
+    }
+
+    /// Write a row into the `SOURCE` table.
+    ///
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
+    /// - `source_id` - Source id
+    /// - `time` - Midpoint of time for which this set of parameters is accurate
+    /// - `interval` - Interval of time for which this set of parameters is accurate
+    /// - `spw_idx` - ID for this spectral window setup
+    /// - `name` - Name of this source
+    /// - `calibration_group` - Number of grouping for calibration purpose.
+    /// - `code` - Special characteristics of source, e.g. Bandpass calibrator
+    /// - `direction` - Direction (RA, DEC) [Rad, J2000].
+    /// - `proper_motion` - [rad/s].
+    pub fn write_source_row(
+        &self,
+        table: &mut Table,
+        idx: u64,
+        source_id: i32,
+        time: f64,
+        interval: f64,
+        spw_idx: i32,
+        num_lines: i32,
+        name: &str,
+        calibration_group: i32,
+        code: &str,
+        direction: Vec<f64>,
+        proper_motion: Vec<f64>,
+    ) -> Result<(), MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        match (direction.len(), proper_motion.len()) {
+            (2, 2) => {
+                table.put_cell("DIRECTION", idx, &direction).unwrap();
+                table
+                    .put_cell("PROPER_MOTION", idx, &proper_motion)
+                    .unwrap();
+            }
+            sh => {
+                return Err(MeasurementSetWriteError::BadArrayShape {
+                    argument: "direction|proper_motion".into(),
+                    function: "write_source_row".into(),
+                    expected: format!("(2, 2)").into(),
+                    received: format!("{:?}", sh).into(),
+                })
+            }
+        }
+
+        table.put_cell("SOURCE_ID", idx, &source_id).unwrap();
+        table.put_cell("TIME", idx, &time).unwrap();
+        table.put_cell("INTERVAL", idx, &interval).unwrap();
+        table.put_cell("SPECTRAL_WINDOW_ID", idx, &spw_idx).unwrap();
+        table.put_cell("NUM_LINES", idx, &num_lines).unwrap();
+        table.put_cell("NAME", idx, &name.to_string()).unwrap();
+        table
+            .put_cell("CALIBRATION_GROUP", idx, &calibration_group)
+            .unwrap();
+        table.put_cell("CODE", idx, &code.to_string()).unwrap();
         Ok(())
     }
 
@@ -1208,7 +1284,31 @@ impl MeasurementSetWriter {
         // Source //
         // ////// //
 
-        // TODO
+        let mut source_table =
+            Table::open(&self.path.join("SOURCE"), TableOpenMode::ReadWrite).unwrap();
+
+        let duration_ms = context.metafits_context.sched_duration_ms;
+        let int_time_ms = context.metafits_context.corr_int_time_ms;
+        
+        // interval is from start of first scan to end of last scan.
+        let source_interval = (duration_ms + int_time_ms) as f64 / 1000.0;
+        let source_time = sched_start_time_mjd_utc_s + source_interval / 2.;
+
+        source_table.add_rows(1).unwrap();
+        self.write_source_row(
+            &mut source_table,
+            0,
+            0,
+            source_time,
+            source_interval,
+            0,
+            0,
+            &field_name,
+            0,
+            &"",
+            vec![ra_phase_rad, dec_phase_rad],
+            vec![0., 0.]
+        ).unwrap();
 
         // /////////// //
         // Observation //
@@ -1217,8 +1317,6 @@ impl MeasurementSetWriter {
         let mut obs_table =
             Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite).unwrap();
         obs_table.add_rows(1).unwrap();
-
-        let int_time_ms = context.metafits_context.corr_int_time_ms;
 
         let start_time_centroid_mjd_utc_s =
             gps_millis_to_epoch(context.metafits_context.sched_start_gps_time_ms + int_time_ms / 2)
@@ -1616,9 +1714,11 @@ mod tests {
             assert_eq!(
                 $left.n_rows(),
                 $right.n_rows(),
-                "row counts do not match. {} != {}",
+                "row counts do not match. {} != {} for tables {:?} and {:?}",
                 $left.n_rows(),
                 $right.n_rows(),
+                &$left,
+                &$right
             )
         };
     }
@@ -2958,6 +3058,61 @@ mod tests {
     }
 
     #[test]
+    fn test_write_source_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+
+        let source_table_path = table_path.join("SOURCE");
+        let mut source_table = Table::open(&source_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        source_table.add_rows(1).unwrap();
+
+        ms_writer
+            .write_source_row(
+                &mut source_table,
+                0,
+                0,
+                5077351979.000001,
+                0.00009259259240934625,
+                0,
+                0,
+                "high_2019B_2458765_EOR0_RADec0.0,-27.0",
+                0,
+                "",
+                vec![phase_centre.ra, phase_centre.dec],
+                vec![0., 0.],
+            )
+            .unwrap();
+        drop(ms_writer);
+
+        let mut source_table = Table::open(&source_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("SOURCE"), TableOpenMode::Read).unwrap();
+
+        assert_table_nrows_match!(source_table, expected_table);
+        for col_name in [
+            "SOURCE_ID",
+            "TIME",
+            "INTERVAL",
+            "SPECTRAL_WINDOW_ID",
+            "NUM_LINES",
+            "NAME",
+            "CALIBRATION_GROUP",
+            "CODE",
+            "DIRECTION",
+            "PROPER_MOTION",
+        ] {
+            assert_table_columns_match!(source_table, expected_table, col_name);
+        }
+    }
+
+    #[test]
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2973,9 +3128,9 @@ mod tests {
         field_table.add_rows(1).unwrap();
 
         let dir_info = array![
-            [[0., -0.471238898038468967]],
-            [[0., -0.471238898038468967]],
-            [[0., -0.471238898038468967]]
+            [[phase_centre.ra, phase_centre.dec]],
+            [[phase_centre.ra, phase_centre.dec]],
+            [[phase_centre.ra, phase_centre.dec]]
         ];
         ms_writer
             .write_field_row(
@@ -3029,9 +3184,9 @@ mod tests {
         field_table.add_rows(1).unwrap();
 
         let dir_info = array![
-            [[0., -0.471238898038468967]],
-            [[0., -0.471238898038468967]],
-            [[0., -0.471238898038468967]]
+            [[phase_centre.ra, phase_centre.dec]],
+            [[phase_centre.ra, phase_centre.dec]],
+            [[phase_centre.ra, phase_centre.dec]]
         ];
         ms_writer
             .write_field_row_mwa(
@@ -3070,9 +3225,9 @@ mod tests {
         let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
 
         let dir_info = array![
-            [[0., -0.471238898038468967]],
-            [[0., -0.471238898038468967]],
-            [[0., -0.471238898038468967]],
+            [[phase_centre.ra, phase_centre.dec]],
+            [[phase_centre.ra, phase_centre.dec]],
+            [[phase_centre.ra, phase_centre.dec]],
             [[0., 1.]]
         ];
         let result = ms_writer.write_field_row(
@@ -3481,6 +3636,22 @@ mod tests {
             //     vec!["FLAG_ROW", "MODE_ID", "TYPE", "TYPE_ID", "SUB_TYPE"],
             // ),
             (
+                "SOURCE",
+                vec![
+                    "SOURCE_ID",
+                    "TIME",
+                    // Interval is wrong in cotter, it's in days instead of seconds.
+                    // "INTERVAL",
+                    "SPECTRAL_WINDOW_ID",
+                    "NUM_LINES",
+                    "NAME",
+                    "CALIBRATION_GROUP",
+                    "CODE",
+                    "DIRECTION",
+                    "PROPER_MOTION",
+                ],
+            ),
+            (
                 "SPECTRAL_WINDOW",
                 vec![
                     "MEAS_FREQ_REF",
@@ -3515,7 +3686,8 @@ mod tests {
             } else {
                 assert_table_nrows_match!(table, exp_table);
                 for col_name in col_names {
-                    assert_table_columns_match!(table, exp_table, col_name);
+                    let epsilon = 1e-6;
+                    assert_table_columns_match!(table, exp_table, col_name, epsilon);
                 }
             }
         }
