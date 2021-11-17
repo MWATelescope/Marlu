@@ -972,9 +972,9 @@ dependencies = [
 
 [[package]]
 name = "rubbl_casatables"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "120af29ceb175181be7f2999f8763a0fcdece847524a93d7be71850bd5cd774e"
+checksum = "e45b21c1a5759c827f2cb7b29838d496ed428c6e17918270ab7947d36dbb5477"
 dependencies = [
  "cc",
  "failure",
