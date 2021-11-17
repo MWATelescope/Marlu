@@ -13,7 +13,7 @@
 
 use std::ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
-use crate::{Complex, approx::AbsDiffEq};
+use crate::{approx::AbsDiffEq, Complex};
 use num_traits::{float::FloatCore, Float, Num, NumAssign, Zero};
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -555,7 +555,7 @@ impl std::fmt::Debug for Jones<f64> {
     }
 }
 
-impl<F: Float + AbsDiffEq> crate::approx::AbsDiffEq for Jones<F>
+impl<F: Float + AbsDiffEq> AbsDiffEq for Jones<F>
 where
     F::Epsilon: Clone,
 {
@@ -568,18 +568,14 @@ where
 
     #[inline]
     fn abs_diff_eq(&self, other: &Self, epsilon: F::Epsilon) -> bool {
-        Complex::<F>::abs_diff_eq(&self[0], &other[0], epsilon.clone())
-            && Complex::<F>::abs_diff_eq(&self[1], &other[1], epsilon.clone())
-            && Complex::<F>::abs_diff_eq(&self[2], &other[2], epsilon.clone())
-            && Complex::<F>::abs_diff_eq(&self[3], &other[3], epsilon)
+        (0..4).all(|idx| Complex::<F>::abs_diff_eq(&self[idx], &other[idx], epsilon.clone()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{c32, c64, approx::assert_abs_diff_eq};
-
+    use crate::{approx::assert_abs_diff_eq, c32, c64};
 
     fn one_through_eight() -> Jones<f64> {
         Jones([

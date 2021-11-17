@@ -4,13 +4,12 @@
 
 //! Core code to describe coordinate transformations, Jones matrices, etc.
 
-pub use rubbl_core::Complex;
+pub use rubbl_core::{Complex, approx, Array as RubblArray};
 #[allow(non_camel_case_types)]
 pub type c32 = Complex<f32>;
 #[allow(non_camel_case_types)]
 pub type c64 = Complex<f64>;
 pub use ndarray;
-pub use approx;
 
 pub mod constants;
 pub mod jones;

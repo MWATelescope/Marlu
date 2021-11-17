@@ -4,7 +4,7 @@ use crate::{
     ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis},
     precession::precess_time,
     time::{gps_millis_to_epoch, gps_to_epoch},
-    Jones, LatLngHeight, RADec, XyzGeodetic, ENH, UVW,
+    Jones, LatLngHeight, RADec, RubblArray, XyzGeodetic, ENH, UVW,
 };
 use flate2::read::GzDecoder;
 use itertools::izip;
@@ -36,6 +36,14 @@ lazy_static! {
 
 const PKG_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
+
+/// This is a very stupid hack that lets us use rubbl's ndarray. (┛◉Д◉)┛彡┻━┻
+/// TODO: reduce double-handling
+macro_rules! rubblify_array {
+    ($array:expr) => {
+        RubblArray::from_shape_vec($array.dim(), $array.to_owned().into_raw_vec()).unwrap()
+    };
+}
 
 /// A helper struct to write out a uvfits file.
 ///
@@ -508,7 +516,7 @@ impl MeasurementSetWriter {
 
         let col_names = ["CHAN_FREQ", "CHAN_WIDTH", "EFFECTIVE_BW", "RESOLUTION"];
         for (value, &col_name) in chan_info.lanes(Axis(0)).into_iter().zip(col_names.iter()) {
-            table.put_cell(col_name, idx, &value.to_owned()).unwrap();
+            table.put_cell(col_name, idx, &value.to_vec()).unwrap();
         }
 
         table.put_cell("MEAS_FREQ_REF", idx, &5).unwrap(); // 5 means "TOPO"
@@ -721,7 +729,9 @@ impl MeasurementSetWriter {
         }
 
         table.put_cell("CORR_TYPE", idx, corr_type).unwrap();
-        table.put_cell("CORR_PRODUCT", idx, corr_product).unwrap();
+
+        let corr_product = rubblify_array!(corr_product);
+        table.put_cell("CORR_PRODUCT", idx, &corr_product).unwrap();
         table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
         Ok(())
     }
@@ -815,6 +825,8 @@ impl MeasurementSetWriter {
         flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        let dir_info = rubblify_array!(dir_info);
 
         match dir_info.shape() {
             [3, p, 2] if *p > 0 => {
@@ -1006,13 +1018,8 @@ impl MeasurementSetWriter {
         application: &str,
         params: &str,
     ) -> Result<(), MeasurementSetWriteError> {
-        // let cmd_line: Array2<String> = array![[cmd_line.to_string()]];
-        // let params: Array2<String> = array![[params.to_string()]];
         let cmd_line: Vec<String> = vec![cmd_line.to_string()];
         let params: Vec<String> = vec![params.to_string()];
-
-        // let cmd_line: Vec<Vec<String>> = vec![vec!["cmd line".to_string()]];
-        // let params: Vec<Vec<String>> = vec![vec!["params".to_string()]];
 
         table.put_cell("TIME", idx, &time).unwrap();
         table.put_cell("OBSERVATION_ID", idx, &0).unwrap();
@@ -1289,7 +1296,7 @@ impl MeasurementSetWriter {
 
         let duration_ms = context.metafits_context.sched_duration_ms;
         let int_time_ms = context.metafits_context.corr_int_time_ms;
-        
+
         // interval is from start of first scan to end of last scan.
         let source_interval = (duration_ms + int_time_ms) as f64 / 1000.0;
         let source_time = sched_start_time_mjd_utc_s + source_interval / 2.;
@@ -1307,8 +1314,9 @@ impl MeasurementSetWriter {
             0,
             &"",
             vec![ra_phase_rad, dec_phase_rad],
-            vec![0., 0.]
-        ).unwrap();
+            vec![0., 0.],
+        )
+        .unwrap();
 
         // /////////// //
         // Observation //
@@ -1507,6 +1515,11 @@ impl MeasurementSetWriter {
             .axis_iter(Axis(1))
             .map(|weights_pol_view| weights_pol_view.sum())
             .collect::<Vec<f32>>();
+
+        // TODO: get rid of this disgusting and wasteful hack.
+        let data = rubblify_array!(data);
+        let flags = rubblify_array!(flags);
+        let weights = rubblify_array!(weights);
 
         table.put_cell("TIME", idx, &time).unwrap();
         table
