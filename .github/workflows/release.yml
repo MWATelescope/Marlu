@@ -1,0 +1,66 @@
+name: Release
+
+# Do this on every push with a version tag
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+
+  publish-crate:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Install stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Install Dependencies
+      run: |
+        cd /tmp
+        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa-2.0.0.tar.gz
+        tar -xf erfa-2.0.0.tar.gz
+        rm erfa-2.0.0.tar.gz
+        cd erfa-2.0.0
+        ./configure --prefix=/usr/local
+        sudo make install
+        cd ..
+
+        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-3.49.tar.gz" -o cfitsio.tar.gz
+        tar -xf cfitsio.tar.gz
+        rm cfitsio.tar.gz
+        cd cfitsio-3.49
+        ./configure --prefix=/usr/local --enable-reentrant --disable-curl
+        sudo make shared
+        sudo make install
+        cd ..
+
+        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+          sudo ldconfig
+        fi
+
+    - run: cargo package --locked
+    - uses: taiki-e/create-gh-release-action@v1
+      with:
+        changelog: RELEASES.md
+        title: $version
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Cargo publish
+      run: |
+        cargo publish --token ${CARGO_REGISTRY_TOKEN}
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
