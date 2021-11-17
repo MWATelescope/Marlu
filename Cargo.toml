@@ -1,14 +1,14 @@
 [package]
-name = "mwa_rust_core"
-version = "0.2.1"
+name = "marlu"
+version = "0.2.2"
 authors = ["Christopher H. Jordan <christopherjordan87@gmail.com>",
            "Derwent McElhinney <derwent.mcelhinney@curtin.edu.au>"]
 edition = "2018"
 license = "MPL-2.0"
 readme = "README.md"
-description = "Convenience Rust code that handles coordinate transformations, Jones matrices, I/O. for the Murchison Widefield Array (MWA) radio telescope."
-repository = "https://github.com/MWATelescope/mwa_rust_core"
-homepage = "https://github.com/MWATelescope/mwa_rust_core"
+description = "Convenience Rust code that handles coordinate transformations, Jones matrices, I/O. for the Murchison Widefield Array (MWA) radio telescope. Previously known as mwa_rust_core"
+repository = "https://github.com/MWATelescope/marlu"
+homepage = "https://github.com/MWATelescope/marlu"
 keywords = ["radioastronomy", "mwa", "astronomy", "aoflagger", "cotter"]
 categories = ["science"]
 exclude = ["tests/*", ".vscode/*", ".github/*", ".talismanrc"]

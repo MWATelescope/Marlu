@@ -5,7 +5,7 @@
 //! Benchmarks
 
 use criterion::*;
-use mwa_rust_core::{
+use marlu::{
     c64,
     ndarray::{Array1, Array3},
     pos::xyz,

@@ -12,7 +12,7 @@ use thiserror::Error;
 /// # Examples
 ///
 /// ```
-/// # use mwa_rust_core::{sexagesimal::{sexagesimal_colon_str_to_degrees, SexagesimalError}, approx::assert_abs_diff_eq};
+/// # use marlu::{sexagesimal::{sexagesimal_colon_str_to_degrees, SexagesimalError}, approx::assert_abs_diff_eq};
 /// # fn main() -> Result<(), SexagesimalError> {
 /// let f = sexagesimal_colon_str_to_degrees("-22:58:52.56")?;
 /// assert_abs_diff_eq!(f, -22.981267, epsilon = 1e-6);
@@ -49,7 +49,7 @@ pub fn sexagesimal_dms_to_degrees(d: f64, m: f64, s: f64) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use mwa_rust_core::{sexagesimal::{sexagesimal_dms_string_to_degrees, SexagesimalError}, approx::assert_abs_diff_eq};
+/// # use marlu::{sexagesimal::{sexagesimal_dms_string_to_degrees, SexagesimalError}, approx::assert_abs_diff_eq};
 /// # fn main() -> Result<(), SexagesimalError> {
 /// let f = sexagesimal_dms_string_to_degrees("-11d49m01.062s")?;
 /// assert_abs_diff_eq!(f, -11.81696167, epsilon = 1e-6);
@@ -90,7 +90,7 @@ pub fn sexagesimal_dms_string_to_degrees(dms: &str) -> Result<f64, SexagesimalEr
 /// # Examples
 ///
 /// ```
-/// # use mwa_rust_core::{sexagesimal::{sexagesimal_hms_string_to_degrees, SexagesimalError}, approx::assert_abs_diff_eq};
+/// # use marlu::{sexagesimal::{sexagesimal_hms_string_to_degrees, SexagesimalError}, approx::assert_abs_diff_eq};
 /// # fn main() -> Result<(), SexagesimalError> {
 /// let s = "-11h49m01.062s";
 /// let f = sexagesimal_hms_string_to_degrees(s)?;
@@ -136,7 +136,7 @@ pub fn sexagesimal_hms_to_float(h: f64, m: f64, s: f64) -> f64 {
 /// # Examples
 ///
 /// ```
-/// # use mwa_rust_core::sexagesimal::*;
+/// # use marlu::sexagesimal::*;
 /// let dms = degrees_to_sexagesimal_dms(-165.0169619);
 /// assert_eq!(dms, "-165d01m01.0628s");
 /// ```
@@ -164,7 +164,7 @@ pub fn degrees_to_sexagesimal_dms(f: f64) -> String {
 /// # Examples
 ///
 /// ```
-/// # use mwa_rust_core::sexagesimal::*;
+/// # use marlu::sexagesimal::*;
 /// let hms = degrees_to_sexagesimal_hms(-177.254425);
 /// assert_eq!(hms, "-11h49m01.0619s");
 /// ```
