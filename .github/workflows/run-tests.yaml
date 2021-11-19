@@ -1,8 +1,14 @@
 ---
 name: Cross-platform tests
 
-# Do this on every push
-on: [push, pull_request]
+# Do this on every push, but don't double up on tags
+on: 
+  push:
+    tags-ignore:
+      - '**'
+    pull_request:
+    branches:
+    - '**'
 
 env:
   CARGO_TERM_COLOR: always

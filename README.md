@@ -1,9 +1,10 @@
-# mwa_rust_core
-
+# Marlu
 <div class="bg-gray-dark" align="center" style="background-color:#24292e">
+<img src="img/marlu_logo.png" alt="marlu logo" height="200px"/>
 <br/>
-<a href="https://docs.rs/crate/mwa_rust_core"><img src="https://docs.rs/mwa_rust_core/badge.svg" alt="docs"></a>
-<img src="https://github.com/MWATelescope/mwa_rust_core/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
+<br/>
+<a href="https://docs.rs/crate/marlu"><img src="https://docs.rs/marlu/badge.svg" alt="docs"></a>
+<img src="https://github.com/MWATelescope/Marlu/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
 </div>
 
 Convenience Rust code that handles coordinate transformations, Jones matrices,
@@ -68,3 +69,12 @@ cargo update -p ndarray:0.15.3 --precise 0.14.0
 ```
 
 and add `--locked` to any cargo commands that might perform a `cargo update` (e.g. `cargo install`)
+
+## Acknowledgement
+
+This scientific work uses data obtained from the Murchison Radio-astronomy Observatory. We
+acknowledge the Wajarri Yamatji people as the traditional owners of the Observatory site.
+
+This repo is approved by...
+
+<img src="https://github.com/MWATelescope/Birli/raw/main/img/CIRA_Rust_Evangelism_Strike_Force.png" height="200px" alt="CIRA Rust Evangelism Strike Force logo">
