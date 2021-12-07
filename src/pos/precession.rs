@@ -198,8 +198,8 @@ fn rotate_radec(rotation_matrix: &mut [[f64; 3]; 3], ra: f64, dec: f64) -> (f64,
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use crate::approx::{assert_abs_diff_eq, assert_abs_diff_ne};
+    use std::str::FromStr;
 
     use super::*;
     use crate::constants::{MWA_LAT_RAD, MWA_LONG_RAD};

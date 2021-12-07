@@ -5,8 +5,8 @@
 //! Handle (azimuth, elevation) coordinates (also known as horizontal
 //! coordinates).
 
-use std::f64::consts::FRAC_PI_2;
 use super::hadec::HADec;
+use std::f64::consts::FRAC_PI_2;
 
 /// A struct containing an Azimuth and Elevation. All units are in radians.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
