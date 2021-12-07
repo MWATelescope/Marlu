@@ -1004,10 +1004,15 @@ impl MeasurementSetWriter {
             .unwrap();
         Ok(())
     }
-
-    /// TODO
-    ///
     /// Write a row into the `HISTORY_ITERM` table.
+    ///
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
+    /// - `time` - Time of message
+    /// - `cmd_line` - CLI command sequence
+    /// - `message` - Log message
+    /// - `application` - Application name
+    /// - `params` - Application parameters
     pub fn write_history_row(
         &self,
         table: &mut Table,
@@ -1260,13 +1265,10 @@ impl MeasurementSetWriter {
             [[ra_phase_rad, dec_phase_rad]],
         ];
 
-        // TODO: read has_calibrator from metafits:CALIBRAT
-        let has_calibrator = false;
-
-        let file_name = context.metafits_context.obs_name.clone();
-        let field_name = file_name
+        let obs_name = context.metafits_context.obs_name.clone();
+        let field_name = obs_name
             .rsplit_once("_")
-            .unwrap_or((file_name.as_str(), ""))
+            .unwrap_or((obs_name.as_str(), ""))
             .0;
 
         let sched_start_time_mjd_utc_s =
@@ -1282,7 +1284,7 @@ impl MeasurementSetWriter {
             sched_start_time_mjd_utc_s,
             &dir_info,
             -1,
-            has_calibrator,
+            context.metafits_context.calibrator,
             false,
         )
         .unwrap();
@@ -3398,9 +3400,6 @@ mod tests {
 
         let mut expected_table =
             Table::open(PATH_1254670392.join("HISTORY"), TableOpenMode::Read).unwrap();
-
-        // TODO:
-        // assert_tables_match!(hist_table, expected_table);
 
         assert_table_nrows_match!(hist_table, expected_table);
         for col_name in [

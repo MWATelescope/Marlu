@@ -617,9 +617,9 @@ dependencies = [
 
 [[package]]
 name = "mwalib"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1a565cee826c3c9fef116f5fdda15e680b2fde9786ab5c38916ec988e9883e5"
+checksum = "031bf684ce57d3a7f692023bd0f39e65d80c1321de850d57bc0a92484b9f95fe"
 dependencies = [
  "built",
  "cbindgen",
