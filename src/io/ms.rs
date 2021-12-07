@@ -1046,6 +1046,101 @@ impl MeasurementSetWriter {
         Ok(())
     }
 
+    /// Write a row into the `FEED` table.
+    ///
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - row index to write to (ensure enough rows have been added)
+    /// - `ant_idx` - ID of antenna in this array
+    /// - `feed_idx` - Feed ID
+    /// - `spw_idx` - Spectral window ID for this setup
+    /// - `time` - Midpoint of time for which this set of parameters is accurate
+    /// - `interval` - Interval for which this set of parameters is accurate
+    /// - `num_receptors` - Number of receptors on this feed (probably 1 or 2)
+    /// - `beam_idx` - Beam model ID
+    /// - `beam_offset` - Beam position offset (on sky but in antennareference frame)
+    /// - `pol_type` - Type of polarization to which a given RECEPTOR responds
+    /// - `pol_response` - D-matrix i.e. leakage between two receptors
+    /// - `position` - Position of feed relative to feed reference position
+    /// - `receptor_angle` - The reference angle for polarization
+    pub fn write_feed_row(
+        &self,
+        table: &mut Table,
+        idx: u64,
+        ant_idx: i32,
+        feed_idx: i32,
+        spw_idx: i32,
+        time: f64,
+        interval: f64,
+        num_receptors: i32,
+        beam_idx: i32,
+        beam_offset: &Array2<f64>,
+        pol_type: &Vec<String>,
+        pol_response: &Array2<c32>,
+        position: &Vec<f64>,
+        receptor_angle: &Vec<f64>,
+    ) -> Result<(), MeasurementSetWriteError> {
+        // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
+
+        if beam_offset.shape() != &[num_receptors as _, 2] {
+            return Err(MeasurementSetWriteError::BadArrayShape {
+                argument: "beam_offset".into(),
+                function: "write_feed_row".into(),
+                expected: "[n, 2]".into(),
+                received: format!("{:?}", beam_offset.shape()).into(),
+            });
+        }
+        if pol_type.len() != num_receptors as _ {
+            return Err(MeasurementSetWriteError::BadArrayShape {
+                argument: "pol_type".into(),
+                function: "write_feed_row".into(),
+                expected: "n".into(),
+                received: format!("{:?}", pol_type.len()).into(),
+            });
+        }
+        if pol_response.shape() != &[num_receptors as _, num_receptors as _] {
+            return Err(MeasurementSetWriteError::BadArrayShape {
+                argument: "pol_response".into(),
+                function: "write_feed_row".into(),
+                expected: "[n, n]".into(),
+                received: format!("{:?}", pol_response.shape()).into(),
+            });
+        }
+        if position.len() != 3 as _ {
+            return Err(MeasurementSetWriteError::BadArrayShape {
+                argument: "position".into(),
+                function: "write_feed_row".into(),
+                expected: "3".into(),
+                received: format!("{:?}", position.len()).into(),
+            });
+        }
+        if receptor_angle.len() != num_receptors as _ {
+            return Err(MeasurementSetWriteError::BadArrayShape {
+                argument: "receptor_angle".into(),
+                function: "write_feed_row".into(),
+                expected: "n".into(),
+                received: format!("{:?}", receptor_angle.len()).into(),
+            });
+        }
+
+        table.put_cell("ANTENNA_ID", idx, &ant_idx).unwrap();
+        table.put_cell("FEED_ID", idx, &feed_idx).unwrap();
+        table.put_cell("SPECTRAL_WINDOW_ID", idx, &spw_idx).unwrap();
+        table.put_cell("TIME", idx, &time).unwrap();
+        table.put_cell("INTERVAL", idx, &interval).unwrap();
+        table
+            .put_cell("NUM_RECEPTORS", idx, &num_receptors)
+            .unwrap();
+        table.put_cell("BEAM_ID", idx, &beam_idx).unwrap();
+        table.put_cell("BEAM_OFFSET", idx, beam_offset).unwrap();
+        table.put_cell("POLARIZATION_TYPE", idx, pol_type).unwrap();
+        table.put_cell("POL_RESPONSE", idx, pol_response).unwrap();
+        table.put_cell("POSITION", idx, position).unwrap();
+        table
+            .put_cell("RECEPTOR_ANGLE", idx, receptor_angle)
+            .unwrap();
+        Ok(())
+    }
+
     /// Write a row into the `MWA_TILE_POINTING` table.
     ///
     /// - `start` - start MJD of observation
@@ -1381,6 +1476,43 @@ impl MeasurementSetWriter {
             params,
         )
         .unwrap();
+
+        // //// //
+        // Feed //
+        // //// //
+
+        let mut feed_table =
+            Table::open(&self.path.join("FEED"), TableOpenMode::ReadWrite).unwrap();
+
+        // all of this assumes num_pols = 2
+        assert_eq!(context.metafits_context.num_ant_pols, 2);
+
+        let num_ants = context.metafits_context.num_ants;
+
+        feed_table.add_rows(num_ants).unwrap();
+
+        for idx in 0..num_ants {
+            self.write_feed_row(
+                &mut feed_table,
+                idx as _,
+                idx as _,
+                0,
+                -1,
+                source_time,
+                source_interval,
+                context.metafits_context.num_ant_pols as _,
+                -1,
+                &array![[0., 0.], [0., 0.]],
+                &vec!["X".into(), "Y".into()],
+                &array![
+                    [c32::new(1., 0.), c32::new(0., 0.)],
+                    [c32::new(0., 0.), c32::new(1., 0.)]
+                ],
+                &vec![0., 0., 0.],
+                &vec![0., PI / 2.],
+            )
+            .unwrap();
+        }
 
         // ///////////////// //
         // MWA Tile Pointing //
@@ -3418,6 +3550,71 @@ mod tests {
     }
 
     #[test]
+    fn test_write_feed_row() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(768);
+        ms_writer.add_mwa_mods();
+
+        let feed_table_path = table_path.join("FEED");
+        let mut feed_table = Table::open(&feed_table_path, TableOpenMode::ReadWrite).unwrap();
+
+        feed_table.add_rows(128).unwrap();
+
+        for idx in 0..128 {
+            ms_writer
+                .write_feed_row(
+                    &mut feed_table,
+                    idx as _,
+                    idx as _,
+                    0,
+                    -1,
+                    5077351975.,
+                    0.,
+                    2,
+                    -1,
+                    &array![[0., 0.], [0., 0.]],
+                    &vec!["X".into(), "Y".into()],
+                    &array![
+                        [c32::new(1., 0.), c32::new(0., 0.)],
+                        [c32::new(0., 0.), c32::new(1., 0.)]
+                    ],
+                    &vec![0., 0., 0.],
+                    &vec![0., PI / 2.],
+                )
+                .unwrap();
+        }
+        drop(ms_writer);
+
+        let mut feed_table = Table::open(&feed_table_path, TableOpenMode::Read).unwrap();
+
+        let mut expected_table =
+            Table::open(PATH_1254670392.join("FEED"), TableOpenMode::Read).unwrap();
+
+        assert_table_nrows_match!(feed_table, expected_table);
+        for col_name in [
+            "POSITION",
+            "BEAM_OFFSET",
+            "POLARIZATION_TYPE",
+            "POL_RESPONSE",
+            "RECEPTOR_ANGLE",
+            "ANTENNA_ID",
+            "BEAM_ID",
+            "FEED_ID",
+            "INTERVAL",
+            "NUM_RECEPTORS",
+            "SPECTRAL_WINDOW_ID",
+            "TIME",
+        ] {
+            assert_table_columns_match!(feed_table, expected_table, col_name);
+        }
+    }
+
+    #[test]
     fn test_write_mwa_tile_pointing_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3550,23 +3747,25 @@ mod tests {
                 "DATA_DESCRIPTION",
                 vec!["FLAG_ROW", "POLARIZATION_ID", "SPECTRAL_WINDOW_ID"],
             ),
-            // (
-            //     "FEED",
-            //     vec![
-            //         "POSITION",
-            //         "BEAM_OFFSET",
-            //         "POLARIZATION_TYPE",
-            //         "POL_RESPONSE",
-            //         "RECEPTOR_ANGLE",
-            //         "ANTENNA_ID",
-            //         "BEAM_ID",
-            //         "FEED_ID",
-            //         "INTERVAL",
-            //         "NUM_RECEPTORS",
-            //         "SPECTRAL_WINDOW_ID",
-            //         "TIME",
-            //     ],
-            // ),
+            (
+                "FEED",
+                vec![
+                    "POSITION",
+                    "BEAM_OFFSET",
+                    "POLARIZATION_TYPE",
+                    "POL_RESPONSE",
+                    "RECEPTOR_ANGLE",
+                    "ANTENNA_ID",
+                    "BEAM_ID",
+                    "FEED_ID",
+                    // interval is hardcoded to zero in cotter, it should be obs time
+                    // "INTERVAL",
+                    "NUM_RECEPTORS",
+                    "SPECTRAL_WINDOW_ID",
+                    // time is also wrong in Cotter, it should be midpoint, not start time.
+                    // "TIME",
+                ],
+            ),
             (
                 "FIELD",
                 vec![
