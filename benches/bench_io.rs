@@ -12,19 +12,31 @@ use marlu::{
     ndarray::Array3,
     Complex, Jones, RADec,
 };
-use mwalib::get_baseline_count;
 use ndarray::Array4;
-use std::env;
-use std::path::Path;
+use std::{cmp::min, path::Path};
+use std::{env, ops::Range};
 use tempfile::tempdir;
 
 // ///////////// //
 // IO Benchmarks //
 // ///////////// //
 
-const NUM_TIMESTEPS: usize = 2;
-const NUM_COARSE_CHANS: usize = 2;
-const NUM_ITERATIONS: usize = 60;
+/// Get the timestep_idxs, coarse_chan_idxs, and baseline_idxs for a given context.
+fn get_indices(context: &CorrelatorContext) -> (Range<usize>, Range<usize>, Vec<usize>) {
+    let first_common_timestep_idx = *(context.common_timestep_indices.first().unwrap());
+    let last_timestep_idx = *(context.provided_timestep_indices.last().unwrap());
+    // limit max number of timesteps
+    let last_timestep_idx = min(first_common_timestep_idx + 10, last_timestep_idx);
+
+    let img_timestep_range = first_common_timestep_idx..last_timestep_idx + 1;
+    let img_coarse_chan_idxs = &context.common_coarse_chan_indices;
+    let img_coarse_chan_range =
+        *img_coarse_chan_idxs.first().unwrap()..(*img_coarse_chan_idxs.last().unwrap() + 1);
+    // let mwalib_coarse_chan_range = 0..2;
+
+    let img_baseline_idxs: Vec<usize> = (0..context.metafits_context.num_baselines).collect();
+    (img_timestep_range, img_coarse_chan_range, img_baseline_idxs)
+}
 
 fn get_test_dir() -> String {
     env::var("MARLU_TEST_DIR").unwrap_or_else(|_| String::from("/mnt/data"))
@@ -54,21 +66,17 @@ fn get_context_mwax_half_1247842824() -> CorrelatorContext {
 
 fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
     let context = get_context_mwax_half_1247842824();
-    let first_common_timestep_idx = *(context.common_timestep_indices.first().unwrap());
-    let mwalib_timestep_range =
-        first_common_timestep_idx..(first_common_timestep_idx + NUM_TIMESTEPS);
-    let mwalib_coarse_chan_range = 0..NUM_COARSE_CHANS;
-
-    let tmp_dir = tempdir().unwrap();
-    let ms_path = tmp_dir.path().join("1254670392.none.ms");
+    let (mwalib_timestep_range, mwalib_coarse_chan_range, _) = get_indices(&context);
 
     let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
-    let ms_writer = MeasurementSetWriter::new(ms_path, phase_centre, None);
 
     crt.bench_function(
         "ms_writer::initialize_from_mwalib - mwax_half_1247842824",
         |bch| {
             bch.iter(|| {
+                let tmp_dir = tempdir().unwrap();
+                let ms_path = tmp_dir.path().join("1254670392.none.ms");
+                let ms_writer = MeasurementSetWriter::new(ms_path, phase_centre, None);
                 ms_writer
                     .initialize_from_mwalib(
                         &context,
@@ -125,26 +133,12 @@ fn synthesize_test_data(
 
 fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
     let context = get_context_mwax_half_1247842824();
-    let first_common_timestep_idx = *(context.common_timestep_indices.first().unwrap());
-    let mwalib_timestep_range =
-        first_common_timestep_idx..(first_common_timestep_idx + NUM_TIMESTEPS);
-    let mwalib_coarse_chan_range = 0..NUM_COARSE_CHANS;
 
-    let tmp_dir = tempdir().unwrap();
-    let ms_path = tmp_dir.path().join("1254670392.none.ms");
+    let (mwalib_timestep_range, mwalib_coarse_chan_range, mwalib_baseline_idxs) =
+        get_indices(&context);
 
     let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
-    let mut ms_writer = MeasurementSetWriter::new(ms_path, phase_centre, None);
-
-    ms_writer
-        .initialize_from_mwalib(&context, &mwalib_timestep_range, &mwalib_coarse_chan_range)
-        .unwrap();
-
-    let mwalib_baseline_idxs: Vec<usize> =
-        (0..get_baseline_count(context.metafits_context.num_ants)).collect();
-
     let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
-
     let shape = (
         mwalib_timestep_range.len(),
         mwalib_coarse_chan_range.len() * fine_chans_per_coarse,
@@ -156,6 +150,16 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
         "ms_writer::write_vis_mwalib - mwax_half_1247842824",
         |bch| {
             bch.iter(|| {
+                let tmp_dir = tempdir().unwrap();
+                let ms_path = tmp_dir.path().join("1254670392.none.ms");
+                let mut ms_writer = MeasurementSetWriter::new(ms_path, phase_centre, None);
+                ms_writer
+                    .initialize_from_mwalib(
+                        &context,
+                        &mwalib_timestep_range,
+                        &mwalib_coarse_chan_range,
+                    )
+                    .unwrap();
                 ms_writer
                     .write_vis_mwalib(
                         jones_array.view(),
@@ -174,7 +178,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
 
 criterion_group!(
     name = io;
-    config = Criterion::default().sample_size(NUM_ITERATIONS);
+    config = Criterion::default().sample_size(60);
     targets =
         bench_ms_init_mwax_half_1247842824,
         bench_ms_write_mwax_part_1247842824
