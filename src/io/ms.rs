@@ -612,6 +612,7 @@ impl MeasurementSetWriter {
         station: &str,
         ant_type: &str,
         mount: &str,
+        // TODO: should this be an XyzGeodetic/XyzGeocentric?
         position: &Vec<f64>,
         dish_diameter: f64,
         flag_row: bool,
@@ -656,6 +657,7 @@ impl MeasurementSetWriter {
         station: &str,
         ant_type: &str,
         mount: &str,
+        // TODO: should this be an XyzGeodetic/XyzGeocentric?
         position: &Vec<f64>,
         dish_diameter: f64,
         input: &Vec<i32>,
@@ -761,6 +763,7 @@ impl MeasurementSetWriter {
         name: &str,
         calibration_group: i32,
         code: &str,
+        // TODO: should this be an `RADec`?
         direction: Vec<f64>,
         proper_motion: Vec<f64>,
     ) -> Result<(), MeasurementSetWriteError> {
@@ -1076,6 +1079,7 @@ impl MeasurementSetWriter {
         beam_offset: &Array2<f64>,
         pol_type: &Vec<String>,
         pol_response: &Array2<c32>,
+        // TODO: should this be an XyzGeodetic/XyzGeocentric?
         position: &Vec<f64>,
         receptor_angle: &Vec<f64>,
     ) -> Result<(), MeasurementSetWriteError> {
@@ -2353,8 +2357,6 @@ mod tests {
             }
         }
 
-        // TODO: check TableMeasDesc
-
         let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
         let main_table_keywords = main_table.table_keyword_names().unwrap();
         assert!(main_table_keywords.contains(&"SOURCE".into()));
@@ -2403,8 +2405,6 @@ mod tests {
                 assert_table_column_descriptions_match!(table, exp_table, col_name);
             }
         }
-
-        // TODO: check TableMeasDesc
 
         let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
         let main_table_keywords = main_table.table_keyword_names().unwrap();
@@ -3541,7 +3541,6 @@ mod tests {
             "APPLICATION",
             "PRIORITY",
             "ORIGIN",
-            // TODO:
             "APP_PARAMS",
             "CLI_COMMAND",
         ] {
@@ -3781,6 +3780,7 @@ mod tests {
                     "MWA_HAS_CALIBRATOR",
                 ],
             ),
+            // WONTDO: this is not written in Cotter
             // (
             //     "FLAG_CMD",
             //     vec![
@@ -3790,27 +3790,23 @@ mod tests {
             (
                 "HISTORY",
                 vec![
-                    // TODO:
-                    // "APP_PARAMS",
-                    // TODO:
-                    // "CLI_COMMAND",
-                    // Different application so these will never match
-                    // "APPLICATION",
-                    // TODO:
-                    // "MESSAGE",
                     "OBJECT_ID",
                     "OBSERVATION_ID",
                     "ORIGIN",
                     "PRIORITY",
-                    // "TIME",
+                    // TODO:
+                    // "APP_PARAMS",
+                    // "CLI_COMMAND",
+                    // "MESSAGE",
+                    // WONTDO:
+                    // "TIME", // this is wrong in Cotter.
+                    // "APPLICATION", // Different application so these will never match
                 ],
             ),
             (
                 "OBSERVATION",
                 vec![
                     "TIME_RANGE",
-                    // "LOG",
-                    // "SCHEDULE",
                     "FLAG_ROW",
                     "OBSERVER",
                     "PROJECT",
@@ -3822,8 +3818,12 @@ mod tests {
                     "MWA_OBSERVATION_MODE",
                     "MWA_FLAG_WINDOW_SIZE",
                     "MWA_DATE_REQUESTED",
+                    // WONTDO: these are never written in Cotter
+                    // "LOG",
+                    // "SCHEDULE",
                 ],
             ),
+            // WONTDO: this is not written in Cotter
             // (
             //     "POINTING",
             //     vec![
@@ -3842,6 +3842,7 @@ mod tests {
                 "POLARIZATION",
                 vec!["CORR_TYPE", "CORR_PRODUCT", "FLAG_ROW", "NUM_CORR"],
             ),
+            // WONTDO: this is not written in Cotter
             // (
             //     "PROCESSOR",
             //     vec!["FLAG_ROW", "MODE_ID", "TYPE", "TYPE_ID", "SUB_TYPE"],
@@ -3882,6 +3883,7 @@ mod tests {
                     "MWA_CENTRE_SUBBAND_NR",
                 ],
             ),
+            // WONTDO: this is not written in Cotter
             // (
             //     "STATE",
             //     vec![
