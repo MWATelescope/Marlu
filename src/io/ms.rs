@@ -4,7 +4,7 @@ use crate::{
     ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis},
     precession::precess_time,
     time::{gps_millis_to_epoch, gps_to_epoch},
-    Jones, LatLngHeight, RADec, RubblArray, XyzGeodetic, ENH, UVW,
+    Jones, LatLngHeight, RADec, XyzGeodetic, ENH, UVW,
 };
 use flate2::read::GzDecoder;
 use itertools::izip;
@@ -36,14 +36,6 @@ lazy_static! {
 
 const PKG_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
-
-/// This is a very stupid hack that lets us use rubbl's ndarray. (┛◉Д◉)┛彡┻━┻
-/// TODO: reduce double-handling
-macro_rules! rubblify_array {
-    ($array:expr) => {
-        RubblArray::from_shape_vec($array.dim(), $array.to_owned().into_raw_vec()).unwrap()
-    };
-}
 
 /// A helper struct to write out a uvfits file.
 ///
@@ -731,9 +723,7 @@ impl MeasurementSetWriter {
         }
 
         table.put_cell("CORR_TYPE", idx, corr_type).unwrap();
-
-        let corr_product = rubblify_array!(corr_product);
-        table.put_cell("CORR_PRODUCT", idx, &corr_product).unwrap();
+        table.put_cell("CORR_PRODUCT", idx, corr_product).unwrap();
         table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
         Ok(())
     }
@@ -828,8 +818,6 @@ impl MeasurementSetWriter {
         flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
-
-        let dir_info = rubblify_array!(dir_info);
 
         match dir_info.shape() {
             [3, p, 2] if *p > 0 => {
@@ -1595,6 +1583,7 @@ impl MeasurementSetWriter {
         antenna1: i32,
         antenna2: i32,
         data_desc_id: i32,
+        // TODO: take UVW
         uvw: &Vec<f64>,
         interval: f64,
         // TODO: is this not just interval?
@@ -1603,9 +1592,9 @@ impl MeasurementSetWriter {
         scan_number: i32,
         state_id: i32,
         sigma: &Vec<f32>,
-        data: Array2<c32>,
-        flags: Array2<bool>,
-        weights: Array2<f32>,
+        data: &Array2<c32>,
+        flags: &Array2<bool>,
+        weights: &Array2<f32>,
         flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
         let num_pols = 4;
@@ -1654,11 +1643,6 @@ impl MeasurementSetWriter {
             .map(|weights_pol_view| weights_pol_view.sum())
             .collect::<Vec<f32>>();
 
-        // TODO: get rid of this disgusting and wasteful hack.
-        let data = rubblify_array!(data);
-        let flags = rubblify_array!(flags);
-        let weights = rubblify_array!(weights);
-
         table.put_cell("TIME", idx, &time).unwrap();
         table
             .put_cell("TIME_CENTROID", idx, &time_centroid)
@@ -1674,10 +1658,10 @@ impl MeasurementSetWriter {
         table.put_cell("SCAN_NUMBER", idx, &scan_number).unwrap();
         table.put_cell("STATE_ID", idx, &state_id).unwrap();
         table.put_cell("SIGMA", idx, sigma).unwrap();
-        table.put_cell("DATA", idx, &data).unwrap();
-        table.put_cell("WEIGHT_SPECTRUM", idx, &weights).unwrap();
+        table.put_cell("DATA", idx, data).unwrap();
+        table.put_cell("WEIGHT_SPECTRUM", idx, weights).unwrap();
         table.put_cell("WEIGHT", idx, &weight_pol).unwrap();
-        table.put_cell("FLAG", idx, &flags).unwrap();
+        table.put_cell("FLAG", idx, flags).unwrap();
         table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
 
         Ok(())
@@ -1751,6 +1735,13 @@ impl VisWritable for MeasurementSetWriter {
 
         let mut main_idx = 0;
 
+        // we create these temporary arrays/vectors to avoid heap allocations.
+        let mut uvw_tmp = Vec::with_capacity(3);
+        let sigma_tmp = vec![1., 1., 1., 1.];
+        let mut data_tmp = Array2::zeros((num_img_chans, 4));
+        let mut weights_tmp = Array2::zeros((num_img_chans, 4));
+        let mut flags_tmp = Array2::from_elem((num_img_chans, 4), false);
+
         for (timestep, jones_timestep_view, weight_timestep_view, flag_timestep_view) in izip!(
             img_timesteps.iter(),
             jones_array.outer_iter(),
@@ -1789,8 +1780,27 @@ impl VisWritable for MeasurementSetWriter {
                     tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
 
-                let data: Array2<c32> =
-                    Array2::from_shape_fn((num_img_chans, 4), |(c, p)| jones_baseline_view[c][p]);
+                // copy values into temporary arrays to avoid heap allocs.
+                uvw_tmp.clear();
+                uvw_tmp.extend_from_slice(&[uvw.u, uvw.v, uvw.w]);
+                jones_baseline_view
+                    .iter()
+                    .zip(data_tmp.outer_iter_mut())
+                    .for_each(|(j, mut d)| {
+                        (0..4).for_each(|p| d[p] = j[p]);
+                    });
+                weight_baseline_view
+                    .iter()
+                    .zip(weights_tmp.iter_mut())
+                    .for_each(|(j, d)| {
+                        *d = *j;
+                    });
+                flag_baseline_view
+                    .iter()
+                    .zip(flags_tmp.iter_mut())
+                    .for_each(|(j, d)| {
+                        *d = *j;
+                    });
 
                 let flag_row = flag_baseline_view.iter().all(|&x| x);
 
@@ -1802,16 +1812,15 @@ impl VisWritable for MeasurementSetWriter {
                     ant1_idx as _,
                     ant2_idx as _,
                     0,
-                    &vec![uvw.u, uvw.v, uvw.w],
+                    &uvw_tmp,
                     integration_time_s,
                     -1,
                     1,
                     -1,
-                    // TODO
-                    &vec![1., 1., 1., 1.],
-                    data,
-                    flag_baseline_view.to_owned(),
-                    weight_baseline_view.to_owned(),
+                    &sigma_tmp,
+                    &data_tmp,
+                    &flags_tmp,
+                    &weights_tmp,
                     flag_row,
                 )?;
 
@@ -4871,9 +4880,9 @@ mod tests {
                 1,
                 -1,
                 &vec![1., 1., 1., 1.],
-                arr2(VIS_DATA_1254670392),
-                flags,
-                weights,
+                &arr2(VIS_DATA_1254670392),
+                &flags,
+                &weights,
                 false,
             )
             .unwrap();
