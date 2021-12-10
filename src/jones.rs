@@ -13,7 +13,7 @@
 
 use std::ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
-use crate::{approx::AbsDiffEq, Complex};
+use crate::Complex;
 use num_traits::{float::FloatCore, Float, Num, NumAssign, Zero};
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -555,7 +555,8 @@ impl std::fmt::Debug for Jones<f64> {
     }
 }
 
-impl<F: Float + AbsDiffEq> AbsDiffEq for Jones<F>
+#[cfg(test)]
+impl<F: Float + crate::approx::AbsDiffEq> crate::approx::AbsDiffEq for Jones<F>
 where
     F::Epsilon: Clone,
 {
@@ -614,7 +615,7 @@ mod tests {
         let i = c64::new(1.0, 2.0);
         let a = Jones([i, i + 1.0, i + 2.0, i + 3.0]);
         let b = Jones([i * 2.0, i * 3.0, i * 4.0, i * 5.0]);
-        let c = a * &b;
+        let c = a * b;
         let expected_c = Jones([
             c64::new(-14.0, 32.0),
             c64::new(-19.0, 42.0),
@@ -710,7 +711,7 @@ mod tests {
             c64::new(2.0, 0.0),
             c64::new(4.0, 0.0),
         ]);
-        let b = a.clone();
+        let b = a;
         assert!((a / b).any_nan());
     }
 

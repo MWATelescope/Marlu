@@ -4,12 +4,10 @@
 
 //! Core code to describe coordinate transformations, Jones matrices, etc.
 
-pub use rubbl_core::{approx, Array as RubblArray, Complex};
 #[allow(non_camel_case_types)]
 pub type c32 = Complex<f32>;
 #[allow(non_camel_case_types)]
 pub type c64 = Complex<f64>;
-pub use ndarray;
 
 pub mod constants;
 pub mod io;
@@ -35,6 +33,10 @@ pub use pos::{
 
 pub use erfa_sys;
 pub use hifitime;
+pub use ndarray;
+pub use num_traits;
+pub use rayon;
+pub use rubbl_core::{approx, Array as RubblArray, Complex};
 
 // If "mwalib" is enabled, re-export the crate here, as well its re-exported
 // crates.

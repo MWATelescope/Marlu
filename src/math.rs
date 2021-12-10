@@ -124,7 +124,7 @@ mod tests {
         let n = 128;
         let mut bl_index = 0;
         for tile1 in 0..n {
-            for tile2 in tile1 + 0..n {
+            for tile2 in tile1..n {
                 let (t1, t2) = baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
@@ -144,7 +144,7 @@ mod tests {
         let n = 126;
         let mut bl_index = 0;
         for tile1 in 0..n {
-            for tile2 in tile1 + 0..n {
+            for tile2 in tile1..n {
                 let (t1, t2) = baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
@@ -163,7 +163,7 @@ mod tests {
         let n = 256;
         let mut bl_index = 0;
         for tile1 in 0..n {
-            for tile2 in tile1 + 0..n {
+            for tile2 in tile1..n {
                 let (t1, t2) = baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
