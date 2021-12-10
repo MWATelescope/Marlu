@@ -24,7 +24,7 @@ use tempfile::tempdir;
 
 const NUM_TIMESTEPS: usize = 2;
 const NUM_COARSE_CHANS: usize = 2;
-const NUM_ITERATIONS: usize = 10;
+const NUM_ITERATIONS: usize = 60;
 
 fn get_test_dir() -> String {
     env::var("MARLU_TEST_DIR").unwrap_or_else(|_| String::from("/mnt/data"))
