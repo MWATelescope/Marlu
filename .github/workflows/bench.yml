@@ -1,0 +1,47 @@
+# Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
+
+on: 
+  push:
+    tags-ignore:
+      - '**'
+    branches:
+      - 'main'
+
+name: Benchmarks
+
+jobs:
+  test:
+    name: Benchmarks
+    runs-on: self-hosted
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Cargo Bench
+        run: |
+          cargo bench
+        env:
+          LD_LIBRARY_PATH: /usr/local/lib/
+          MARLU_TEST_DIR: /mnt/data
+
+      - name: install zip
+        run: |
+          sudo apt-get update \
+          && sudo apt-get install -y zip
+
+      - name: Zip benchmark results
+        run: zip -r criterion.zip target/criterion/*
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: criterion.zip
+          path: criterion.zip
