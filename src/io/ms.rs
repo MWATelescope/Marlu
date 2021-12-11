@@ -1597,6 +1597,9 @@ impl MeasurementSetWriter {
         weights: &Array2<f32>,
         flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
+        // DELETEME: 
+        coz::scope!("write main row");
+
         let num_pols = 4;
 
         if uvw.len() != 3 {
@@ -1643,26 +1646,94 @@ impl MeasurementSetWriter {
             .map(|weights_pol_view| weights_pol_view.sum())
             .collect::<Vec<f32>>();
 
-        table.put_cell("TIME", idx, &time).unwrap();
-        table
-            .put_cell("TIME_CENTROID", idx, &time_centroid)
-            .unwrap();
-        table.put_cell("ANTENNA1", idx, &antenna1).unwrap();
-        table.put_cell("ANTENNA2", idx, &antenna2).unwrap();
-        table.put_cell("DATA_DESC_ID", idx, &data_desc_id).unwrap();
-        table.put_cell("UVW", idx, uvw).unwrap();
-        table.put_cell("INTERVAL", idx, &interval).unwrap();
+        {
+            // DELETEME: 
+            coz::scope!("put_cell TIME");
+            table.put_cell("TIME", idx, &time).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell TIME_CENTROID");
+            table
+                .put_cell("TIME_CENTROID", idx, &time_centroid)
+                .unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell ANTENNA1");
+            table.put_cell("ANTENNA1", idx, &antenna1).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell ANTENNA2");
+            table.put_cell("ANTENNA2", idx, &antenna2).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell DATA_DESC_ID");
+            table.put_cell("DATA_DESC_ID", idx, &data_desc_id).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell UVW");
+            table.put_cell("UVW", idx, uvw).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell INTERVAL");
+            table.put_cell("INTERVAL", idx, &interval).unwrap();
+        }
         // TODO: really?
-        table.put_cell("EXPOSURE", idx, &interval).unwrap();
-        table.put_cell("PROCESSOR_ID", idx, &processor_id).unwrap();
-        table.put_cell("SCAN_NUMBER", idx, &scan_number).unwrap();
-        table.put_cell("STATE_ID", idx, &state_id).unwrap();
-        table.put_cell("SIGMA", idx, sigma).unwrap();
-        table.put_cell("DATA", idx, data).unwrap();
-        table.put_cell("WEIGHT_SPECTRUM", idx, weights).unwrap();
-        table.put_cell("WEIGHT", idx, &weight_pol).unwrap();
-        table.put_cell("FLAG", idx, flags).unwrap();
-        table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        {
+            // DELETEME: 
+            coz::scope!("put_cell EXPOSURE");
+            table.put_cell("EXPOSURE", idx, &interval).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell PROCESSOR_ID");
+            table.put_cell("PROCESSOR_ID", idx, &processor_id).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell SCAN_NUMBER");
+            table.put_cell("SCAN_NUMBER", idx, &scan_number).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell STATE_ID");
+            table.put_cell("STATE_ID", idx, &state_id).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell SIGMA");
+            table.put_cell("SIGMA", idx, sigma).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell DATA");
+            table.put_cell("DATA", idx, data).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell WEIGHT_SPECTRUM");
+            table.put_cell("WEIGHT_SPECTRUM", idx, weights).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell WEIGHT");
+            table.put_cell("WEIGHT", idx, &weight_pol).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell FLAG");
+            table.put_cell("FLAG", idx, flags).unwrap();
+        }
+        {
+            // DELETEME: 
+            coz::scope!("put_cell FLAG_ROW");
+            table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
+        }
 
         Ok(())
     }
@@ -1748,6 +1819,9 @@ impl VisWritable for MeasurementSetWriter {
             weight_array.outer_iter(),
             flag_array.outer_iter()
         ) {
+            // DELETEME: 
+            coz::scope!("timestep");
+
             let gps_time_s = timestep.gps_time_ms as f64 / 1000.0;
             let centroid_epoch = gps_to_epoch(gps_time_s + integration_time_s / 2.0);
 
@@ -1773,6 +1847,9 @@ impl VisWritable for MeasurementSetWriter {
                 weight_timestep_view.axis_iter(Axis(1)),
                 flag_timestep_view.axis_iter(Axis(1))
             ) {
+                // DELETEME: 
+                coz::scope!("baseline");
+
                 let ant1_idx = baseline.ant1_index;
                 let ant2_idx = baseline.ant2_index;
 
@@ -1823,6 +1900,9 @@ impl VisWritable for MeasurementSetWriter {
                     &weights_tmp,
                     flag_row,
                 )?;
+
+                // DELETEME: 
+                coz::progress!();
 
                 main_idx += 1;
             }
