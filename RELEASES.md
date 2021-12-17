@@ -1,5 +1,13 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.3.0 (2021-12-17)
+
+- use Rust 2021 Edition
+- add cuda convenience functions
+- implement io feature, make rubbl optional
+- import approx and ndarray directly, not rubbl's
+- slightly faster MS IO 
+
 # Version 0.2.3 (2021-12-07)
 
 - update mwalib to 0.12
