@@ -19,10 +19,14 @@ default = ["io", "mwalib"]
 # Provide IO code. Pulls in heavy dependencies like rubbl.
 io = ["rubbl_core", "rubbl_casatables"]
 
+# Provide CUDA convenience code
+cuda = ["cuda-runtime-sys"]
+
 # Compile various C libraries statically.
 erfa-static = ["erfa-sys/static"]
 cfitsio-static = ["mwalib/cfitsio-static"]
-all-static = ["erfa-static", "cfitsio-static"]
+cuda-static = []
+all-static = ["erfa-static", "cfitsio-static", "cuda-static"]
 
 [dependencies]
 cfg-if = "1.0.*"
@@ -43,12 +47,15 @@ mwalib = { version = ">=0.12.0", optional = true }
 rubbl_core = { version = "0.3.0", optional = true }
 rubbl_casatables = { version = "0.6.0", optional = true }
 
+cuda-runtime-sys = { version = "0.3.0-alpha.1", optional = true }
+
 [dev-dependencies]
 approx = { version = "0.5.*", features = ["num-complex"] }
 criterion = "0.3.*"
 glob = "0.3"
 tempfile = "3.2"
 ndarray = { version = ">=0.15.4,<0.16", features = ["approx-0_5"] }
+serial_test = "0.5.*"
 
 [[bench]]
 name = "bench_misc"

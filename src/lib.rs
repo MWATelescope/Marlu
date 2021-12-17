@@ -19,6 +19,9 @@ pub mod time;
 #[cfg(feature = "io")]
 pub mod io;
 
+#[cfg(feature = "cuda")]
+pub mod cuda;
+
 // Re-exports.
 pub use jones::Jones;
 pub use pos::{
