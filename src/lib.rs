@@ -9,6 +9,7 @@ pub type c32 = num_complex::Complex<f32>;
 #[allow(non_camel_case_types)]
 pub type c64 = num_complex::Complex<f64>;
 
+pub mod averaging;
 pub mod constants;
 pub mod jones;
 pub mod math;
