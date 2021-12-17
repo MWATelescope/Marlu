@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum MeasurementSetWriteError {
-    #[error("bad channel info shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
+    #[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
     BadArrayShape {
         argument: String,
         function: String,

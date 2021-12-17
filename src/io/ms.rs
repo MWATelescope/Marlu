@@ -1,6 +1,6 @@
 use crate::{
     c32,
-    io::error::MeasurementSetWriteError,
+    io::error::{IOError, MeasurementSetWriteError},
     ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis},
     precession::precess_time,
     time::{gps_millis_to_epoch, gps_to_epoch},
@@ -26,7 +26,7 @@ use tar::Archive;
 use lazy_static::lazy_static;
 use log::trace;
 
-use super::{error::IOError, VisWritable};
+use super::{VisWritable};
 
 lazy_static! {
     static ref DEFAULT_TABLES_GZ: &'static [u8] =
@@ -1081,7 +1081,7 @@ impl MeasurementSetWriter {
                 received: format!("{:?}", beam_offset.shape()).into(),
             });
         }
-        if pol_type.len() != num_receptors as _ {
+        if pol_type.len() != num_receptors as usize {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "pol_type".into(),
                 function: "write_feed_row".into(),
@@ -1691,9 +1691,23 @@ impl VisWritable for MeasurementSetWriter {
 
         let jones_dims = jones_array.dim();
         let weight_dims = weight_array.dim();
-        assert_eq!(jones_dims.0, weight_dims.0);
-        assert_eq!(jones_dims.1, weight_dims.1);
-        assert_eq!(jones_dims.2, weight_dims.2);
+        if weight_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
+            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
+                argument: "weight_array".into(),
+                function: "write_vis_mwalib".into(),
+                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
+                received: format!("{:?}", weight_dims).into(),
+            }));
+        }
+        let flag_dims = flag_array.dim();
+        if flag_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
+            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
+                argument: "flag_array".into(),
+                function: "write_vis_mwalib".into(),
+                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
+                received: format!("{:?}", flag_dims).into(),
+            }));
+        }
 
         let num_img_timesteps = timestep_range.len();
         assert_eq!(num_img_timesteps, jones_dims.0);
