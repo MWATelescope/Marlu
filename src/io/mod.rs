@@ -1,14 +1,15 @@
 mod error;
 pub mod ms;
 
-use std::ops::Range;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "mwalib")] {
+        use std::ops::Range;
 
-#[cfg(feature = "mwalib")]
-use crate::mwalib::CorrelatorContext;
-use crate::Jones;
-use ndarray::{ArrayView3, ArrayView4, ArrayViewMut3};
-
-use self::error::IOError;
+        use crate::{mwalib::CorrelatorContext, Jones};
+        use ndarray::{ArrayView3, ArrayView4, ArrayViewMut3};
+        use self::error::IOError;
+    }
+}
 
 /// The container has visibilities which can be read by passing in a mwalib
 /// context and the range of values to read.

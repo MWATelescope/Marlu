@@ -97,7 +97,7 @@ impl std::fmt::Display for HADec {
 }
 
 #[cfg(test)]
-impl crate::approx::AbsDiffEq for HADec {
+impl approx::AbsDiffEq for HADec {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -113,7 +113,7 @@ impl crate::approx::AbsDiffEq for HADec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::approx::assert_abs_diff_eq;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn to_azel() {

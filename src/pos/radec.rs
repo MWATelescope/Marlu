@@ -189,7 +189,7 @@ impl std::fmt::Display for RADec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::approx::assert_abs_diff_eq;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn test_to_lmn() {

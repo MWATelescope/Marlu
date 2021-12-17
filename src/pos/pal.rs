@@ -401,7 +401,8 @@ pub unsafe fn palMappa(eq: f64, date: f64, amprms: *mut f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{approx::assert_abs_diff_eq, ndarray::prelude::*};
+    use crate::ndarray::prelude::*;
+    use approx::assert_abs_diff_eq;
 
     /// We use the SOFA/ERFA test values rather than the values from SLA
     /// because the precession models have changed
