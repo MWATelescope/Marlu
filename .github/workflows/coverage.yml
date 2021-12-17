@@ -7,7 +7,7 @@ name: Generate Coverage report
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    container: mwatelescope/birli:latest
+    container: mwatelescope/marlu:latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -41,7 +41,6 @@ jobs:
           LLVM_PROFILE_FILE: json5format-%m.profraw
         run: |
           mkdir -p coverage
-
           export PATH="${HOME}/.cargo/bin:${PATH}"
           cargo build
           cargo test
