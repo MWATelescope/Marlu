@@ -1,32 +1,43 @@
 use crate::{
     c32,
-    io::error::{IOError, MeasurementSetWriteError},
+    io::error::{MeasurementSetWriteError},
     ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis},
-    precession::precess_time,
-    time::{gps_millis_to_epoch, gps_to_epoch},
-    Jones, LatLngHeight, RADec, XyzGeodetic, ENH, UVW,
+    LatLngHeight, RADec
 };
+use std::{
+    fs::create_dir_all,
+    path::{Path, PathBuf},
+};
+
 use flate2::read::GzDecoder;
-use itertools::izip;
-#[cfg(feature = "mwalib")]
-use mwalib::CorrelatorContext;
+use lazy_static::lazy_static;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
     TableRecord,
 };
-use std::{
-    f64::consts::PI,
-    fs::create_dir_all,
-    ops::Range,
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
 use tar::Archive;
 
-use lazy_static::lazy_static;
-use log::trace;
+use super::VisWritable;
 
-use super::{VisWritable};
+cfg_if::cfg_if! {
+    if #[cfg(feature = "mwalib")] {
+        use std::{
+            ops::Range,
+            time::SystemTime,
+            f64::consts::FRAC_PI_2,
+        };
+
+        use log::trace;
+        use itertools::izip;
+        use mwalib::CorrelatorContext;
+
+        use super::error::IOError;
+        use crate::{precession::precess_time,
+            time::{gps_millis_to_epoch, gps_to_epoch},
+            Jones, XyzGeodetic, ENH, UVW
+        };
+    }
+}
 
 lazy_static! {
     static ref DEFAULT_TABLES_GZ: &'static [u8] =
@@ -34,12 +45,10 @@ lazy_static! {
     static ref SOURCE_TABLE_GZ: &'static [u8] = include_bytes!("../../data/source_table.tar.gz");
 }
 
-const PKG_VERSION: &'static str = env!("CARGO_PKG_VERSION");
-const PKG_NAME: &'static str = env!("CARGO_PKG_NAME");
+const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
-/// A helper struct to write out a uvfits file.
-///
-// pub struct MeasurementSetWriter<'a> {
+/// A helper struct to write out a CASA Measurement Set.
 pub struct MeasurementSetWriter {
     /// The path to the root of the measurement set (typically ends in .ms)
     path: PathBuf,
@@ -51,7 +60,6 @@ pub struct MeasurementSetWriter {
     array_pos: LatLngHeight,
 }
 
-// impl<'a> MeasurementSetWriter<'a> {
 impl MeasurementSetWriter {
     pub fn new<T: AsRef<Path>>(
         path: T,
@@ -105,7 +113,7 @@ impl MeasurementSetWriter {
             "added by {} {}, emulating cotter::MSWriter::initialize()",
             PKG_VERSION, PKG_NAME
         );
-        let mut main_table = Table::open(self.path.clone(), TableOpenMode::ReadWrite).unwrap();
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         // TODO: why isn't it let data_shape = [4, num_channels as _];
         let data_shape = [num_channels as _, 4];
         main_table
@@ -391,7 +399,7 @@ impl MeasurementSetWriter {
         )
         .unwrap();
 
-        let mut main_table = Table::open(self.path.clone(), TableOpenMode::ReadWrite).unwrap();
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         main_table
             .put_table_keyword("MWA_TILE_POINTING", pointing_table)
             .unwrap();
@@ -444,7 +452,7 @@ impl MeasurementSetWriter {
         )
         .unwrap();
 
-        let mut main_table = Table::open(self.path.clone(), TableOpenMode::ReadWrite).unwrap();
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         main_table
             .put_table_keyword("MWA_SUBBAND", subband_table)
             .unwrap();
@@ -498,7 +506,7 @@ impl MeasurementSetWriter {
                     argument: "chan_info".into(),
                     function: "write_spectral_window_row".into(),
                     expected: "[n, 4]".into(),
-                    received: format!("{:?}", sh).into(),
+                    received: format!("{:?}", sh),
                 })
             }
         }
@@ -596,6 +604,7 @@ impl MeasurementSetWriter {
     /// - `position` - Antenna X,Y,Z phase reference position
     /// - `dish_diameter` - Physical diameter of dish
     /// - `flag_row` - Row flag
+    #[allow(clippy::ptr_arg)]
     pub fn write_antenna_row(
         &self,
         table: &mut Table,
@@ -641,6 +650,7 @@ impl MeasurementSetWriter {
     /// - `slot` - A vector containing the physical receiver slot number for each polarization
     /// - `cable_length` - A vector containing the electrical length for each polarization
     /// - `flag_row` - Row flag
+    #[allow(clippy::ptr_arg)]
     pub fn write_antenna_row_mwa(
         &self,
         table: &mut Table,
@@ -693,6 +703,7 @@ impl MeasurementSetWriter {
     /// - `corr_product` - Indices describing receptors of feed going into correlation.
     ///     Shape should be [n, 2] where n is the length of `corr_type`
     /// - `flag_row` - Row flag
+    #[allow(clippy::ptr_arg)]
     pub fn write_polarization_row(
         &self,
         table: &mut Table,
@@ -715,9 +726,8 @@ impl MeasurementSetWriter {
                 return Err(MeasurementSetWriteError::BadArrayShape {
                     argument: "corr_product".into(),
                     function: "write_polarization_row".into(),
-                    expected: format!("[n, 2] (where n = corr_type.len() = {})", num_corr_type)
-                        .into(),
-                    received: format!("{:?}", sh).into(),
+                    expected: format!("[n, 2] (where n = corr_type.len() = {})", num_corr_type),
+                    received: format!("{:?}", sh),
                 })
             }
         }
@@ -770,8 +780,8 @@ impl MeasurementSetWriter {
                 return Err(MeasurementSetWriteError::BadArrayShape {
                     argument: "direction|proper_motion".into(),
                     function: "write_source_row".into(),
-                    expected: format!("(2, 2)").into(),
-                    received: format!("{:?}", sh).into(),
+                    expected: "(2, 2)".into(),
+                    received: format!("{:?}", sh),
                 })
             }
         }
@@ -827,8 +837,8 @@ impl MeasurementSetWriter {
                 return Err(MeasurementSetWriteError::BadArrayShape {
                     argument: "dir_info".into(),
                     function: "write_field_row".into(),
-                    expected: format!("[3, p, 2] (where p is highest polynomial order)").into(),
-                    received: format!("{:?}", sh).into(),
+                    expected: "[3, p, 2] (where p is highest polynomial order)".into(),
+                    received: format!("{:?}", sh),
                 })
             }
         }
@@ -839,7 +849,6 @@ impl MeasurementSetWriter {
 
         let col_names = ["DELAY_DIR", "PHASE_DIR", "REFERENCE_DIR"];
         for (value, &col_name) in dir_info.outer_iter().zip(col_names.iter()) {
-            // println!("{:?}", value.shape());
             table.put_cell(col_name, idx, &value.to_owned()).unwrap();
         }
 
@@ -1053,6 +1062,7 @@ impl MeasurementSetWriter {
     /// - `pol_response` - D-matrix i.e. leakage between two receptors
     /// - `position` - Position of feed relative to feed reference position
     /// - `receptor_angle` - The reference angle for polarization
+    #[allow(clippy::ptr_arg)]
     pub fn write_feed_row(
         &self,
         table: &mut Table,
@@ -1073,12 +1083,12 @@ impl MeasurementSetWriter {
     ) -> Result<(), MeasurementSetWriteError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
-        if beam_offset.shape() != &[num_receptors as _, 2] {
+        if beam_offset.shape() != [num_receptors as usize, 2] {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "beam_offset".into(),
                 function: "write_feed_row".into(),
                 expected: "[n, 2]".into(),
-                received: format!("{:?}", beam_offset.shape()).into(),
+                received: format!("{:?}", beam_offset.shape()),
             });
         }
         if pol_type.len() != num_receptors as usize {
@@ -1086,31 +1096,31 @@ impl MeasurementSetWriter {
                 argument: "pol_type".into(),
                 function: "write_feed_row".into(),
                 expected: "n".into(),
-                received: format!("{:?}", pol_type.len()).into(),
+                received: format!("{:?}", pol_type.len()),
             });
         }
-        if pol_response.shape() != &[num_receptors as _, num_receptors as _] {
+        if pol_response.shape() != [num_receptors as usize, num_receptors as usize] {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "pol_response".into(),
                 function: "write_feed_row".into(),
                 expected: "[n, n]".into(),
-                received: format!("{:?}", pol_response.shape()).into(),
+                received: format!("{:?}", pol_response.shape()),
             });
         }
-        if position.len() != 3 as _ {
+        if position.len() != 3 {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "position".into(),
                 function: "write_feed_row".into(),
                 expected: "3".into(),
-                received: format!("{:?}", position.len()).into(),
+                received: format!("{:?}", position.len()),
             });
         }
-        if receptor_angle.len() != num_receptors as _ {
+        if receptor_angle.len() != num_receptors as usize {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "receptor_angle".into(),
                 function: "write_feed_row".into(),
                 expected: "n".into(),
-                received: format!("{:?}", receptor_angle.len()).into(),
+                received: format!("{:?}", receptor_angle.len()),
             });
         }
 
@@ -1139,6 +1149,7 @@ impl MeasurementSetWriter {
     /// - `end` - end MJD of observation
     /// - `delays` - beamformer delays, from metafits:DELAYS
     /// - `direction_{ra|dec}` - pointing direction [Ra/Dec]
+    #[allow(clippy::ptr_arg)]
     pub fn write_mwa_tile_pointing_row(
         &self,
         table: &mut Table,
@@ -1212,7 +1223,7 @@ impl MeasurementSetWriter {
         let mwalib_centre_coarse_chan_idx =
             mwalib_coarse_chan_range.start + (num_img_coarse_chans / 2);
         let centre_coarse_chan =
-            context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx].clone();
+            &context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
         let fine_chan_width_hz = context.metafits_context.corr_fine_chan_width_hz;
         let mwalib_start_fine_chan_idx = mwalib_coarse_chan_range.start * fine_chans_per_coarse;
 
@@ -1269,9 +1280,9 @@ impl MeasurementSetWriter {
         let mut ant_table =
             Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite).unwrap();
 
-        let antennae = context.metafits_context.antennas.clone();
+        let antennae = &context.metafits_context.antennas;
         ant_table.add_rows(antennae.len()).unwrap();
-        for (idx, antenna) in antennae.into_iter().enumerate() {
+        for (idx, antenna) in antennae.iter().enumerate() {
             let position_enh = ENH {
                 e: antenna.east_m,
                 n: antenna.north_m,
@@ -1284,7 +1295,7 @@ impl MeasurementSetWriter {
             self.write_antenna_row_mwa(
                 &mut ant_table,
                 idx as _,
-                &antenna.tile_name.as_str(),
+                &antenna.tile_name,
                 "MWA",
                 "GROUND-BASED",
                 "ALT-AZ",
@@ -1336,9 +1347,16 @@ impl MeasurementSetWriter {
         let mut field_table =
             Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite).unwrap();
 
-        let ra_phase_rad = context.metafits_context.ra_phase_center_degrees.unwrap() * (PI / 180.);
-        let dec_phase_rad =
-            context.metafits_context.dec_phase_center_degrees.unwrap() * (PI / 180.);
+        let ra_phase_rad = context
+            .metafits_context
+            .ra_phase_center_degrees
+            .unwrap()
+            .to_radians();
+        let dec_phase_rad = context
+            .metafits_context
+            .dec_phase_center_degrees
+            .unwrap()
+            .to_radians();
 
         // TODO: get phase centre from self.phase_centre
         // TODO: is dir_info right?
@@ -1352,7 +1370,7 @@ impl MeasurementSetWriter {
             [[ra_phase_rad, dec_phase_rad]],
         ];
 
-        let obs_name = context.metafits_context.obs_name.clone();
+        let obs_name = &context.metafits_context.obs_name;
         let field_name = obs_name
             .rsplit_once("_")
             .unwrap_or((obs_name.as_str(), ""))
@@ -1366,7 +1384,7 @@ impl MeasurementSetWriter {
         self.write_field_row_mwa(
             &mut field_table,
             0,
-            &field_name,
+            field_name,
             "",
             sched_start_time_mjd_utc_s,
             &dir_info,
@@ -1399,9 +1417,9 @@ impl MeasurementSetWriter {
             source_interval,
             0,
             0,
-            &field_name,
+            field_name,
             0,
-            &"",
+            "",
             vec![ra_phase_rad, dec_phase_rad],
             vec![0., 0.],
         )
@@ -1501,7 +1519,7 @@ impl MeasurementSetWriter {
                     [c32::new(0., 0.), c32::new(1., 0.)]
                 ],
                 &vec![0., 0., 0.],
-                &vec![0., PI / 2.],
+                &vec![0., FRAC_PI_2],
             )
             .unwrap();
         }
@@ -1574,6 +1592,7 @@ impl MeasurementSetWriter {
     ///     is the number of channels, and p is the number of polarizations
     /// - `flags` - an `[n, p]` shaped ndarray of boolean flags.
     /// - `weights` - a `[p]` shaped ndarray of weights for each polarization
+    #[allow(clippy::ptr_arg)]
     pub fn write_main_row(
         &self,
         table: &mut Table,
@@ -1603,8 +1622,8 @@ impl MeasurementSetWriter {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "uvw".into(),
                 function: "write_main_row".into(),
-                expected: format!("3").into(),
-                received: format!("{:?}", uvw.len()).into(),
+                expected: "3".into(),
+                received: format!("{:?}", uvw.len()),
             });
         }
 
@@ -1612,8 +1631,8 @@ impl MeasurementSetWriter {
             return Err(MeasurementSetWriteError::BadArrayShape {
                 argument: "sigma".into(),
                 function: "write_main_row".into(),
-                expected: format!("{}", num_pols).into(),
-                received: format!("{:?}", sigma.len()).into(),
+                expected: format!("{}", num_pols),
+                received: format!("{:?}", sigma.len()),
             });
         }
 
@@ -1631,9 +1650,8 @@ impl MeasurementSetWriter {
                     expected: format!(
                         "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({})",
                         num_pols
-                    )
-                    .into(),
-                    received: format!("{:?}|{:?}|{:?}", dsh, fsh, wsh).into(),
+                    ),
+                    received: format!("{:?}|{:?}|{:?}", dsh, fsh, wsh),
                 })
             }
         }
@@ -1733,17 +1751,10 @@ impl VisWritable for MeasurementSetWriter {
         let img_timesteps = &context.timesteps[timestep_range.clone()];
         let img_baselines = baseline_idxs
             .iter()
-            .map(|&idx| {
-                context
-                    .metafits_context
-                    .baselines
-                    .get(idx)
-                    .unwrap()
-                    .to_owned()
-            })
+            .map(|&idx| &context.metafits_context.baselines[idx])
             .collect::<Vec<_>>();
 
-        let mut main_table = Table::open(&self.path.clone(), TableOpenMode::ReadWrite).unwrap();
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
 
         main_table.add_rows(total_num_rows).unwrap();
 
@@ -1848,19 +1859,27 @@ impl VisWritable for MeasurementSetWriter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::path::PathBuf;
+    use std::{f64::consts::FRAC_PI_2, path::PathBuf};
 
-    use crate::{
-        approx::abs_diff_eq,
-        c32, c64,
-        constants::{
-            COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
-        },
-        ndarray::{arr2, array, Array},
-    };
+    use approx::abs_diff_eq;
     use itertools::izip;
+    use ndarray::{arr2, Array};
     use tempfile::tempdir;
+
+    use super::*;
+    use crate::c64;
+
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "mwalib")] {
+            use crate::{
+                c32,
+                constants::{
+                    COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
+                },
+                ndarray::array,
+            };
+        }
+    }
 
     lazy_static! {
         static ref PATH_1254670392: PathBuf =
@@ -2157,14 +2176,14 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
 
         assert!(table_path.exists());
 
-        let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
-        let main_table_keywords = main_table.table_keyword_names().unwrap().clone();
+        let mut main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
+        let main_table_keywords = main_table.table_keyword_names().unwrap();
         drop(main_table);
 
         for (table_name, col_names) in [
@@ -2323,7 +2342,7 @@ mod tests {
             for col_name in col_names {
                 assert_table_column_descriptions_match!(table, exp_table, col_name);
             }
-            if table_name != "" {
+            if !table_name.is_empty() {
                 assert!(main_table_keywords.contains(&table_name.into()));
             }
         }
@@ -2334,7 +2353,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
 
@@ -2362,7 +2381,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2380,7 +2399,7 @@ mod tests {
             }
         }
 
-        let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
+        let mut main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
         let main_table_keywords = main_table.table_keyword_names().unwrap();
         assert!(main_table_keywords.contains(&"SOURCE".into()));
     }
@@ -2390,7 +2409,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods();
         drop(ms_writer);
@@ -2429,7 +2448,7 @@ mod tests {
             }
         }
 
-        let mut main_table = Table::open(&table_path.clone(), TableOpenMode::Read).unwrap();
+        let mut main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
         let main_table_keywords = main_table.table_keyword_names().unwrap();
         assert!(main_table_keywords.contains(&"MWA_TILE_POINTING".into()));
         assert!(main_table_keywords.contains(&"MWA_SUBBAND".into()));
@@ -2440,7 +2459,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2501,7 +2520,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2546,7 +2565,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -2579,7 +2598,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3038,7 +3057,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3049,7 +3068,7 @@ mod tests {
         ant_table.add_rows(ANT_NAMES.len()).unwrap();
 
         for (idx, (name, position)) in izip!(ANT_NAMES, ANT_POSITIONS).enumerate() {
-            let position = position.iter().cloned().collect();
+            let position = position.to_vec();
 
             ms_writer
                 .write_antenna_row(
@@ -3091,14 +3110,14 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
         ms_writer.add_mwa_mods();
 
         let ant_table_path = ms_writer.path.join("ANTENNA");
-        let mut ant_table = Table::open(ant_table_path.clone(), TableOpenMode::ReadWrite).unwrap();
+        let mut ant_table = Table::open(&ant_table_path, TableOpenMode::ReadWrite).unwrap();
 
         ant_table.add_rows(ANT_NAMES.len()).unwrap();
 
@@ -3111,7 +3130,7 @@ mod tests {
         )
         .enumerate()
         {
-            let position = position.iter().cloned().collect();
+            let position = position.to_vec();
 
             ms_writer
                 .write_antenna_row_mwa(
@@ -3147,7 +3166,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3178,7 +3197,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3205,7 +3224,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3232,7 +3251,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3287,7 +3306,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3342,7 +3361,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3386,7 +3405,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3422,7 +3441,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3474,7 +3493,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3527,7 +3546,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3576,7 +3595,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3606,7 +3625,7 @@ mod tests {
                         [c32::new(0., 0.), c32::new(1., 0.)]
                     ],
                     &vec![0., 0., 0.],
-                    &vec![0., PI / 2.],
+                    &vec![0., FRAC_PI_2],
                 )
                 .unwrap();
         }
@@ -3641,7 +3660,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3681,7 +3700,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -3733,7 +3752,7 @@ mod tests {
         .unwrap();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, array_pos);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
         // let mwalib_timestep_range = (*context.common_timestep_indices.first().unwrap())
         //     ..(*context.provided_timestep_indices.last().unwrap() + 1);
@@ -4072,7 +4091,7 @@ mod tests {
             [7, 7],
             [8, 8],
         ];
-        assert_eq!(num_ants, exp_slots.shape()[0] as _);
+        assert_eq!(num_ants, exp_slots.shape()[0] as u64);
         for (idx, exp_slot) in exp_slots.outer_iter().enumerate() {
             let slot: Vec<i32> = ant_table.get_cell_as_vec("MWA_SLOT", idx as _).unwrap();
             assert_eq!(slot, exp_slot.to_vec());
@@ -4091,7 +4110,7 @@ mod tests {
     ///         file=dump
     ///     )
     /// ```
-    const VIS_DATA_1254670392: &'static [[c32; 4]] = &[
+    const VIS_DATA_1254670392: &[[c32; 4]] = &[
         c32x4!(24.25, 1.0, 85.5, 81.75, 35.25, -2.0, 154.5, 9.625),
         c32x4!(58.25, -67.0, 3.875, -12.375, -36.0, 75.75, 17.375, 75.625),
         c32x4!(75.375, -14.75, -90.125, -38.75, 11.0, 48.75, -13.625, -168.125),
@@ -4867,7 +4886,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.471238898038468967);
-        let ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, None);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768);
@@ -4964,7 +4983,7 @@ mod tests {
         .unwrap();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
-        let mut ms_writer = MeasurementSetWriter::new(table_path.clone(), phase_centre, array_pos);
+        let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
         let mwalib_timestep_range = 0..1_usize;
         let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()

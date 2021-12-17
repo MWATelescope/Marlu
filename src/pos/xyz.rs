@@ -343,7 +343,7 @@ impl XyzGeocentric {
 }
 
 #[cfg(test)]
-use crate::approx::AbsDiffEq;
+use approx::AbsDiffEq;
 
 #[cfg(test)]
 impl AbsDiffEq for XyzGeodetic {
@@ -378,7 +378,8 @@ impl AbsDiffEq for XyzGeocentric {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{approx::assert_abs_diff_eq, ndarray::Array1};
+    use crate::ndarray::Array1;
+    use approx::assert_abs_diff_eq;
 
     use crate::constants::{
         COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,

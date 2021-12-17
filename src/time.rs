@@ -84,7 +84,7 @@ pub fn casacore_utc_to_epoch(utc_seconds: f64) -> hifitime::Epoch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::approx::assert_abs_diff_eq;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn hifitime_behaves_as_expected_gps() {

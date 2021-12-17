@@ -5,15 +5,23 @@
 <br/>
 <a href="https://docs.rs/crate/marlu"><img src="https://docs.rs/marlu/badge.svg" alt="docs"></a>
 <img src="https://github.com/MWATelescope/Marlu/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
+<a href="https://codecov.io/gh/MWATelescope/Marlu">
+  <img src="https://codecov.io/gh/MWATelescope/Marlu/branch/main/graph/badge.svg?token=CYMROMUKRI"/>
+</a>
 </div>
 
 Convenience Rust code that handles coordinate transformations, Jones matrices,
 etc.
 
 ## Prerequisites
-- A Rust compiler with a version >= 1.50.0
+- A Rust compiler with a version >= 1.56.0
 
-  `https://www.rust-lang.org/tools/install`
+  ```bash
+  $ rustc -V
+  rustc 1.57.0 (f1edd0429 2021-11-29)
+  ```
+
+  https://www.rust-lang.org/tools/install
 
 - [ERFA](https://github.com/liberfa/erfa)
   - Ubuntu: `liberfa-dev`
@@ -35,40 +43,20 @@ If using the `mwalib` feature (true by default):
   - Use `--features=cfitsio-static` to build the library automatically. Requires
     a C compiler and `autoconf`.
 
+If using the `cuda` feature (false by default):
+
+- [CUDA](https://docs.nvidia.com/cuda/index.html#installation-guides)
+  - Ubuntu: Follow the instructions [here](https://developer.nvidia.com/cuda-downloads)
+  - Arch: `cuda`
+  - The library directory can be specified manually with `CUDA_LIB`
+  - If not specified, `CUDA_LIBRARY_PATH` and the `/opt/cuda` and
+    `/usr/local/cuda` directories are
+    [searched](https://github.com/rust-cuda/cuda-sys/blob/3a973786b3482e3fdfd783cd692fbc3c665d5c11/cuda-config/src/lib.rs#L19-L46).
+  - If `CUDA` is available, use `--features=cuda-static` to link it statically.
+
 To link a system-provided static library, use e.g. `ERFA_STATIC=1`. To link all
 system-provided static libraries, use `PKG_CONFIG_ALL_STATIC=1`. To build all C
 libraries and link statically, use the `all-static` feature.
-
-## Troubleshooting
-
-### the trait bound `Jones<f32>: AbsDiffEq<_>` is not satisfied
-
-if you see an error that looks like this:
-
-```txt
-error[E0277]: the trait bound `Jones<f32>: AbsDiffEq<_>` is not satisfied
-     |
-1029 | /         assert_abs_diff_eq!(
-1030 | |             *jones_array.get((3, 3, 1)).unwrap(),
-1031 | |             &Jones::from([
-1032 | |                 Complex::new(rot_1_xx_3_3_re, rot_1_xx_3_3_im),
-...    |
-1036 | |             ])
-1037 | |         );
-     | |__________^ the trait `AbsDiffEq<_>` is not implemented for `Jones<f32>`
-     |
-     = note: this error originates in the macro `abs_diff_eq` (in Nightly builds, run with -Z macro-backtrace for more info)
-```
-
-try
-
-```bash
-cargo update
-cargo update -p approx:0.5.0 --precise 0.4.0
-cargo update -p ndarray:0.15.3 --precise 0.14.0
-```
-
-and add `--locked` to any cargo commands that might perform a `cargo update` (e.g. `cargo install`)
 
 ## Acknowledgement
 

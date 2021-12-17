@@ -5,17 +5,22 @@
 //! Core code to describe coordinate transformations, Jones matrices, etc.
 
 #[allow(non_camel_case_types)]
-pub type c32 = Complex<f32>;
+pub type c32 = num_complex::Complex<f32>;
 #[allow(non_camel_case_types)]
-pub type c64 = Complex<f64>;
+pub type c64 = num_complex::Complex<f64>;
 
 pub mod constants;
-pub mod io;
 pub mod jones;
 pub mod math;
 pub mod pos;
 pub mod sexagesimal;
 pub mod time;
+
+#[cfg(feature = "io")]
+pub mod io;
+
+#[cfg(feature = "cuda")]
+pub mod cuda;
 
 // Re-exports.
 pub use jones::Jones;
@@ -34,13 +39,16 @@ pub use pos::{
 pub use erfa_sys;
 pub use hifitime;
 pub use ndarray;
+pub use num_complex;
+pub use num_complex::Complex;
 pub use num_traits;
 pub use rayon;
-pub use rubbl_core::{approx, Array as RubblArray, Complex};
 
 // If "mwalib" is enabled, re-export the crate here, as well its re-exported
 // crates.
-#[cfg(feature = "mwalib")]
-pub use mwalib;
-#[cfg(feature = "mwalib")]
-pub use mwalib::{fitsio, fitsio_sys};
+cfg_if::cfg_if! {
+    if #[cfg(feature = "mwalib")] {
+        pub use mwalib;
+        pub use mwalib::{fitsio, fitsio_sys};
+    }
+}

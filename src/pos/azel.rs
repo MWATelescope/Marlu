@@ -68,7 +68,7 @@ impl std::fmt::Display for AzEl {
 }
 
 #[cfg(test)]
-use crate::approx::AbsDiffEq;
+use approx::AbsDiffEq;
 
 #[cfg(test)]
 impl AbsDiffEq for AzEl {
@@ -87,7 +87,7 @@ impl AbsDiffEq for AzEl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::approx::assert_abs_diff_eq;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn to_hadec() {

@@ -556,7 +556,7 @@ impl std::fmt::Debug for Jones<f64> {
 }
 
 #[cfg(test)]
-impl<F: Float + crate::approx::AbsDiffEq> crate::approx::AbsDiffEq for Jones<F>
+impl<F: Float + approx::AbsDiffEq> approx::AbsDiffEq for Jones<F>
 where
     F::Epsilon: Clone,
 {
@@ -576,7 +576,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{approx::assert_abs_diff_eq, c32, c64};
+    use crate::{c32, c64};
+    use approx::assert_abs_diff_eq;
 
     fn one_through_eight() -> Jones<f64> {
         Jones([
