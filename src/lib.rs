@@ -52,3 +52,11 @@ cfg_if::cfg_if! {
         pub use mwalib::{fitsio, fitsio_sys};
     }
 }
+
+// If "io" is enabled, re-export rubbl_casatables here.
+#[cfg(feature = "io")]
+pub use rubbl_casatables;
+
+// If "cuda" is enabled, re-export cuda-runtime-sys here.
+#[cfg(feature = "cuda")]
+pub use cuda_runtime_sys;
