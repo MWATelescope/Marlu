@@ -1,5 +1,14 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.3.1 (2022-01-10)
+
+- tweak dependency versions
+- Re-export more crates
+- Actually do something with cuda-static feature
+- Add Cargo.lock to the gitignore
+- Don't label assert lines as partially covered
+- add Dockerfile
+
 # Version 0.3.0 (2021-12-17)
 
 - use Rust 2021 Edition
