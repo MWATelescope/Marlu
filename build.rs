@@ -36,5 +36,8 @@ fn main() {
         } else {
             println!("cargo:rustc-link-lib=cudart");
         }
+
+        #[cfg(feature = "cuda-static")]
+        println!("cargo:rustc-link-lib=static=cudart_static");
     }
 }
