@@ -1,7 +1,7 @@
 //! Spectral and Temporal averaging
 
-use itertools::{izip, iproduct};
-use ndarray::{s, Array3, Array4, ArrayView3, ArrayView4, Axis, array};
+use itertools::izip;
+use ndarray::{s, Array3, Array4, ArrayView3, ArrayView4, Axis};
 use crate::Complex;
 use thiserror::Error;
 
@@ -23,7 +23,7 @@ pub enum AveragingError {
     // RubblError(#[from] CasacoreError)
 }
 
-/// Average a section (timestep_range, coarse_chan_range, baseline_idxs) of the visibilities 
+/// Average a section (timestep_range, coarse_chan_range) of the visibilities 
 /// (jones_array, weight_array, flag_array) in time or frequency (time_factor, frequency_factor).
 ///
 /// `jones_array` - a three dimensional array of jones matrix visibilities.
@@ -40,8 +40,20 @@ pub enum AveragingError {
 /// `frequency_factor` - the factor by which to average the frequency axis.
 ///
 /// # Gorey details
-///
-/// - if one pol is flagged, all pols are.
+/// 
+/// Averaging is done "Cotter-style". For each `time_factor` * `frequency_factor` 
+/// chunk of input visibilities:
+/// - unflagged weights are added together
+/// - if all visibilities in a chunk are flagged, then the result is the geometric 
+///     mean of the chunk.
+/// - otherwise the visibility is the weighted mean of the unflagged visibilities.
+/// 
+/// # TODO:
+/// 
+/// - visibilities with weights of zero or less should be considered flagged.
+/// - if one pol is flagged, should all pols be?
+/// - does it only make sense to offer power of 2 averaging?
+/// 
 pub fn average_visibilities(
     jones_array: ArrayView3<Jones<f32>>,
     weight_array: ArrayView4<f32>,
@@ -152,7 +164,7 @@ pub fn average_visibilities(
                         flag_chunk.slice(s![.., .., pol_idx]).iter(),
                     ) {
                         pol_sum += jones_element[pol_idx];
-                        if !flag_element {
+                        if !flag_element && weight_element > &0. {
                             averaged_jones_view[()][pol_idx] += jones_element[pol_idx] * weight_element;
                             averaged_weight_view[pol_idx] += weight_element;
                             all_flagged = false;
@@ -284,5 +296,4 @@ mod tess {
     }
 
     // TODO: test unflagged with zero weight.
-    // TODO: visibilities with weights of zero or less should be considered flagged.
 }
