@@ -8,6 +8,8 @@ use std::f64::consts::*;
 
 use log::warn;
 
+use crate::sexagesimal::{degrees_to_sexagesimal_hms, degrees_to_sexagesimal_dms};
+
 use super::hadec::HADec;
 use super::lmn::LMN;
 
@@ -179,9 +181,11 @@ impl std::fmt::Display for RADec {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "({:.4}°, {:.4}°)",
+            "({:.4}°, {:.4}°) => ({}, {})",
             self.ra.to_degrees(),
-            self.dec.to_degrees()
+            self.dec.to_degrees(),
+            degrees_to_sexagesimal_hms(self.ra.to_degrees()),
+            degrees_to_sexagesimal_dms(self.dec.to_degrees())
         )
     }
 }

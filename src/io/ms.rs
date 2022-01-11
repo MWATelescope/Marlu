@@ -1712,7 +1712,7 @@ impl VisWritable for MeasurementSetWriter {
         if weight_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
             return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
                 argument: "weight_array".into(),
-                function: "write_vis_mwalib".into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
                 expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
                 received: format!("{:?}", weight_dims).into(),
             }));
@@ -1721,7 +1721,7 @@ impl VisWritable for MeasurementSetWriter {
         if flag_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
             return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
                 argument: "flag_array".into(),
-                function: "write_vis_mwalib".into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
                 expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
                 received: format!("{:?}", flag_dims).into(),
             }));
@@ -1738,11 +1738,6 @@ impl VisWritable for MeasurementSetWriter {
         assert_eq!(num_baselines, jones_dims.2);
 
         let total_num_rows = num_img_timesteps * num_baselines;
-
-        // let phase_centre = match phase_centre {
-        //     Some(radec) => radec,
-        //     None => RADec::from_mwalib_phase_or_pointing(&context.metafits_context),
-        // };
 
         // Weights are normalized so that default res of 10 kHz, 1s has weight of "1" per sample
         let integration_time_s = context.metafits_context.corr_int_time_ms as f64 / 1000.0;

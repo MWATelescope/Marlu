@@ -4,6 +4,8 @@
 
 //! Handling of Earth Coordinates (Latitude/Longitude/Height)
 
+use std::fmt::Display;
+
 use erfa_sys::{ERFA_GRS80, ERFA_WGS72, ERFA_WGS84};
 
 use super::ErfaError;
@@ -82,5 +84,15 @@ impl LatLngHeight {
     /// Can return an [ErfaError] if [`erfa_sys::eraGd2gc`] fails.
     pub fn to_geocentric_wgs84(self) -> Result<XyzGeocentric, ErfaError> {
         self.to_geocentric(Ellipsoid::WGS84)
+    }
+}
+
+impl Display for LatLngHeight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ longitude: {:.4}°, latitude: {:.4}°, height: {}m }}",
+            self.longitude_rad.to_degrees(), self.latitude_rad.to_degrees(), self.height_metres
+        )
     }
 }
