@@ -92,7 +92,9 @@ impl Display for LatLngHeight {
         write!(
             f,
             "{{ longitude: {:.4}°, latitude: {:.4}°, height: {}m }}",
-            self.longitude_rad.to_degrees(), self.latitude_rad.to_degrees(), self.height_metres
+            self.longitude_rad.to_degrees(),
+            self.latitude_rad.to_degrees(),
+            self.height_metres
         )
     }
 }

@@ -8,7 +8,7 @@ use std::f64::consts::*;
 
 use log::warn;
 
-use crate::sexagesimal::{degrees_to_sexagesimal_hms, degrees_to_sexagesimal_dms};
+use crate::sexagesimal::{degrees_to_sexagesimal_dms, degrees_to_sexagesimal_hms};
 
 use super::hadec::HADec;
 use super::lmn::LMN;

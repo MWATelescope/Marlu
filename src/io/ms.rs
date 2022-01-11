@@ -1,8 +1,8 @@
 use crate::{
     c32,
-    io::error::{MeasurementSetWriteError},
+    io::error::MeasurementSetWriteError,
     ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis},
-    LatLngHeight, RADec
+    LatLngHeight, RADec,
 };
 use std::{
     fs::create_dir_all,
@@ -1713,8 +1713,8 @@ impl VisWritable for MeasurementSetWriter {
             return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
                 argument: "weight_array".into(),
                 function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
-                received: format!("{:?}", weight_dims).into(),
+                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)),
+                received: format!("{:?}", weight_dims),
             }));
         }
         let flag_dims = flag_array.dim();
@@ -1722,8 +1722,8 @@ impl VisWritable for MeasurementSetWriter {
             return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
                 argument: "flag_array".into(),
                 function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
-                received: format!("{:?}", flag_dims).into(),
+                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)),
+                received: format!("{:?}", flag_dims),
             }));
         }
 
@@ -2170,7 +2170,7 @@ mod tests {
     fn test_decompress_default_tables() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
@@ -2347,7 +2347,7 @@ mod tests {
     fn test_add_source_table() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
@@ -2375,7 +2375,7 @@ mod tests {
     fn test_add_cotter_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2403,7 +2403,7 @@ mod tests {
     fn test_add_mwa_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods();
@@ -2453,7 +2453,7 @@ mod tests {
     fn test_write_spectral_window_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2514,7 +2514,7 @@ mod tests {
     fn test_write_spectral_window_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2559,7 +2559,7 @@ mod tests {
     fn handle_bad_spw_chan_info() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2592,7 +2592,7 @@ mod tests {
     fn test_write_data_description_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2619,7 +2619,7 @@ mod tests {
         assert_tables_match!(ddesc_table, expected_table);
     }
 
-    const ANT_POSITIONS: &'static [[f64; 3]] = &[
+    const ANT_POSITIONS: &[[f64; 3]] = &[
         [-2559524.23682043, 5095846.67363471, -2848988.72758185],
         [-2559573.85868766, 5095824.22162118, -2848984.94323095],
         [-2559579.15163694, 5095819.49141935, -2848988.67657305],
@@ -2750,7 +2750,7 @@ mod tests {
         [-2559649.92256756, 5095691.87122651, -2849149.12522308],
     ];
 
-    const ANT_NAMES: &'static [&'static str] = &[
+    const ANT_NAMES: &[&str] = &[
         "Tile011", "Tile012", "Tile013", "Tile014", "Tile015", "Tile016", "Tile017", "Tile018",
         "Tile021", "Tile022", "Tile023", "Tile024", "Tile025", "Tile026", "Tile027", "Tile028",
         "Tile031", "Tile032", "Tile033", "Tile034", "Tile035", "Tile036", "Tile037", "Tile038",
@@ -2768,7 +2768,7 @@ mod tests {
         "HexS30", "HexS31", "HexS32", "HexS33", "HexS34", "HexS35", "HexS36",
     ];
 
-    const ANT_INPUTS: &'static [[i32; 2]] = &[
+    const ANT_INPUTS: &[[i32; 2]] = &[
         [87, 86],
         [85, 84],
         [83, 82],
@@ -2899,7 +2899,7 @@ mod tests {
         [9, 8],
     ];
 
-    const ANT_TILE_NRS: &'static [i32] = &[
+    const ANT_TILE_NRS: &[i32] = &[
         11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33, 34, 35, 36, 37,
         38, 41, 42, 43, 44, 45, 46, 47, 48, 61, 62, 63, 64, 65, 66, 67, 68, 81, 82, 83, 84, 85, 86,
         87, 88, 91, 92, 93, 94, 95, 96, 97, 98, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008,
@@ -2910,7 +2910,7 @@ mod tests {
         1069, 1070, 1071, 1072,
     ];
 
-    const ANT_CABLE_LENGTHS: &'static [[f64; 2]] = &[
+    const ANT_CABLE_LENGTHS: &[[f64; 2]] = &[
         [-656.14, -656.14],
         [-655.66, -655.66],
         [-582.91, -582.91],
@@ -3051,7 +3051,7 @@ mod tests {
     fn test_write_antenna_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3104,7 +3104,7 @@ mod tests {
     fn test_write_antenna_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3160,7 +3160,7 @@ mod tests {
     fn test_write_polarization_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3191,7 +3191,7 @@ mod tests {
     fn handle_bad_pol_small_corr_type() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3218,7 +3218,7 @@ mod tests {
     fn handle_bad_pol_big_corr_product() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3245,7 +3245,7 @@ mod tests {
     fn test_write_source_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3300,7 +3300,7 @@ mod tests {
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3355,7 +3355,7 @@ mod tests {
     fn test_write_field_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3399,7 +3399,7 @@ mod tests {
     fn handle_bad_field_shape() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3435,7 +3435,7 @@ mod tests {
     fn test_write_observation_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3487,7 +3487,7 @@ mod tests {
     fn test_write_observation_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3540,7 +3540,7 @@ mod tests {
     fn test_write_history_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3589,7 +3589,7 @@ mod tests {
     fn test_write_feed_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3654,7 +3654,7 @@ mod tests {
     fn test_write_mwa_tile_pointing_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3673,8 +3673,8 @@ mod tests {
                 5077351975.,
                 5077351984.,
                 &vec![3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0],
-                6.28310690918895887,
-                -0.464403366228935188,
+                6.283106909188959,
+                -0.4644033662289352,
             )
             .unwrap();
         drop(ms_writer);
@@ -3694,7 +3694,7 @@ mod tests {
     fn test_write_mwa_subband_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4880,7 +4880,7 @@ mod tests {
     fn test_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
