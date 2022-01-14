@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.3.2 (2022-01-14)
+
+- implement averaging standalone and in VisWritable
+- impl Display for LatLngHeight, RADec
+
 # Version 0.3.1 (2022-01-10)
 
 - tweak dependency versions
@@ -15,7 +20,7 @@
 - add cuda convenience functions
 - implement io feature, make rubbl optional
 - import approx and ndarray directly, not rubbl's
-- slightly faster MS IO 
+- slightly faster MS IO
 
 # Version 0.2.3 (2021-12-07)
 
