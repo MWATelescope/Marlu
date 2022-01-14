@@ -98,3 +98,20 @@ impl Display for LatLngHeight {
         )
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_latlngheight() {
+        let latlngheight = LatLngHeight {
+            longitude_rad: 0.0,
+            latitude_rad: 0.0,
+            height_metres: 0.0,
+        };
+        let result = format!("{}", latlngheight);
+        assert!(result.len() > 0);
+    }
+}

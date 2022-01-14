@@ -265,4 +265,14 @@ mod tests {
         let arr: Vec<RADec> = vec![];
         assert!(RADec::weighted_average(&arr, &[1.0]).is_none());
     }
+
+    #[test]
+    fn test_display_radec() {
+        let radec = RADec {
+            ra: 0.0,
+            dec: 0.0,
+        };
+        let result = format!("{}", radec);
+        assert!(result.len() > 0);
+    }
 }
