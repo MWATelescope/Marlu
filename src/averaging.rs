@@ -47,7 +47,7 @@ pub enum AveragingError {
 // avg_flag_view: ArrayViewMut1<bool>,
 // ) {
 #[macro_export]
-macro_rules! average_chunk_for_pols {
+macro_rules! average_chunk_for_pols_f64 {
     (
         $jones_chunk:expr,
         $weight_chunk:expr,
