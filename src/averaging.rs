@@ -2,7 +2,8 @@
 
 use crate::Complex;
 use itertools::izip;
-use ndarray::{ s, Array3, Array4, ArrayView3, ArrayView4, Axis };
+use ndarray::prelude::*;
+// {Array3, Array4, ArrayView3, ArrayView4, Axis};
 use thiserror::Error;
 
 use crate::Jones;
@@ -36,7 +37,7 @@ pub enum AveragingError {
 /// - avg_weight_view -> [pol]
 /// - avg_flag_view -> [pol]
 ///
-/// It's up to you to initialize the avg_ views to zero;
+/// TODO: this takes 4 flags, but nothing actually uses these, so just rip this out.
 ///
 // average_chunk_for_pols(
 // jones_chunk: ArrayView2<Jones<f32>>,
@@ -49,57 +50,74 @@ pub enum AveragingError {
 #[macro_export]
 macro_rules! average_chunk_for_pols_f64 {
     (
+        // to be averaged
         $jones_chunk:expr,
         $weight_chunk:expr,
         $flag_chunk:expr,
+        // to average into
         $avg_jones:expr,
         $avg_weight_view:expr,
         $avg_flag_view:expr
     ) => {
-        // let chunk_size: usize = $jones_chunk.shape()[0..1].iter().product();
-        let chunk_size: usize = $jones_chunk.len();
+        let chunk_size = $jones_chunk.len();
 
-        assert_eq!($weight_chunk.dim().2, 4);
-        assert_eq!($flag_chunk.dim().2, 4);
-        assert_eq!($avg_weight_view.len(), 4);
-        assert_eq!($avg_flag_view.len(), 4);
+        let mut weight_sum = [0_f64; 4];
+        let mut jones_sum = Jones::<f64>::default();
+        let mut jones_weighted_sum = Jones::<f64>::default();
+        let mut all_flagged = true;
 
-        for pol_idx in 0..4 {
-            $avg_flag_view[pol_idx] = true;
-            // $avg_jones[pol_idx] = Complex::default();
-            // $avg_weight_view[pol_idx] = -0.;
-            let mut weight_sum: f64 = -0.;
-            let mut complex_sum_c64 = Complex::<f64>::default();
-            let mut weighted_complex_sum_c64 = Complex::<f64>::default();
-
-            for (jones_element, weight_element, flag_element) in izip!(
-                $jones_chunk.iter(),
-                $weight_chunk.slice(s![.., .., pol_idx]).iter(),
-                $flag_chunk.slice(s![.., .., pol_idx]).iter(),
+        for (jones, weight, flag) in izip!(
+            $jones_chunk.axis_iter(Axis(0)),
+            $weight_chunk.axis_iter(Axis(0)),
+            $flag_chunk.axis_iter(Axis(0))
+        ) {
+            for (jones, weight, flag) in izip!(
+                jones.iter(),
+                weight.axis_iter(Axis(0)),
+                flag.axis_iter(Axis(0))
             ) {
-                let pol_c64 = Complex::<f64>::new(
-                    jones_element[pol_idx].re as _,
-                    jones_element[pol_idx].im as _,
-                );
-                complex_sum_c64 += pol_c64;
-                if !flag_element && weight_element > &0. {
-                    weighted_complex_sum_c64 += (pol_c64 * *weight_element as f64);
-                    weight_sum += *weight_element as f64;
-                    $avg_flag_view[pol_idx] = false;
+                let jones_c64 = Jones::<f64>::from(*jones);
+                jones_sum += jones_c64;
+                for (jones_elem, weight_elem, flag_elem, weighted_vis_sum, weight_sum) in izip!(
+                    jones_c64.iter(),
+                    weight.iter(),
+                    flag.iter(),
+                    jones_weighted_sum.iter_mut(),
+                    weight_sum.iter_mut(),
+                ) {
+                    let weight_f64: f64 = *weight_elem as _;
+
+                    if !flag_elem && *weight_elem > 0. {
+                        *weighted_vis_sum += jones_elem * weight_f64;
+                        *weight_sum += weight_f64;
+                        all_flagged = false;
+                    }
                 }
             }
-
-            weighted_complex_sum_c64 = if !$avg_flag_view[pol_idx] {
-                weighted_complex_sum_c64 / weight_sum
-            } else {
-                complex_sum_c64 / (chunk_size as f64)
-            };
-            $avg_jones[pol_idx] = Complex::new(
-                weighted_complex_sum_c64.re as _,
-                weighted_complex_sum_c64.im as _,
-            );
-            $avg_weight_view[pol_idx] = weight_sum as f32;
         }
+
+        for (jones_weighted_sum, jones_sum, avg_weight_view, avg_jones, weight_sum) in izip!(
+            jones_weighted_sum.iter(),
+            jones_sum.iter(),
+            $avg_weight_view.iter_mut(),
+            $avg_jones.iter_mut(),
+            weight_sum.iter()
+        ) {
+            *avg_jones = if !all_flagged {
+                Complex::<f32>::new(
+                    (jones_weighted_sum.re / weight_sum) as f32,
+                    (jones_weighted_sum.im / weight_sum) as f32,
+                )
+            } else {
+                Complex::<f32>::new(
+                    (jones_sum.re / chunk_size as f64) as f32,
+                    (jones_sum.im / chunk_size as f64) as f32,
+                )
+            };
+            *avg_weight_view = *weight_sum as f32;
+        }
+
+        $avg_flag_view.fill(all_flagged);
     };
 }
 
@@ -221,7 +239,7 @@ pub fn average_visibilities(
                 averaged_weight_channel_view.outer_iter_mut(),
                 averaged_flag_channel_view.outer_iter_mut(),
             ) {
-                average_chunk_for_pols!(
+                average_chunk_for_pols_f64!(
                     jones_chunk,
                     weight_chunk,
                     flag_chunk,
