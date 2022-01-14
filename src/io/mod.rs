@@ -80,5 +80,7 @@ pub trait VisWritable: Sync + Send {
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
         baseline_idxs: &[usize],
+        avg_time: usize,
+        avg_freq: usize,
     ) -> Result<(), IOError>;
 }
