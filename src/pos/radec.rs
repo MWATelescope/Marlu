@@ -8,6 +8,8 @@ use std::f64::consts::*;
 
 use log::warn;
 
+use crate::sexagesimal::{degrees_to_sexagesimal_dms, degrees_to_sexagesimal_hms};
+
 use super::hadec::HADec;
 use super::lmn::LMN;
 
@@ -179,9 +181,11 @@ impl std::fmt::Display for RADec {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "({:.4}°, {:.4}°)",
+            "({:.4}°, {:.4}°) => ({}, {})",
             self.ra.to_degrees(),
-            self.dec.to_degrees()
+            self.dec.to_degrees(),
+            degrees_to_sexagesimal_hms(self.ra.to_degrees()),
+            degrees_to_sexagesimal_dms(self.dec.to_degrees())
         )
     }
 }
@@ -260,5 +264,15 @@ mod tests {
     fn test_weighted_pos_empty() {
         let arr: Vec<RADec> = vec![];
         assert!(RADec::weighted_average(&arr, &[1.0]).is_none());
+    }
+
+    #[test]
+    fn test_display_radec() {
+        let radec = RADec {
+            ra: 0.0,
+            dec: 0.0,
+        };
+        let result = format!("{}", radec);
+        assert!(result.len() > 0);
     }
 }

@@ -1,9 +1,12 @@
 use crate::{
     c32,
-    io::error::{MeasurementSetWriteError},
-    ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis},
-    LatLngHeight, RADec
+    io::error::MeasurementSetWriteError,
+    ndarray::{array, Array2, Array3, ArrayView3, ArrayView4, Axis, s, ArrayView},
+    LatLngHeight, RADec,
+    num_complex::Complex,
+    average_chunk_for_pols_f64
 };
+
 use std::{
     fs::create_dir_all,
     path::{Path, PathBuf},
@@ -1205,12 +1208,12 @@ impl MeasurementSetWriter {
         mwalib_coarse_chan_range: &Range<usize>,
     ) -> Result<(), MeasurementSetWriteError> {
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
-        let num_img_coarse_chans = mwalib_coarse_chan_range.len();
-        let num_img_chans = fine_chans_per_coarse * num_img_coarse_chans;
+        let num_sel_coarse_chans = mwalib_coarse_chan_range.len();
+        let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
 
         self.decompress_default_tables().unwrap();
         self.decompress_source_table().unwrap();
-        self.add_cotter_mods(num_img_chans);
+        self.add_cotter_mods(num_sel_chans);
         self.add_mwa_mods();
 
         // /////////////// //
@@ -1221,13 +1224,13 @@ impl MeasurementSetWriter {
             Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
 
         let mwalib_centre_coarse_chan_idx =
-            mwalib_coarse_chan_range.start + (num_img_coarse_chans / 2);
+            mwalib_coarse_chan_range.start + (num_sel_coarse_chans / 2);
         let centre_coarse_chan =
             &context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
         let fine_chan_width_hz = context.metafits_context.corr_fine_chan_width_hz;
         let mwalib_start_fine_chan_idx = mwalib_coarse_chan_range.start * fine_chans_per_coarse;
 
-        let chan_info = Array2::from_shape_fn((num_img_chans, 4), |(c, i)| {
+        let chan_info = Array2::from_shape_fn((num_sel_chans, 4), |(c, i)| {
             if i == 0 {
                 context.metafits_context.metafits_fine_chan_freqs_hz[c + mwalib_start_fine_chan_idx]
             } else {
@@ -1235,25 +1238,25 @@ impl MeasurementSetWriter {
             }
         });
 
-        let img_center_freq_hz = if num_img_chans % 2 == 0 {
+        let sel_center_freq_hz = if num_sel_chans % 2 == 0 {
             (context.metafits_context.metafits_fine_chan_freqs_hz
-                [mwalib_start_fine_chan_idx + (num_img_chans / 2)]
+                [mwalib_start_fine_chan_idx + (num_sel_chans / 2)]
                 + context.metafits_context.metafits_fine_chan_freqs_hz
-                    [mwalib_start_fine_chan_idx + (num_img_chans / 2) - 1])
+                    [mwalib_start_fine_chan_idx + (num_sel_chans / 2) - 1])
                 * 0.5
         } else {
             context.metafits_context.metafits_fine_chan_freqs_hz
-                [mwalib_start_fine_chan_idx + (num_img_chans / 2)]
+                [mwalib_start_fine_chan_idx + (num_sel_chans / 2)]
         };
 
         spw_table.add_rows(1).unwrap();
         self.write_spectral_window_row_mwa(
             &mut spw_table,
             0,
-            format!("MWA_BAND_{:.1}", img_center_freq_hz / 1_000_000.).as_str(),
-            img_center_freq_hz,
+            format!("MWA_BAND_{:.1}", sel_center_freq_hz / 1_000_000.).as_str(),
+            sel_center_freq_hz,
             chan_info,
-            fine_chan_width_hz as f64 * num_img_chans as f64,
+            fine_chan_width_hz as f64 * num_sel_chans as f64,
             centre_coarse_chan.rec_chan_number as _,
             false,
         )
@@ -1561,9 +1564,9 @@ impl MeasurementSetWriter {
         let mut subband_table =
             Table::open(&self.path.join("MWA_SUBBAND"), TableOpenMode::ReadWrite).unwrap();
 
-        subband_table.add_rows(num_img_coarse_chans).unwrap();
+        subband_table.add_rows(num_sel_coarse_chans).unwrap();
 
-        for i in 0..num_img_coarse_chans {
+        for i in 0..num_sel_coarse_chans {
             self.write_mwa_subband_row(&mut subband_table, i as _, i as _, 0 as _, false)
                 .unwrap();
         }
@@ -1697,7 +1700,10 @@ impl VisWritable for MeasurementSetWriter {
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
         baseline_idxs: &[usize],
+        avg_time: usize,
+        avg_freq: usize,
     ) -> Result<(), IOError> {
+
         trace!(
             "timestep range {:?}, coarse chan range {:?}, baseline idxs {:?}",
             &timestep_range,
@@ -1712,47 +1718,51 @@ impl VisWritable for MeasurementSetWriter {
         if weight_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
             return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
                 argument: "weight_array".into(),
-                function: "write_vis_mwalib".into(),
-                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
-                received: format!("{:?}", weight_dims).into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
+                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)),
+                received: format!("{:?}", weight_dims),
             }));
         }
         let flag_dims = flag_array.dim();
         if flag_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
             return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
                 argument: "flag_array".into(),
-                function: "write_vis_mwalib".into(),
-                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)).into(),
-                received: format!("{:?}", flag_dims).into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
+                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)),
+                received: format!("{:?}", flag_dims),
             }));
         }
 
-        let num_img_timesteps = timestep_range.len();
-        assert_eq!(num_img_timesteps, jones_dims.0);
+        let num_sel_timesteps = timestep_range.len();
+        assert_eq!(num_sel_timesteps, jones_dims.0);
+        // the gps start times [milliseconds] of all the selected timesteps
+        let sel_gps_times_ms: Vec<u64> = context.timesteps[timestep_range.clone()]
+            .iter()
+            .map(|t| t.gps_time_ms)
+            .collect();
 
-        let num_img_coarse_chans = coarse_chan_range.len();
-        let num_img_chans = fine_chans_per_coarse * num_img_coarse_chans;
-        assert_eq!(num_img_coarse_chans * fine_chans_per_coarse, jones_dims.1);
+        let num_sel_coarse_chans = coarse_chan_range.len();
+        let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
+        assert_eq!(num_sel_coarse_chans * fine_chans_per_coarse, jones_dims.1);
 
         let num_baselines = baseline_idxs.len();
         assert_eq!(num_baselines, jones_dims.2);
 
-        let total_num_rows = num_img_timesteps * num_baselines;
+        let total_num_rows = num_sel_timesteps * num_baselines;
 
-        // let phase_centre = match phase_centre {
-        //     Some(radec) => radec,
-        //     None => RADec::from_mwalib_phase_or_pointing(&context.metafits_context),
-        // };
-
+        // integration time [seconds] before averaging
+        let int_time_s = context.metafits_context.corr_int_time_ms as f64 / 1000.0;
+        let avg_int_time_s = avg_time as f64 * int_time_s;
         // Weights are normalized so that default res of 10 kHz, 1s has weight of "1" per sample
-        let integration_time_s = context.metafits_context.corr_int_time_ms as f64 / 1000.0;
 
         let tiles_xyz_geod = XyzGeodetic::get_tiles_mwa(&context.metafits_context);
-        let img_timesteps = &context.timesteps[timestep_range.clone()];
-        let img_baselines = baseline_idxs
+        // let sel_timesteps = &context.timesteps[timestep_range.clone()];
+        let sel_baselines = baseline_idxs
             .iter()
             .map(|&idx| &context.metafits_context.baselines[idx])
             .collect::<Vec<_>>();
+
+
 
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
 
@@ -1760,26 +1770,32 @@ impl VisWritable for MeasurementSetWriter {
 
         let mut main_idx = 0;
 
-        // we create these temporary arrays/vectors to avoid heap allocations.
+        // Allocating temporary arrays/vectors once here avoid multiple heap allocations.
         let mut uvw_tmp = Vec::with_capacity(3);
         let sigma_tmp = vec![1., 1., 1., 1.];
-        let mut data_tmp = Array2::zeros((num_img_chans, 4));
-        let mut weights_tmp = Array2::zeros((num_img_chans, 4));
-        let mut flags_tmp = Array2::from_elem((num_img_chans, 4), false);
+        let mut data_tmp = Array2::zeros((num_sel_chans, 4));
+        let mut weights_tmp = Array2::zeros((num_sel_chans, 4));
+        let mut flags_tmp = Array2::from_elem((num_sel_chans, 4), false);
 
-        for (timestep, jones_timestep_view, weight_timestep_view, flag_timestep_view) in izip!(
-            img_timesteps.iter(),
-            jones_array.outer_iter(),
-            weight_array.outer_iter(),
-            flag_array.outer_iter()
+        // iterate through the time dimension of the arrays in chunks of size `avg_time`.
+        for (
+            gps_times_chunk_ms,
+            jones_timestep_chunk,
+            weight_timestep_chunk,
+            flag_timestep_chunk,
+        ) in izip!(
+            sel_gps_times_ms.chunks(avg_time),
+            jones_array.axis_chunks_iter(Axis(0), avg_time),
+            weight_array.axis_chunks_iter(Axis(0), avg_time),
+            flag_array.axis_chunks_iter(Axis(0), avg_time),
         ) {
-            let gps_time_s = timestep.gps_time_ms as f64 / 1000.0;
-            let centroid_epoch = gps_to_epoch(gps_time_s + integration_time_s / 2.0);
+            let gps_time_ms = gps_times_chunk_ms[0];
+            let centroid_epoch = gps_to_epoch(gps_time_ms as f64 / 1000.0 + avg_int_time_s / 2.0);
 
             let scan_start_mjd_utc_s =
-                gps_millis_to_epoch(timestep.gps_time_ms).as_mjd_utc_seconds();
+                gps_millis_to_epoch(gps_time_ms).as_mjd_utc_seconds();
             let scan_centroid_mjd_utc_s = gps_millis_to_epoch(
-                timestep.gps_time_ms + context.metafits_context.corr_int_time_ms / 2,
+                gps_time_ms + context.metafits_context.corr_int_time_ms / 2,
             )
             .as_mjd_utc_seconds();
 
@@ -1792,11 +1808,16 @@ impl VisWritable for MeasurementSetWriter {
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&tiles_xyz_geod);
 
-            for (baseline, jones_baseline_view, weight_baseline_view, flag_baseline_view) in izip!(
-                img_baselines.iter(),
-                jones_timestep_view.axis_iter(Axis(1)),
-                weight_timestep_view.axis_iter(Axis(1)),
-                flag_timestep_view.axis_iter(Axis(1))
+            for (
+                baseline,
+                jones_baseline_chunk,
+                weight_baseline_chunk,
+                flag_baseline_chunk
+            ) in izip!(
+                sel_baselines.iter(),
+                jones_timestep_chunk.axis_iter(Axis(2)),
+                weight_timestep_chunk.axis_iter(Axis(2)),
+                flag_timestep_chunk.axis_iter(Axis(2))
             ) {
                 let ant1_idx = baseline.ant1_index;
                 let ant2_idx = baseline.ant2_index;
@@ -1808,27 +1829,46 @@ impl VisWritable for MeasurementSetWriter {
                 // copy values into temporary arrays to avoid heap allocs.
                 uvw_tmp.clear();
                 uvw_tmp.extend_from_slice(&[uvw.u, uvw.v, uvw.w]);
-                jones_baseline_view
-                    .iter()
-                    .zip(data_tmp.outer_iter_mut())
-                    .for_each(|(j, mut d)| {
-                        (0..4).for_each(|p| d[p] = j[p]);
-                    });
-                weight_baseline_view
-                    .iter()
-                    .zip(weights_tmp.iter_mut())
-                    .for_each(|(j, d)| {
-                        *d = *j;
-                    });
-                flag_baseline_view
-                    .iter()
-                    .zip(flags_tmp.iter_mut())
-                    .for_each(|(j, d)| {
-                        *d = *j;
-                    });
 
-                let flag_row = flag_baseline_view.iter().all(|&x| x);
+                data_tmp.fill(Complex::default());
+                weights_tmp.fill(0.);
+                flags_tmp.fill(false);
 
+                // iterate through the channel dimension of the arrays in chunks of size `avg_freq`,
+                // averaging the chunks into the tmp arrays.
+                for (
+                    jones_chunk,
+                    weight_chunk,
+                    flag_chunk,
+                    mut data_tmp_view,
+                    mut weights_tmp_view,
+                    mut flags_tmp_view,
+                ) in izip!(
+                    jones_baseline_chunk.axis_chunks_iter(Axis(1), avg_freq),
+                    weight_baseline_chunk.axis_chunks_iter(Axis(1), avg_freq),
+                    flag_baseline_chunk.axis_chunks_iter(Axis(1), avg_freq),
+                    data_tmp.outer_iter_mut(),
+                    weights_tmp.outer_iter_mut(),
+                    flags_tmp.outer_iter_mut()
+                ) {
+                    if avg_time == 1 && avg_freq == 1 {
+                        data_tmp_view.assign(&ArrayView::from(jones_chunk[[0, 0]].as_slice()));
+                        weights_tmp_view.assign(&weight_chunk.slice(s![0, 0, ..]));
+                        flags_tmp_view.assign(&flag_chunk.slice(s![0, 0, ..]));
+                    } else {
+                        average_chunk_for_pols_f64!(
+                            jones_chunk,
+                            weight_chunk,
+                            flag_chunk,
+                            data_tmp_view,
+                            weights_tmp_view,
+                            flags_tmp_view
+                        );
+                    }
+                }
+
+                let flag_row = flags_tmp.iter().all(|&x| x);
+                dbg!(&data_tmp, &flags_tmp, &weights_tmp);
                 self.write_main_row(
                     &mut main_table,
                     main_idx,
@@ -1838,7 +1878,7 @@ impl VisWritable for MeasurementSetWriter {
                     ant2_idx as _,
                     0,
                     &uvw_tmp,
-                    integration_time_s,
+                    avg_int_time_s,
                     -1,
                     1,
                     -1,
@@ -2175,7 +2215,7 @@ mod tests {
     fn test_decompress_default_tables() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
@@ -2352,7 +2392,7 @@ mod tests {
     fn test_add_source_table() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
@@ -2380,7 +2420,7 @@ mod tests {
     fn test_add_cotter_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2408,7 +2448,7 @@ mod tests {
     fn test_add_mwa_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods();
@@ -2458,7 +2498,7 @@ mod tests {
     fn test_write_spectral_window_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2519,7 +2559,7 @@ mod tests {
     fn test_write_spectral_window_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2564,7 +2604,7 @@ mod tests {
     fn handle_bad_spw_chan_info() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2597,7 +2637,7 @@ mod tests {
     fn test_write_data_description_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2624,7 +2664,7 @@ mod tests {
         assert_tables_match!(ddesc_table, expected_table);
     }
 
-    const ANT_POSITIONS: &'static [[f64; 3]] = &[
+    const ANT_POSITIONS: &[[f64; 3]] = &[
         [-2559524.23682043, 5095846.67363471, -2848988.72758185],
         [-2559573.85868766, 5095824.22162118, -2848984.94323095],
         [-2559579.15163694, 5095819.49141935, -2848988.67657305],
@@ -2755,7 +2795,7 @@ mod tests {
         [-2559649.92256756, 5095691.87122651, -2849149.12522308],
     ];
 
-    const ANT_NAMES: &'static [&'static str] = &[
+    const ANT_NAMES: &[&str] = &[
         "Tile011", "Tile012", "Tile013", "Tile014", "Tile015", "Tile016", "Tile017", "Tile018",
         "Tile021", "Tile022", "Tile023", "Tile024", "Tile025", "Tile026", "Tile027", "Tile028",
         "Tile031", "Tile032", "Tile033", "Tile034", "Tile035", "Tile036", "Tile037", "Tile038",
@@ -2773,7 +2813,7 @@ mod tests {
         "HexS30", "HexS31", "HexS32", "HexS33", "HexS34", "HexS35", "HexS36",
     ];
 
-    const ANT_INPUTS: &'static [[i32; 2]] = &[
+    const ANT_INPUTS: &[[i32; 2]] = &[
         [87, 86],
         [85, 84],
         [83, 82],
@@ -2904,7 +2944,7 @@ mod tests {
         [9, 8],
     ];
 
-    const ANT_TILE_NRS: &'static [i32] = &[
+    const ANT_TILE_NRS: &[i32] = &[
         11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33, 34, 35, 36, 37,
         38, 41, 42, 43, 44, 45, 46, 47, 48, 61, 62, 63, 64, 65, 66, 67, 68, 81, 82, 83, 84, 85, 86,
         87, 88, 91, 92, 93, 94, 95, 96, 97, 98, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008,
@@ -2915,7 +2955,7 @@ mod tests {
         1069, 1070, 1071, 1072,
     ];
 
-    const ANT_CABLE_LENGTHS: &'static [[f64; 2]] = &[
+    const ANT_CABLE_LENGTHS: &[[f64; 2]] = &[
         [-656.14, -656.14],
         [-655.66, -655.66],
         [-582.91, -582.91],
@@ -3056,7 +3096,7 @@ mod tests {
     fn test_write_antenna_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3109,7 +3149,7 @@ mod tests {
     fn test_write_antenna_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3165,7 +3205,7 @@ mod tests {
     fn test_write_polarization_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3196,7 +3236,7 @@ mod tests {
     fn handle_bad_pol_small_corr_type() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3223,7 +3263,7 @@ mod tests {
     fn handle_bad_pol_big_corr_product() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3250,7 +3290,7 @@ mod tests {
     fn test_write_source_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3305,7 +3345,7 @@ mod tests {
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3360,7 +3400,7 @@ mod tests {
     fn test_write_field_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3404,7 +3444,7 @@ mod tests {
     fn handle_bad_field_shape() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3440,7 +3480,7 @@ mod tests {
     fn test_write_observation_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3492,7 +3532,7 @@ mod tests {
     fn test_write_observation_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3545,7 +3585,7 @@ mod tests {
     fn test_write_history_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3594,7 +3634,7 @@ mod tests {
     fn test_write_feed_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3659,7 +3699,7 @@ mod tests {
     fn test_write_mwa_tile_pointing_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3678,8 +3718,8 @@ mod tests {
                 5077351975.,
                 5077351984.,
                 &vec![3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0, 3, 2, 1, 0],
-                6.28310690918895887,
-                -0.464403366228935188,
+                6.283106909188959,
+                -0.4644033662289352,
             )
             .unwrap();
         drop(ms_writer);
@@ -3699,7 +3739,7 @@ mod tests {
     fn test_write_mwa_subband_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4885,7 +4925,7 @@ mod tests {
     fn test_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.471238898038468967);
+        let phase_centre = RADec::new(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -5015,6 +5055,8 @@ mod tests {
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
+                1,
+                1,
             )
             .unwrap();
 
