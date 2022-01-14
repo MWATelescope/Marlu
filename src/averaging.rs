@@ -2,7 +2,7 @@
 
 use crate::Complex;
 use itertools::izip;
-use ndarray::{s, Array3, Array4, ArrayView3, ArrayView4, Axis};
+use ndarray::{ s, Array3, Array4, ArrayView3, ArrayView4, Axis };
 use thiserror::Error;
 
 use crate::Jones;
@@ -21,6 +21,86 @@ pub enum AveragingError {
     // TODO: https://github.com/pkgw/rubbl/pull/148
     // #[error("{0}")]
     // RubblError(#[from] CasacoreError)
+}
+
+/// compute the weighted geometric average of unflagged visibilities for each time, frequency and
+/// pol in the chunks.
+///
+/// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
+///
+/// dimensions:
+/// - jones_chunk -> [at, af][pol] (each element is a complex vis array of length pol)
+/// - weight_chunk -> [at, af, pol]
+/// - flag_chunk shape -> [at, af, pol]
+/// - avg_jones -> [pol]
+/// - avg_weight_view -> [pol]
+/// - avg_flag_view -> [pol]
+///
+/// It's up to you to initialize the avg_ views to zero;
+///
+// average_chunk_for_pols(
+// jones_chunk: ArrayView2<Jones<f32>>,
+// weight_chunk: ArrayView3<f32>,
+// flag_chunk: ArrayView3<bool>,
+// avg_jones: &mut [Complex<f32>],
+// avg_weight_view: ArrayViewMut1<f32>,
+// avg_flag_view: ArrayViewMut1<bool>,
+// ) {
+#[macro_export]
+macro_rules! average_chunk_for_pols {
+    (
+        $jones_chunk:expr,
+        $weight_chunk:expr,
+        $flag_chunk:expr,
+        $avg_jones:expr,
+        $avg_weight_view:expr,
+        $avg_flag_view:expr
+    ) => {
+        // let chunk_size: usize = $jones_chunk.shape()[0..1].iter().product();
+        let chunk_size: usize = $jones_chunk.len();
+
+        assert_eq!($weight_chunk.dim().2, 4);
+        assert_eq!($flag_chunk.dim().2, 4);
+        assert_eq!($avg_weight_view.len(), 4);
+        assert_eq!($avg_flag_view.len(), 4);
+
+        for pol_idx in 0..4 {
+            $avg_flag_view[pol_idx] = true;
+            // $avg_jones[pol_idx] = Complex::default();
+            // $avg_weight_view[pol_idx] = -0.;
+            let mut weight_sum: f64 = -0.;
+            let mut complex_sum_c64 = Complex::<f64>::default();
+            let mut weighted_complex_sum_c64 = Complex::<f64>::default();
+
+            for (jones_element, weight_element, flag_element) in izip!(
+                $jones_chunk.iter(),
+                $weight_chunk.slice(s![.., .., pol_idx]).iter(),
+                $flag_chunk.slice(s![.., .., pol_idx]).iter(),
+            ) {
+                let pol_c64 = Complex::<f64>::new(
+                    jones_element[pol_idx].re as _,
+                    jones_element[pol_idx].im as _,
+                );
+                complex_sum_c64 += pol_c64;
+                if !flag_element && weight_element > &0. {
+                    weighted_complex_sum_c64 += (pol_c64 * *weight_element as f64);
+                    weight_sum += *weight_element as f64;
+                    $avg_flag_view[pol_idx] = false;
+                }
+            }
+
+            weighted_complex_sum_c64 = if !$avg_flag_view[pol_idx] {
+                weighted_complex_sum_c64 / weight_sum
+            } else {
+                complex_sum_c64 / (chunk_size as f64)
+            };
+            $avg_jones[pol_idx] = Complex::new(
+                weighted_complex_sum_c64.re as _,
+                weighted_complex_sum_c64.im as _,
+            );
+            $avg_weight_view[pol_idx] = weight_sum as f32;
+        }
+    };
 }
 
 /// Average a section (timestep_range, coarse_chan_range) of the visibilities
@@ -58,8 +138,8 @@ pub fn average_visibilities(
     jones_array: ArrayView3<Jones<f32>>,
     weight_array: ArrayView4<f32>,
     flag_array: ArrayView4<bool>,
-    time_factor: usize,
-    frequency_factor: usize,
+    avg_time: usize,
+    avg_freq: usize,
 ) -> Result<(Array3<Jones<f32>>, Array4<f32>, Array4<bool>), AveragingError> {
     let jones_dims = jones_array.dim();
     let weight_dims = weight_array.dim();
@@ -81,8 +161,8 @@ pub fn average_visibilities(
         });
     }
     let averaged_dims = (
-        (jones_dims.0 as f64 / time_factor as f64).ceil() as usize,
-        (jones_dims.1 as f64 / frequency_factor as f64).ceil() as usize,
+        (jones_dims.0 as f64 / avg_time as f64).ceil() as usize,
+        (jones_dims.1 as f64 / avg_freq as f64).ceil() as usize,
         jones_dims.2,
     );
     let mut averaged_jones_array = Array3::<Jones<f32>>::zeros(averaged_dims);
@@ -102,9 +182,9 @@ pub fn average_visibilities(
         mut averaged_weight_timestep_view,
         mut averaged_flag_timestep_view,
     ) in izip!(
-        jones_array.axis_chunks_iter(Axis(0), time_factor),
-        weight_array.axis_chunks_iter(Axis(0), time_factor),
-        flag_array.axis_chunks_iter(Axis(0), time_factor),
+        jones_array.axis_chunks_iter(Axis(0), avg_time),
+        weight_array.axis_chunks_iter(Axis(0), avg_time),
+        flag_array.axis_chunks_iter(Axis(0), avg_time),
         averaged_jones_array.outer_iter_mut(),
         averaged_weight_array.outer_iter_mut(),
         averaged_flag_array.outer_iter_mut(),
@@ -118,9 +198,9 @@ pub fn average_visibilities(
             mut averaged_weight_channel_view,
             mut averaged_flag_channel_view,
         ) in izip!(
-            jones_timestep_chunk.axis_chunks_iter(Axis(1), frequency_factor),
-            weight_timestep_chunk.axis_chunks_iter(Axis(1), frequency_factor),
-            flag_timestep_chunk.axis_chunks_iter(Axis(1), frequency_factor),
+            jones_timestep_chunk.axis_chunks_iter(Axis(1), avg_freq),
+            weight_timestep_chunk.axis_chunks_iter(Axis(1), avg_freq),
+            flag_timestep_chunk.axis_chunks_iter(Axis(1), avg_freq),
             averaged_jones_timestep_view.outer_iter_mut(),
             averaged_weight_timestep_view.outer_iter_mut(),
             averaged_flag_timestep_view.outer_iter_mut(),
@@ -141,44 +221,14 @@ pub fn average_visibilities(
                 averaged_weight_channel_view.outer_iter_mut(),
                 averaged_flag_channel_view.outer_iter_mut(),
             ) {
-                // dimensions:
-                // - jones_chunk -> [tf, ff] (each element is a complex vis array of length pol)
-                // - weight_chunk -> [tf, ff, pol]
-                // - flag_chunk shape -> [tf, ff, pol]
-                // - averaged_jones_view -> []
-                // - averaged_weight_view -> [pol]
-                // - averaged_flag_view -> [pol]
-
-                // for each time, frequency and pol in the chunks, compute the
-                // weighted geometric average of unflagged visibilities.
-
-                let chunk_size = jones_chunk.dim().0 * jones_chunk.dim().1;
-
-                for pol_idx in 0..4 {
-                    let mut all_flagged = true;
-                    let mut pol_sum: Complex<f32> = Complex::new(0., 0.);
-                    for (jones_element, weight_element, flag_element) in izip!(
-                        jones_chunk.iter(),
-                        weight_chunk.slice(s![.., .., pol_idx]).iter(),
-                        flag_chunk.slice(s![.., .., pol_idx]).iter(),
-                    ) {
-                        pol_sum += jones_element[pol_idx];
-                        if !flag_element && weight_element > &0. {
-                            averaged_jones_view[()][pol_idx] +=
-                                jones_element[pol_idx] * weight_element;
-                            averaged_weight_view[pol_idx] += weight_element;
-                            all_flagged = false;
-                        }
-                    }
-
-                    if !all_flagged {
-                        averaged_jones_view[()][pol_idx] /= averaged_weight_view[pol_idx];
-                        averaged_flag_view[pol_idx] = false;
-                    } else {
-                        averaged_jones_view[()][pol_idx] = pol_sum / (chunk_size as f32);
-                        averaged_flag_view[pol_idx] = true;
-                    }
-                }
+                average_chunk_for_pols!(
+                    jones_chunk,
+                    weight_chunk,
+                    flag_chunk,
+                    averaged_jones_view[()],
+                    averaged_weight_view,
+                    averaged_flag_view
+                );
             }
         }
     }
