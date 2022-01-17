@@ -1868,7 +1868,6 @@ impl VisWritable for MeasurementSetWriter {
                 }
 
                 let flag_row = flags_tmp.iter().all(|&x| x);
-                dbg!(&data_tmp, &flags_tmp, &weights_tmp);
                 self.write_main_row(
                     &mut main_table,
                     main_idx,
