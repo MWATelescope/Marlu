@@ -82,6 +82,8 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
                         &context,
                         &mwalib_timestep_range,
                         &mwalib_coarse_chan_range,
+                        1,
+                        1,
                     )
                     .unwrap();
             })
@@ -158,6 +160,8 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                         &context,
                         &mwalib_timestep_range,
                         &mwalib_coarse_chan_range,
+                        1,
+                        1,
                     )
                     .unwrap();
                 ms_writer
