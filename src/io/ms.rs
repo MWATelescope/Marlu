@@ -35,7 +35,7 @@ cfg_if::cfg_if! {
 
         use super::error::IOError;
         use crate::{precession::precess_time,
-            time::{gps_millis_to_epoch, gps_to_epoch},
+            time::gps_millis_to_epoch,
             Jones, XyzGeodetic, ENH, UVW
         };
     }
@@ -485,6 +485,7 @@ impl MeasurementSetWriter {
     ///     - `RESOLUTION` - resolutions.
     /// - `total_bw` - Total bandwidth (`TOTAL_BANDWIDTH` column)
     /// - `flag` - Row flag (`FLAG_ROW` column)
+    #[allow(clippy::too_many_arguments)]
     pub fn write_spectral_window_row(
         &self,
         table: &mut Table,
@@ -545,6 +546,7 @@ impl MeasurementSetWriter {
     /// - `centre_subband_nr` - This is the "sky" channel number of the center coarse channel in
     ///     the spectral window.
     /// - `flag` - Row flag (`FLAG_ROW` column)
+    #[allow(clippy::too_many_arguments)]
     pub fn write_spectral_window_row_mwa(
         &self,
         table: &mut Table,
@@ -607,6 +609,7 @@ impl MeasurementSetWriter {
     /// - `dish_diameter` - Physical diameter of dish
     /// - `flag_row` - Row flag
     #[allow(clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
     pub fn write_antenna_row(
         &self,
         table: &mut Table,
@@ -653,6 +656,7 @@ impl MeasurementSetWriter {
     /// - `cable_length` - A vector containing the electrical length for each polarization
     /// - `flag_row` - Row flag
     #[allow(clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
     pub fn write_antenna_row_mwa(
         &self,
         table: &mut Table,
@@ -753,6 +757,7 @@ impl MeasurementSetWriter {
     /// - `code` - Special characteristics of source, e.g. Bandpass calibrator
     /// - `direction` - Direction (RA, DEC) [Rad, J2000].
     /// - `proper_motion` - [rad/s].
+    #[allow(clippy::too_many_arguments)]
     pub fn write_source_row(
         &self,
         table: &mut Table,
@@ -818,6 +823,7 @@ impl MeasurementSetWriter {
     /// - `flag_row` - Row Flag
     ///
     /// For the MWA, Phase, Reference and Delay directions are basically the same
+    #[allow(clippy::too_many_arguments)]
     pub fn write_field_row(
         &self,
         table: &mut Table,
@@ -875,6 +881,7 @@ impl MeasurementSetWriter {
     /// - `source_id` - Source id
     /// - `has_calibrator` - whether this observation is intended for calibration (from metafits:CALIBRAT)
     /// - `flag_row` - Row Flag
+    #[allow(clippy::too_many_arguments)]
     pub fn write_field_row_mwa(
         &self,
         table: &mut Table,
@@ -910,6 +917,7 @@ impl MeasurementSetWriter {
     /// - `project` - Project identification string
     /// - `release_date` - Release date when data becomes public
     /// - `flag_row` - Row flag
+    #[allow(clippy::too_many_arguments)]
     pub fn write_observation_row(
         &self,
         table: &mut Table,
@@ -959,6 +967,7 @@ impl MeasurementSetWriter {
     /// - `flag_window_size` - Number of scans in this partition
     /// - `date_requested` - from metafits:DATE-OBS
     /// - `flag_row` - Row flag
+    #[allow(clippy::too_many_arguments)]
     pub fn write_observation_row_mwa(
         &self,
         table: &mut Table,
@@ -1015,6 +1024,7 @@ impl MeasurementSetWriter {
     /// - `message` - Log message
     /// - `application` - Application name
     /// - `params` - Application parameters
+    #[allow(clippy::too_many_arguments)]
     pub fn write_history_row(
         &self,
         table: &mut Table,
@@ -1065,6 +1075,7 @@ impl MeasurementSetWriter {
     /// - `position` - Position of feed relative to feed reference position
     /// - `receptor_angle` - The reference angle for polarization
     #[allow(clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
     pub fn write_feed_row(
         &self,
         table: &mut Table,
@@ -1152,6 +1163,7 @@ impl MeasurementSetWriter {
     /// - `delays` - beamformer delays, from metafits:DELAYS
     /// - `direction_{ra|dec}` - pointing direction [Ra/Dec]
     #[allow(clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
     pub fn write_mwa_tile_pointing_row(
         &self,
         table: &mut Table,
@@ -1214,10 +1226,10 @@ impl MeasurementSetWriter {
         context: &CorrelatorContext,
         mwalib_timestep_range: &Range<usize>,
         mwalib_coarse_chan_range: &Range<usize>,
-        avg_time: usize,
+        _avg_time: usize,
         avg_freq: usize,
     ) -> Result<(), MeasurementSetWriteError> {
-        use itertools::Itertools;
+        // use itertools::Itertools;
 
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
         let num_sel_coarse_chans = mwalib_coarse_chan_range.len();
@@ -1590,7 +1602,7 @@ impl MeasurementSetWriter {
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `idx` - row index to write to (ensure enough rows have been added)
-    /// - `time` - Modified Julian Day, at start of scan
+    /// - `time` - Modified Julian Day, at midpoint of scan
     /// - `time_centroid` - Modified Julian Day, at centroid of scan
     /// - `antenna1` - ID of first antenna in interferometer
     /// - `antenna2` - ID of second antenna in interferometer
@@ -1605,7 +1617,14 @@ impl MeasurementSetWriter {
     ///     is the number of channels, and p is the number of polarizations
     /// - `flags` - an `[n, p]` shaped ndarray of boolean flags.
     /// - `weights` - a `[p]` shaped ndarray of weights for each polarization
+    ///
+    /// # Gorey details
+    ///
+    /// According to <https://casa.nrao.edu/Memos/229.html#SECTION00061000000000000000>,
+    /// midpoint and centroid time are different things? It doesn't explain how, and
+    /// Cotter doesn't treat them differently either.
     #[allow(clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
     pub fn write_main_row(
         &self,
         table: &mut Table,
@@ -1908,7 +1927,7 @@ mod tests {
     use approx::abs_diff_eq;
     use itertools::izip;
     use lexical::parse;
-    use ndarray::{arr2, Array, Array4};
+    use ndarray::{Array, Array4};
     use regex::Regex;
     use tempfile::tempdir;
 
@@ -3805,7 +3824,7 @@ mod tests {
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 avg_time,
-                avg_freq
+                avg_freq,
             )
             .unwrap();
 
@@ -4181,8 +4200,8 @@ mod tests {
         let mut baseline_idx;
         let mut pol_idx;
 
-        for (row_idx, row) in reader.records().enumerate() {
-            let mut record = row.unwrap();
+        for row in reader.records() {
+            let record = row.unwrap();
             let time = record[indices["time"]].parse::<f64>().unwrap();
             timestep_idx = if let Some(idx) = times.iter().position(|&x| x == time) {
                 idx
@@ -4315,7 +4334,7 @@ mod tests {
             num_baselines,
         );
 
-        let mut row_flags = Array::from_shape_fn((768, 4), |(c, _)| false);
+        let mut row_flags = Array::from_elem((768, 4), false);
         let mut row_weights = Array::zeros((768, 4));
 
         let mut row_idx = 0;
@@ -4324,7 +4343,7 @@ mod tests {
                 let uvw: Vec<f64> = uvws
                     .slice(s![timestep_idx, baseline_idx, ..])
                     .iter()
-                    .map(|&x| x)
+                    .copied()
                     .collect();
                 let data_array =
                     Array2::from_shape_fn((768, 4), |(c, p)| jones[[timestep_idx, c, 0]][p]);
@@ -4549,7 +4568,6 @@ mod tests {
     #[cfg(feature = "mwalib")]
     #[test]
     fn test_write_vis_from_mwalib() {
-
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let array_pos = Some(LatLngHeight {
@@ -4587,7 +4605,7 @@ mod tests {
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 avg_time,
-                avg_freq
+                avg_freq,
             )
             .unwrap();
 
@@ -4608,7 +4626,7 @@ mod tests {
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
                 avg_time,
-                avg_freq
+                avg_freq,
             )
             .unwrap();
 
@@ -4618,7 +4636,7 @@ mod tests {
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in col_names.iter() {
-                if ["TIME_CENTROID", "TIME"].contains(&col_name) {
+                if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
@@ -4630,7 +4648,6 @@ mod tests {
     #[cfg(feature = "mwalib")]
     #[test]
     fn test_write_vis_from_mwalib_averaging() {
-
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let array_pos = Some(LatLngHeight {
@@ -4668,7 +4685,7 @@ mod tests {
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 avg_time,
-                avg_freq
+                avg_freq,
             )
             .unwrap();
 
@@ -4689,17 +4706,20 @@ mod tests {
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
                 avg_time,
-                avg_freq
+                avg_freq,
             )
             .unwrap();
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
             let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
-            let mut exp_table =
-                Table::open(PATH_1254670392_AVG_4S_80KHZ.join(table_name), TableOpenMode::Read).unwrap();
+            let mut exp_table = Table::open(
+                PATH_1254670392_AVG_4S_80KHZ.join(table_name),
+                TableOpenMode::Read,
+            )
+            .unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in col_names.iter() {
-                if ["TIME_CENTROID", "TIME"].contains(&col_name) {
+                if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);

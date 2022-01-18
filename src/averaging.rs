@@ -146,11 +146,7 @@ macro_rules! average_chunk_for_pols_f64 {
 ///     mean of the chunk.
 /// - otherwise the visibility is the weighted mean of the unflagged visibilities.
 ///
-/// # TODO:
-///
-/// - visibilities with weights of zero or less should be considered flagged.
-/// - if one pol is flagged, should all pols be?
-/// - does it only make sense to offer power of 2 averaging?
+/// This has been validated thoroughly against Cotter.
 ///
 pub fn average_visibilities(
     jones_array: ArrayView3<Jones<f32>>,

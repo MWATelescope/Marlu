@@ -112,6 +112,6 @@ mod tests {
             height_metres: 0.0,
         };
         let result = format!("{}", latlngheight);
-        assert!(result.len() > 0);
+        assert!(!result.is_empty());
     }
 }
