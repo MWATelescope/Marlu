@@ -1924,6 +1924,8 @@ mod tests {
         path::PathBuf,
     };
 
+    use super::*;
+
     use approx::abs_diff_eq;
     use itertools::izip;
     use lexical::parse;
@@ -1931,7 +1933,6 @@ mod tests {
     use regex::Regex;
     use tempfile::tempdir;
 
-    use super::*;
     use crate::c64;
 
     cfg_if::cfg_if! {
@@ -4162,19 +4163,21 @@ mod tests {
         }
     }
 
-    fn get_test_data(
-        csv_path: PathBuf,
-        num_timesteps: usize,
-        num_freqs: usize,
-        num_baselines: usize,
-    ) -> (
+    type VisTestData = (
         Array3<Jones<f32>>,
         Array4<f32>,
         Array4<bool>,
         Array3<f64>,
         Vec<f64>,
         Vec<(usize, usize)>,
-    ) {
+    );
+
+    fn get_test_data(
+        csv_path: PathBuf,
+        num_timesteps: usize,
+        num_freqs: usize,
+        num_baselines: usize,
+    ) -> VisTestData {
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .flexible(true)

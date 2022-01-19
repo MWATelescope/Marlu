@@ -121,6 +121,8 @@ macro_rules! average_chunk_for_pols_f64 {
     };
 }
 
+pub type VisData = (Array3<Jones<f32>>, Array4<f32>, Array4<bool>);
+
 /// Average a section (timestep_range, coarse_chan_range) of the visibilities
 /// (jones_array, weight_array, flag_array) in time or frequency (time_factor, frequency_factor).
 ///
@@ -154,7 +156,7 @@ pub fn average_visibilities(
     flag_array: ArrayView4<bool>,
     avg_time: usize,
     avg_freq: usize,
-) -> Result<(Array3<Jones<f32>>, Array4<f32>, Array4<bool>), AveragingError> {
+) -> Result<VisData, AveragingError> {
     let jones_dims = jones_array.dim();
     let weight_dims = weight_array.dim();
     if weight_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
