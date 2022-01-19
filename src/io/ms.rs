@@ -1397,7 +1397,7 @@ impl MeasurementSetWriter {
 
         let obs_name = &context.metafits_context.obs_name;
         let field_name = obs_name
-            .rsplit_once("_")
+            .rsplit_once('_')
             .unwrap_or((obs_name.as_str(), ""))
             .0;
 
@@ -4491,9 +4491,10 @@ mod tests {
                 "ANTENNA_ID",
                 "BEAM_ID",
                 "FEED_ID",
-                // "INTERVAL",
                 "NUM_RECEPTORS",
                 "SPECTRAL_WINDOW_ID",
+                // These are wrong in Cotter, at least according to https://casa.nrao.edu/Memos/229.html#SECTION00066000000000000000
+                // "INTERVAL",
                 // "TIME",
             ],
         ),
