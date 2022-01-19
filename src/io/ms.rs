@@ -1926,6 +1926,7 @@ mod tests {
 
     use super::*;
 
+    use serial_test::serial;
     use approx::abs_diff_eq;
     use itertools::izip;
     use lexical::parse;
@@ -2229,6 +2230,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_decompress_default_tables() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2406,6 +2408,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_add_source_table() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2434,6 +2437,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_add_cotter_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2462,6 +2466,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_add_mwa_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2512,6 +2517,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_spectral_window_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2573,6 +2579,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_spectral_window_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2618,6 +2625,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn handle_bad_spw_chan_info() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -2651,6 +2659,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_data_description_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3110,6 +3119,7 @@ mod tests {
     /// tb.getcol("NAME")
     /// ```
     #[test]
+    #[serial]
     fn test_write_antenna_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3163,6 +3173,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_antenna_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3219,6 +3230,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_polarization_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3250,6 +3262,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn handle_bad_pol_small_corr_type() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3277,6 +3290,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn handle_bad_pol_big_corr_product() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3304,6 +3318,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_source_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3359,6 +3374,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3414,6 +3430,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_field_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3458,6 +3475,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn handle_bad_field_shape() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3494,6 +3512,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_observation_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3546,6 +3565,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_observation_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3599,6 +3619,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_history_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3648,6 +3669,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_feed_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3713,6 +3735,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_mwa_tile_pointing_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3753,6 +3776,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_mwa_subband_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -3786,6 +3810,7 @@ mod tests {
 
     #[cfg(feature = "mwalib")]
     #[test]
+    #[serial]
     fn test_initialize_from_mwalib_all() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -4313,6 +4338,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -4570,6 +4596,7 @@ mod tests {
 
     #[cfg(feature = "mwalib")]
     #[test]
+    #[serial]
     fn test_write_vis_from_mwalib() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -4650,6 +4677,7 @@ mod tests {
 
     #[cfg(feature = "mwalib")]
     #[test]
+    #[serial]
     fn test_write_vis_from_mwalib_averaging() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
