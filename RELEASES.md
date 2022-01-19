@@ -1,5 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.3.3 (2022-01-19)
+
+- bug fixes for measurement sets when averaging
+
 # Version 0.3.2 (2022-01-14)
 
 - implement averaging standalone and in VisWritable

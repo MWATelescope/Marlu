@@ -1,6 +1,6 @@
 [package]
 name = "marlu"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Christopher H. Jordan <christopherjordan87@gmail.com>",
            "Derwent McElhinney <derwent.mcelhinney@curtin.edu.au>"]
 edition = "2021"
