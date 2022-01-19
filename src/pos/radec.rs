@@ -273,6 +273,6 @@ mod tests {
             dec: 0.0,
         };
         let result = format!("{}", radec);
-        assert!(result.len() > 0);
+        assert!(!result.is_empty());
     }
 }
