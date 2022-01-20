@@ -19,16 +19,15 @@ jobs:
           curl https://sh.rustup.rs -sSf | sh -s -- -y
           export PATH="${HOME}/.cargo/bin:${PATH}"
           rustup set profile minimal
-          rustup toolchain install nightly --component llvm-tools-preview
-          rustup default nightly
+          rustup toolchain install nightly-2022-01-14 --component llvm-tools-preview
+          rustup default nightly-2022-01-14
 
       - name: Install system and Cargo Packages
         run: |
           export PATH="${HOME}/.cargo/bin:${PATH}"
           apt-get update
           apt-get install -y lcov clang curl zip unzip libssl-dev jq liberfa-dev libcfitsio-dev
-          cargo update
-          cargo install --force cargo-make cargo-binutils grcov
+          cargo +nightly-2022-01-14 install cargo-llvm-cov
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -40,12 +39,9 @@ jobs:
           RUSTDOCFLAGS: "-Cpanic=abort"
           LLVM_PROFILE_FILE: json5format-%m.profraw
         run: |
-          mkdir -p coverage
           export PATH="${HOME}/.cargo/bin:${PATH}"
-          cargo build
-          cargo test
-          zip -0 ccov.zip `find . \( -name "marlu*.gc*" \) -print`
-          grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore "/*" --excl-br-line "^.*((debug_)?assert(_eq|_ne|_abs_diff_(eq|ne))?!|#\[derive\()" -o coverage/coverage.lcov
+          mkdir -p coverage
+          cargo +nightly-2022-01-14 llvm-cov --lib --lcov --output-path coverage/coverage.lcov
 
       - name: Upload reports to codecov.io
         uses: codecov/codecov-action@v2
