@@ -14,28 +14,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install nightly toolchain
-        run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y
-          export PATH="${HOME}/.cargo/bin:${PATH}"
-          rustup set profile minimal
-          rustup toolchain install nightly-2022-01-14 --component llvm-tools-preview
-          rustup default nightly-2022-01-14
+      - uses: taiki-e/github-actions/install-rust@main
+        with:
+          toolchain: nightly-2022-01-14
+          component: llvm-tools-preview
 
-      - name: Install system and Cargo Packages
-        run: |
-          export PATH="${HOME}/.cargo/bin:${PATH}"
-          apt-get update
-          apt-get install -y lcov clang curl zip unzip libssl-dev jq liberfa-dev libcfitsio-dev
-          cargo +nightly-2022-01-14 install cargo-llvm-cov
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: install cargo-llvm-cov
+        run: cargo +nightly-2022-01-14 install cargo-llvm-cov
 
       - name: Generate test lcov coverage into coverage/ dir
         run: |
           export PATH="${HOME}/.cargo/bin:${PATH}"
           mkdir -p coverage
           cargo +nightly-2022-01-14 llvm-cov --lib --lcov --output-path coverage/coverage.lcov
+          # this uses the result of the previous run to generate a text summary
+          cargo +nightly-2022-01-14 llvm-cov --no-run
 
       - name: Upload reports to codecov.io
         uses: codecov/codecov-action@v2
