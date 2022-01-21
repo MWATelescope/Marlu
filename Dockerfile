@@ -6,16 +6,16 @@ RUN apt-get update \
     && apt-get install -y \
         aoflagger-dev \
         build-essential \
+        clang \
         curl \
         git \
         jq \
+        lcov \
         libcfitsio-dev \
         liberfa-dev \
         libssl-dev \
         pkg-config \
         unzip \
-        lcov \
-        clang \
         zip
 RUN test -z "$DEBUG" || ( \
         apt-get install -y vim gdb \
@@ -35,8 +35,8 @@ ADD . /app
 WORKDIR /app
 
 # setup the toolchain used for coverage analysis
-RUN rustup toolchain install nightly --component llvm-tools-preview --profile minimal \
-    && cargo +nightly install --force cargo-make --locked --version '=0.35.7' \
-    && cargo +nightly install --force cargo-binutils --locked --version '=0.3.4'
+RUN rustup toolchain install nightly-2022-01-14 --component llvm-tools-preview --profile minimal \
+    && cargo +nightly-2022-01-14 install --force cargo-make --locked --version '=0.35.7' \
+    && cargo +nightly-2022-01-14 install --force cargo-llvm-cov --locked --version '=0.1.15'
 
 ENTRYPOINT [ "/bin/bash" ]
