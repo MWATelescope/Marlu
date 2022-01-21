@@ -30,6 +30,11 @@ jobs:
           # this uses the result of the previous run to generate a text summary
           cargo +nightly-2022-01-14 llvm-cov --no-run
 
+      - uses: actions/upload-artifact@v2
+        with:
+          name: coverage.lcov
+          path: coverage/coverage.lcov
+
       - name: Upload reports to codecov.io
         uses: codecov/codecov-action@v2
         with:
