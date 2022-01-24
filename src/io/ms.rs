@@ -1731,7 +1731,10 @@ impl VisWritable for MeasurementSetWriter {
         baseline_idxs: &[usize],
         avg_time: usize,
         avg_freq: usize,
+        draw_progress: bool,
     ) -> Result<(), IOError> {
+        use indicatif::{ProgressDrawTarget, ProgressStyle};
+
         trace!(
             "timestep range {:?}, coarse chan range {:?}, baseline idxs {:?}",
             &timestep_range,
@@ -1786,6 +1789,27 @@ impl VisWritable for MeasurementSetWriter {
         let half_avg_int_time_ms = avg_int_time_ms / 2;
         let int_time_s = int_time_ms as f64 / 1000.0;
         let avg_int_time_s = avg_time as f64 * int_time_s;
+
+        // Progress bars
+
+        let draw_target = if draw_progress {
+            ProgressDrawTarget::stderr()
+        } else {
+            ProgressDrawTarget::hidden()
+        };
+
+        // Create a progress bar to show the writing status
+        let write_progress = indicatif::ProgressBar::with_draw_target(total_num_rows as u64, draw_target);
+        write_progress.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "{msg:16}: [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent:3}% ({eta:5})",
+                )
+                .progress_chars("=> "),
+        );
+        write_progress.set_message("write ms vis");
+
+        // baselines
 
         let tiles_xyz_geod = XyzGeodetic::get_tiles_mwa(&context.metafits_context);
         // let sel_timesteps = &context.timesteps[timestep_range.clone()];
@@ -1909,8 +1933,12 @@ impl VisWritable for MeasurementSetWriter {
                 )?;
 
                 main_idx += 1;
+
+                write_progress.inc(1);
             }
         }
+
+        write_progress.finish();
 
         Ok(())
     }
@@ -4658,6 +4686,7 @@ mod tests {
                 &mwalib_baseline_idxs,
                 avg_time,
                 avg_freq,
+                false,
             )
             .unwrap();
 
@@ -4739,6 +4768,7 @@ mod tests {
                 &mwalib_baseline_idxs,
                 avg_time,
                 avg_freq,
+                false,
             )
             .unwrap();
 
