@@ -175,6 +175,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                         &mwalib_baseline_idxs,
                         1,
                         1,
+                        false,
                     )
                     .unwrap();
             })

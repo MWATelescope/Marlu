@@ -82,5 +82,6 @@ pub trait VisWritable: Sync + Send {
         baseline_idxs: &[usize],
         avg_time: usize,
         avg_freq: usize,
+        draw_progress: bool,
     ) -> Result<(), IOError>;
 }
