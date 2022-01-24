@@ -1,5 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.3.4 (2022-01-24)
+
+- add optional progress bars for measurement sets.
+
 # Version 0.3.3 (2022-01-19)
 
 - bug fixes for measurement sets when averaging
