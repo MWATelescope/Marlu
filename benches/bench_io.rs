@@ -66,7 +66,7 @@ fn get_context_mwax_half_1247842824() -> CorrelatorContext {
 
 fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
     let context = get_context_mwax_half_1247842824();
-    let (mwalib_timestep_range, mwalib_coarse_chan_range, _) = get_indices(&context);
+    let (timestep_range, coarse_chan_range, baseline_idxs) = get_indices(&context);
 
     let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
 
@@ -80,8 +80,9 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
                 ms_writer
                     .initialize_from_mwalib(
                         &context,
-                        &mwalib_timestep_range,
-                        &mwalib_coarse_chan_range,
+                        &timestep_range,
+                        &coarse_chan_range,
+                        &baseline_idxs,
                         1,
                         1,
                     )
@@ -160,6 +161,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                         &context,
                         &mwalib_timestep_range,
                         &mwalib_coarse_chan_range,
+                        &mwalib_baseline_idxs,
                         1,
                         1,
                     )
