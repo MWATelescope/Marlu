@@ -1224,6 +1224,15 @@ impl MeasurementSetWriter {
     ///
     /// `mwalib_coarse_chan_range` the range of coarse channel indices (according to mwalib)
     /// of the current chunk being written to the measurement set.
+    ///
+    /// `baseline_idxs` - the range of indices into `CorrelatorContext.metafits_context.baselines`
+    ///     corresponding to the third dimension of the jones array.
+    ///
+    /// `avg_time` - the temporal averaging factor which determines the number of timesteps that
+    ///     will be written
+    ///
+    /// `avg_freq` - the frequency averaging factor which determines the number of frequencies that
+    ///     will be written
     #[cfg(feature = "mwalib")]
     pub fn initialize_from_mwalib(
         &self,
@@ -4744,7 +4753,7 @@ mod tests {
             1,
         );
 
-        let num_chunk_timesteps = 2;
+        let num_chunk_timesteps = 1;
 
         for (mut timestep_chunk, jones_array_chunk, weight_array_chunk, flag_array_chunk) in izip!(
             &mwalib_timestep_range.chunks(num_chunk_timesteps),
