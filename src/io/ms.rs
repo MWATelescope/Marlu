@@ -60,6 +60,9 @@ pub struct MeasurementSetWriter {
 
     /// Array Position [Latitude (radians), Longitude (radians), Height (m)]
     array_pos: LatLngHeight,
+
+    /// The next row to write to in the main table
+    pub main_row_idx: usize,
 }
 
 impl MeasurementSetWriter {
@@ -83,6 +86,7 @@ impl MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
             phase_centre,
             array_pos,
+            main_row_idx: 0
         }
     }
 
@@ -1822,8 +1826,6 @@ impl VisWritable for MeasurementSetWriter {
 
         main_table.add_rows(total_num_rows).unwrap();
 
-        let mut main_idx = 0;
-
         // Allocating temporary arrays/vectors once here avoid multiple heap allocations.
         let mut uvw_tmp = Vec::with_capacity(3);
         let sigma_tmp = vec![1., 1., 1., 1.];
@@ -1914,7 +1916,7 @@ impl VisWritable for MeasurementSetWriter {
                 let flag_row = flags_tmp.iter().all(|&x| x);
                 self.write_main_row(
                     &mut main_table,
-                    main_idx,
+                    self.main_row_idx as _,
                     scan_centroid_mjd_utc_s,
                     scan_centroid_mjd_utc_s,
                     ant1_idx as _,
@@ -1932,7 +1934,7 @@ impl VisWritable for MeasurementSetWriter {
                     flag_row,
                 )?;
 
-                main_idx += 1;
+                self.main_row_idx += 1;
 
                 write_progress.inc(1);
             }
