@@ -1,5 +1,11 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.4.0 (2022-01-27)
+
+- MeasurementSetWriter keeps track of the current row in the main table, so that rows can be written in chunks.
+- MeasurementSetWriter::initialize_from_mwalib now takes the baseline_idxs array so that it can initialise the main table with the correct number of rows.
+- MeasurementSetWriter correctly handles the case where the number of selected channels / frequencies is not a multiple of the averaging factors
+
 # Version 0.3.4 (2022-01-24)
 
 - add optional progress bars for measurement sets.
