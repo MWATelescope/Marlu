@@ -65,6 +65,10 @@ pub trait VisWritable: Sync + Send {
     /// `baseline_idxs` - the range of indices into `CorrelatorContext.metafits_context.baselines`
     ///     corresponding to the third dimension of the jones array.
     ///
+    /// `avg_time` - the number of timesteps to average together.
+    ///
+    /// `avg_freq` - the number of channels to average together.
+    ///
     /// # Errors
     ///
     /// Can throw IOError if there is an issue writing to the file, or the indices

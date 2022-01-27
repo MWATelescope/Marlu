@@ -60,6 +60,9 @@ pub struct MeasurementSetWriter {
 
     /// Array Position [Latitude (radians), Longitude (radians), Height (m)]
     array_pos: LatLngHeight,
+
+    /// The next row to write to in the main table
+    pub main_row_idx: usize,
 }
 
 impl MeasurementSetWriter {
@@ -83,6 +86,7 @@ impl MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
             phase_centre,
             array_pos,
+            main_row_idx: 0
         }
     }
 
@@ -1220,26 +1224,63 @@ impl MeasurementSetWriter {
     ///
     /// `mwalib_coarse_chan_range` the range of coarse channel indices (according to mwalib)
     /// of the current chunk being written to the measurement set.
+    ///
+    /// `baseline_idxs` - the range of indices into `CorrelatorContext.metafits_context.baselines`
+    ///     corresponding to the third dimension of the jones array.
+    ///
+    /// `avg_time` - the temporal averaging factor which determines the number of timesteps that
+    ///     will be written
+    ///
+    /// `avg_freq` - the frequency averaging factor which determines the number of frequencies that
+    ///     will be written
     #[cfg(feature = "mwalib")]
     pub fn initialize_from_mwalib(
         &self,
         context: &CorrelatorContext,
-        mwalib_timestep_range: &Range<usize>,
-        mwalib_coarse_chan_range: &Range<usize>,
-        _avg_time: usize,
+        timestep_range: &Range<usize>,
+        coarse_chan_range: &Range<usize>,
+        baseline_idxs: &[usize],
+        avg_time: usize,
         avg_freq: usize,
     ) -> Result<(), MeasurementSetWriteError> {
         // use itertools::Itertools;
+        trace!("initialize_from_mwalib");
 
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
-        let num_sel_coarse_chans = mwalib_coarse_chan_range.len();
+        let num_sel_coarse_chans = coarse_chan_range.len();
         let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
-        let num_avg_chans = num_sel_chans / avg_freq;
+        let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
+        trace!(
+            "fine_chans_per_coarse={}, num_sel_coarse_chans={}, num_sel_chans={}, num_avg_chans={}",
+            fine_chans_per_coarse,
+            num_sel_coarse_chans,
+            num_sel_chans,
+            num_avg_chans
+        );
 
         self.decompress_default_tables().unwrap();
         self.decompress_source_table().unwrap();
         self.add_cotter_mods(num_avg_chans);
         self.add_mwa_mods();
+
+        // //// //
+        // Main //
+        // //// //
+
+        let num_sel_timesteps = timestep_range.len();
+        let num_avg_timesteps = (num_sel_timesteps as f64 / avg_time as f64).ceil() as usize;
+
+        trace!(
+            "num_sel_timesteps={}, num_avg_timesteps={}",
+            num_sel_timesteps,
+            num_avg_timesteps
+        );
+
+        let num_baselines = baseline_idxs.len();
+        let total_num_rows = num_avg_timesteps * num_baselines;
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
+
+        main_table.add_rows(total_num_rows).unwrap();
 
         // /////////////// //
         // Spectral Window //
@@ -1249,10 +1290,10 @@ impl MeasurementSetWriter {
             Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
 
         let mwalib_centre_coarse_chan_idx =
-            mwalib_coarse_chan_range.start + (num_sel_coarse_chans / 2);
+            coarse_chan_range.start + (num_sel_coarse_chans / 2);
         let centre_coarse_chan =
             &context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
-        let mwalib_start_fine_chan_idx = mwalib_coarse_chan_range.start * fine_chans_per_coarse;
+        let mwalib_start_fine_chan_idx = coarse_chan_range.start * fine_chans_per_coarse;
         let fine_chan_width_hz = avg_freq as u32 * context.metafits_context.corr_fine_chan_width_hz;
 
         let avg_fine_chan_freqs_hz: Vec<f64> = context.metafits_context.metafits_fine_chan_freqs_hz
@@ -1477,7 +1518,7 @@ impl MeasurementSetWriter {
             context.metafits_context.obs_id as _,
             &context.metafits_context.obs_name,
             &context.metafits_context.mode.to_string(),
-            (mwalib_timestep_range.len() + 1) as _,
+            (timestep_range.len() + 1) as _,
             sched_start_time_mjd_utc_s,
             false,
         )
@@ -1734,6 +1775,7 @@ impl VisWritable for MeasurementSetWriter {
         draw_progress: bool,
     ) -> Result<(), IOError> {
         use indicatif::{ProgressDrawTarget, ProgressStyle};
+        trace!("write_vis_mwalib");
 
         trace!(
             "timestep range {:?}, coarse chan range {:?}, baseline idxs {:?}",
@@ -1765,8 +1807,14 @@ impl VisWritable for MeasurementSetWriter {
         }
 
         let num_sel_timesteps = timestep_range.len();
+        let num_avg_timesteps = (num_sel_timesteps as f64 / avg_time as f64).ceil() as usize;
+        trace!(
+            "num_sel_timesteps={}, num_avg_timesteps={}",
+            num_sel_timesteps,
+            num_avg_timesteps
+        );
         assert_eq!(num_sel_timesteps, jones_dims.0);
-        let num_avg_timesteps = num_sel_timesteps / avg_time;
+
         // the gps start times [milliseconds] of all the selected timesteps
         let sel_gps_times_ms: Vec<u64> = context.timesteps[timestep_range.clone()]
             .iter()
@@ -1775,8 +1823,15 @@ impl VisWritable for MeasurementSetWriter {
 
         let num_sel_coarse_chans = coarse_chan_range.len();
         let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
-        let num_avg_chans = num_sel_chans / avg_freq;
-        assert_eq!(num_sel_coarse_chans * fine_chans_per_coarse, jones_dims.1);
+        let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
+        trace!(
+            "fine_chans_per_coarse={}, num_sel_coarse_chans={}, num_sel_chans={}, num_avg_chans={}",
+            fine_chans_per_coarse,
+            num_sel_coarse_chans,
+            num_sel_chans,
+            num_avg_chans
+        );
+        assert_eq!(num_sel_chans, jones_dims.1);
 
         let num_baselines = baseline_idxs.len();
         assert_eq!(num_baselines, jones_dims.2);
@@ -1819,10 +1874,9 @@ impl VisWritable for MeasurementSetWriter {
             .collect::<Vec<_>>();
 
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
-
-        main_table.add_rows(total_num_rows).unwrap();
-
-        let mut main_idx = 0;
+        let num_main_rows = main_table.n_rows();
+        trace!("num_main_rows={}, self.main_row_idx={}, total_num_rows (selected)={}", num_main_rows, self.main_row_idx, total_num_rows);
+        assert!(num_main_rows - self.main_row_idx as u64 >= total_num_rows as u64);
 
         // Allocating temporary arrays/vectors once here avoid multiple heap allocations.
         let mut uvw_tmp = Vec::with_capacity(3);
@@ -1914,7 +1968,7 @@ impl VisWritable for MeasurementSetWriter {
                 let flag_row = flags_tmp.iter().all(|&x| x);
                 self.write_main_row(
                     &mut main_table,
-                    main_idx,
+                    self.main_row_idx as _,
                     scan_centroid_mjd_utc_s,
                     scan_centroid_mjd_utc_s,
                     ant1_idx as _,
@@ -1932,7 +1986,7 @@ impl VisWritable for MeasurementSetWriter {
                     flag_row,
                 )?;
 
-                main_idx += 1;
+                self.main_row_idx += 1;
 
                 write_progress.inc(1);
             }
@@ -3864,11 +3918,11 @@ mod tests {
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
-        // let mwalib_timestep_range = (*context.common_timestep_indices.first().unwrap())
-        //     ..(*context.provided_timestep_indices.last().unwrap() + 1);
-        let mwalib_timestep_range = 0..(context.metafits_context.num_metafits_timesteps - 1);
+        let mwalib_timestep_range = 0..3;
         let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
             ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
+        // let mwalib_baseline_idxs: Vec<usize> = (0..context.metafits_context.num_baselines).collect();
+        let mwalib_baseline_idxs: Vec<usize> = vec![0];
 
         let (avg_time, avg_freq) = (1, 1);
 
@@ -3877,6 +3931,7 @@ mod tests {
                 &context,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
+                &mwalib_baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4065,6 +4120,12 @@ mod tests {
             }
         }
 
+
+        let main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
+
+        assert_eq!(main_table.n_rows() as usize, mwalib_timestep_range.len() * mwalib_baseline_idxs.len());
+
+
         let mut ant_table = Table::open(&table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
         let receivers: Vec<i32> = ant_table.get_col_as_vec("MWA_RECEIVER").unwrap();
         assert_eq!(
@@ -4079,136 +4140,9 @@ mod tests {
             ]
         );
         let num_ants = ant_table.n_rows();
-        let exp_slots = array![
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-            [1, 1],
-            [2, 2],
-            [3, 3],
-            [4, 4],
-            [5, 5],
-            [6, 6],
-            [7, 7],
-            [8, 8],
-        ];
+        let exp_slots = Array2::from_shape_fn((128, 2), |(i, _)| {
+            (i % 8 + 1) as i32
+        });
         assert_eq!(num_ants, exp_slots.shape()[0] as u64);
         for (idx, exp_slot) in exp_slots.outer_iter().enumerate() {
             let slot: Vec<i32> = ant_table.get_cell_as_vec("MWA_SLOT", idx as _).unwrap();
@@ -4663,6 +4597,7 @@ mod tests {
                 &context,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
+                &mwalib_baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4745,6 +4680,7 @@ mod tests {
                 &context,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
+                &mwalib_baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4776,6 +4712,107 @@ mod tests {
             let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table = Table::open(
                 PATH_1254670392_AVG_4S_80KHZ.join(table_name),
+                TableOpenMode::Read,
+            )
+            .unwrap();
+            assert_table_nrows_match!(table, exp_table);
+            for col_name in col_names.iter() {
+                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                    assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else {
+                    assert_table_columns_match!(table, exp_table, col_name);
+                }
+            }
+        }
+    }
+
+    /// as above, but with two consecutive calls to write_vis_mwalib
+    #[cfg(feature = "mwalib")]
+    #[test]
+    #[serial]
+    fn test_write_vis_from_mwalib_chunks() {
+        use itertools::Itertools;
+
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let array_pos = Some(LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        });
+
+        let context = CorrelatorContext::new(
+            &String::from("tests/data/1254670392_avg/1254670392.metafits"),
+            &((1..=24)
+                .map(|i| {
+                    format!(
+                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
+                        i
+                    )
+                })
+                .collect::<Vec<_>>()),
+        )
+        .unwrap();
+
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
+        let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
+
+        let mwalib_timestep_range = 0..2_usize;
+        let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
+            ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
+        let mwalib_baseline_idxs = vec![1_usize];
+
+        let (avg_time, avg_freq) = (1, 1);
+
+        ms_writer
+            .initialize_from_mwalib(
+                &context,
+                &mwalib_timestep_range,
+                &mwalib_coarse_chan_range,
+                &mwalib_baseline_idxs,
+                avg_time,
+                avg_freq,
+            )
+            .unwrap();
+
+        let (jones_array, weight_array, flag_array, _, _, _) = get_test_data(
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv".into(),
+            2,
+            768,
+            1,
+        );
+
+        let num_chunk_timesteps = 1;
+
+        for (mut timestep_chunk, jones_array_chunk, weight_array_chunk, flag_array_chunk) in izip!(
+            &mwalib_timestep_range.chunks(num_chunk_timesteps),
+            jones_array.axis_chunks_iter(Axis(0), num_chunk_timesteps),
+            weight_array.axis_chunks_iter(Axis(0), num_chunk_timesteps),
+            flag_array.axis_chunks_iter(Axis(0), num_chunk_timesteps)
+        ) {
+            let first_timestep = timestep_chunk.next().unwrap();
+            let last_timestep = timestep_chunk.last().unwrap_or(first_timestep);
+            let timestep_range: Range<usize> = first_timestep..last_timestep + 1;
+            ms_writer
+                .write_vis_mwalib(
+                    jones_array_chunk.view(),
+                    weight_array_chunk.view(),
+                    flag_array_chunk.view(),
+                    &context,
+                    &timestep_range,
+                    &mwalib_coarse_chan_range,
+                    &mwalib_baseline_idxs,
+                    avg_time,
+                    avg_freq,
+                    false,
+                )
+                .unwrap();
+        }
+
+        for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
+            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut exp_table = Table::open(
+                PATH_1254670392.join(table_name),
                 TableOpenMode::Read,
             )
             .unwrap();
