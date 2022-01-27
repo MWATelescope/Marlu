@@ -1244,11 +1244,19 @@ impl MeasurementSetWriter {
         avg_freq: usize,
     ) -> Result<(), MeasurementSetWriteError> {
         // use itertools::Itertools;
+        trace!("initialize_from_mwalib");
 
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
         let num_sel_coarse_chans = coarse_chan_range.len();
         let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
-        let num_avg_chans = num_sel_chans / avg_freq;
+        let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
+        trace!(
+            "fine_chans_per_coarse={}, num_sel_coarse_chans={}, num_sel_chans={}, num_avg_chans={}",
+            fine_chans_per_coarse,
+            num_sel_coarse_chans,
+            num_sel_chans,
+            num_avg_chans
+        );
 
         self.decompress_default_tables().unwrap();
         self.decompress_source_table().unwrap();
@@ -1260,7 +1268,13 @@ impl MeasurementSetWriter {
         // //// //
 
         let num_sel_timesteps = timestep_range.len();
-        let num_avg_timesteps = num_sel_timesteps / avg_time;
+        let num_avg_timesteps = (num_sel_timesteps as f64 / avg_time as f64).ceil() as usize;
+
+        trace!(
+            "num_sel_timesteps={}, num_avg_timesteps={}",
+            num_sel_timesteps,
+            num_avg_timesteps
+        );
 
         let num_baselines = baseline_idxs.len();
         let total_num_rows = num_avg_timesteps * num_baselines;
@@ -1761,6 +1775,7 @@ impl VisWritable for MeasurementSetWriter {
         draw_progress: bool,
     ) -> Result<(), IOError> {
         use indicatif::{ProgressDrawTarget, ProgressStyle};
+        trace!("write_vis_mwalib");
 
         trace!(
             "timestep range {:?}, coarse chan range {:?}, baseline idxs {:?}",
@@ -1792,8 +1807,14 @@ impl VisWritable for MeasurementSetWriter {
         }
 
         let num_sel_timesteps = timestep_range.len();
+        let num_avg_timesteps = (num_sel_timesteps as f64 / avg_time as f64).ceil() as usize;
+        trace!(
+            "num_sel_timesteps={}, num_avg_timesteps={}",
+            num_sel_timesteps,
+            num_avg_timesteps
+        );
         assert_eq!(num_sel_timesteps, jones_dims.0);
-        let num_avg_timesteps = num_sel_timesteps / avg_time;
+
         // the gps start times [milliseconds] of all the selected timesteps
         let sel_gps_times_ms: Vec<u64> = context.timesteps[timestep_range.clone()]
             .iter()
@@ -1802,8 +1823,15 @@ impl VisWritable for MeasurementSetWriter {
 
         let num_sel_coarse_chans = coarse_chan_range.len();
         let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
-        let num_avg_chans = num_sel_chans / avg_freq;
-        assert_eq!(num_sel_coarse_chans * fine_chans_per_coarse, jones_dims.1);
+        let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
+        trace!(
+            "fine_chans_per_coarse={}, num_sel_coarse_chans={}, num_sel_chans={}, num_avg_chans={}",
+            fine_chans_per_coarse,
+            num_sel_coarse_chans,
+            num_sel_chans,
+            num_avg_chans
+        );
+        assert_eq!(num_sel_chans, jones_dims.1);
 
         let num_baselines = baseline_idxs.len();
         assert_eq!(num_baselines, jones_dims.2);
@@ -1846,8 +1874,9 @@ impl VisWritable for MeasurementSetWriter {
             .collect::<Vec<_>>();
 
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
-
-        assert!(main_table.n_rows() - self.main_row_idx as u64 >= total_num_rows as u64);
+        let num_main_rows = main_table.n_rows();
+        trace!("num_main_rows={}, self.main_row_idx={}, total_num_rows (selected)={}", num_main_rows, self.main_row_idx, total_num_rows);
+        assert!(num_main_rows - self.main_row_idx as u64 >= total_num_rows as u64);
 
         // Allocating temporary arrays/vectors once here avoid multiple heap allocations.
         let mut uvw_tmp = Vec::with_capacity(3);
