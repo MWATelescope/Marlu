@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-// use rubbl_casatables::CasacoreError;
-
 #[derive(Error, Debug)]
 pub enum MeasurementSetWriteError {
     #[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]

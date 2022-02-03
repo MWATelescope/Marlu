@@ -31,36 +31,34 @@ all-static = ["erfa-static", "cfitsio-static", "cuda-static"]
 
 [dependencies]
 cfg-if = "1.0.0"
+cuda-runtime-sys = { version = "0.3.0-alpha.1", optional = true }
 erfa-sys = "0.1.2"
 flate2 = "1.0.13"
 hifitime = "3.0.0-beta.1"
-itertools = "0.10.0"
 indicatif = { version = "0.16.0", features = ["rayon"] }
+itertools = "0.10.0"
 lazy_static = "1.4.0"
 log = "0.4.4"
+mwalib = { version = "0.13.0", optional = true }
 ndarray = { version = ">=0.15.4,<0.16", features = ["rayon"] }
 num-complex = "0.4.0"
 num-traits = "0.2.0"
 rayon = "1.5.0"
+rubbl_casatables = { version = "0.6.0", optional = true }
+rubbl_core = { version = "0.3.0", optional = true }
 tar = "0.4.15"
 thiserror = "1.0.0"
-mwalib = { version = "0.13.0", optional = true }
-
-rubbl_core = { version = "0.3.0", optional = true }
-rubbl_casatables = { version = "0.6.0", optional = true }
-
-cuda-runtime-sys = { version = "0.3.0-alpha.1", optional = true }
 
 [dev-dependencies]
 approx = { version = "0.5.0", features = ["num-complex"] }
 criterion = "0.3.0"
-glob = "0.3.0"
-tempfile = "3.3.0"
-ndarray = { version = ">=0.15.4,<0.16", features = ["approx-0_5"] }
-serial_test = "0.5.0"
 csv = "1.1.0"
+glob = "0.3.0"
 lexical = "6.0.0"
+ndarray = { version = ">=0.15.4,<0.16", features = ["approx-0_5"] }
 regex = "1.5.0"
+serial_test = "0.5.0"
+tempfile = "3.3.0"
 
 [[bench]]
 name = "bench_misc"

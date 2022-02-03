@@ -15,6 +15,7 @@ pub mod jones;
 pub mod math;
 pub mod pos;
 pub mod sexagesimal;
+pub mod context;
 
 #[cfg(feature = "io")]
 pub mod io;
@@ -43,6 +44,9 @@ pub use num_complex;
 pub use num_complex::Complex;
 pub use num_traits;
 pub use rayon;
+pub use context::{
+    MarluVisContext,
+};
 
 // If "mwalib" is enabled, re-export the crate here, as well its re-exported
 // crates.

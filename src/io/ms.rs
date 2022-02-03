@@ -1,7 +1,8 @@
 use crate::{
-    average_chunk_for_pols_f64, c32,
+    average_chunk_f64, c32,
+    context::MarluVisContext,
     io::error::MeasurementSetWriteError,
-    ndarray::{array, s, Array2, Array3, ArrayView, ArrayView3, ArrayView4, Axis},
+    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, ArrayView4, Axis},
     num_complex::Complex,
     LatLngHeight, RADec,
 };
@@ -20,6 +21,8 @@ use rubbl_casatables::{
 use tar::Archive;
 
 use super::VisWritable;
+
+use indicatif::{ProgressDrawTarget, ProgressStyle};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
@@ -1774,88 +1777,146 @@ impl VisWritable for MeasurementSetWriter {
         avg_freq: usize,
         draw_progress: bool,
     ) -> Result<(), IOError> {
-        use indicatif::{ProgressDrawTarget, ProgressStyle};
         trace!("write_vis_mwalib");
 
-        trace!(
-            "timestep range {:?}, coarse chan range {:?}, baseline idxs {:?}",
-            &timestep_range,
-            &coarse_chan_range,
-            &baseline_idxs
+        let marlu_context = MarluVisContext::from_mwalib(
+            context,
+            timestep_range,
+            coarse_chan_range,
+            baseline_idxs,
+            avg_time,
+            avg_freq,
         );
 
-        let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
+        trace!(
+            "timesteps {:?} * coarse chans {:?} * {:?} baselines, avg_time={}, avg_freq={}",
+            &timestep_range,
+            &coarse_chan_range,
+            &baseline_idxs.len(),
+            avg_time,
+            avg_freq
+        );
 
-        let jones_dims = jones_array.dim();
-        let weight_dims = weight_array.dim();
-        if weight_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
-            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
-                argument: "weight_array".into(),
-                function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)),
-                received: format!("{:?}", weight_dims),
-            }));
-        }
-        let flag_dims = flag_array.dim();
-        if flag_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
-            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
-                argument: "flag_array".into(),
-                function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!("{:?}", (jones_dims.0, jones_dims.1, jones_dims.2, 4)),
-                received: format!("{:?}", flag_dims),
-            }));
-        }
+        let (num_sel_timesteps, num_sel_chans, num_baselines) = marlu_context.sel_dims();
+        let num_avg_timesteps = marlu_context.num_avg_timesteps();
 
-        let num_sel_timesteps = timestep_range.len();
-        let num_avg_timesteps = (num_sel_timesteps as f64 / avg_time as f64).ceil() as usize;
         trace!(
             "num_sel_timesteps={}, num_avg_timesteps={}",
             num_sel_timesteps,
             num_avg_timesteps
         );
-        assert_eq!(num_sel_timesteps, jones_dims.0);
 
-        // the gps start times [milliseconds] of all the selected timesteps
-        let sel_gps_times_ms: Vec<u64> = context.timesteps[timestep_range.clone()]
-            .iter()
-            .map(|t| t.gps_time_ms)
-            .collect();
+        let num_avg_chans = marlu_context.num_avg_chans();
+        let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
 
-        let num_sel_coarse_chans = coarse_chan_range.len();
-        let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
-        let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
         trace!(
-            "fine_chans_per_coarse={}, num_sel_coarse_chans={}, num_sel_chans={}, num_avg_chans={}",
+            "fine_chans_per_coarse={}, num_sel_chans={}, num_avg_chans={}",
             fine_chans_per_coarse,
-            num_sel_coarse_chans,
             num_sel_chans,
             num_avg_chans
         );
-        assert_eq!(num_sel_chans, jones_dims.1);
 
-        let num_baselines = baseline_idxs.len();
-        assert_eq!(num_baselines, jones_dims.2);
+        let num_vis_pols = marlu_context.num_vis_pols;
 
-        let total_num_rows = num_avg_timesteps * num_baselines;
+        let jones_dims = jones_array.dim();
+        if jones_dims != (num_sel_timesteps, num_sel_chans, num_baselines) {
+            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
+                argument: "jones_array".into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
+                expected: format!("{:?}", (num_sel_timesteps, num_sel_chans, num_baselines)),
+                received: format!("{:?}", jones_dims),
+            }));
+        }
 
-        // integration time [seconds] before averaging
-        let int_time_ms = context.metafits_context.corr_int_time_ms as u64;
-        let avg_int_time_ms = avg_time as u64 * int_time_ms;
-        let half_avg_int_time_ms = avg_int_time_ms / 2;
-        let int_time_s = int_time_ms as f64 / 1000.0;
-        let avg_int_time_s = avg_time as f64 * int_time_s;
+        let weight_dims = weight_array.dim();
+        if weight_dims
+            != (
+                num_sel_timesteps,
+                num_sel_chans,
+                num_baselines,
+                num_vis_pols,
+            )
+        {
+            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
+                argument: "weight_array".into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
+                expected: format!(
+                    "{:?}",
+                    (
+                        num_sel_timesteps,
+                        num_sel_chans,
+                        num_baselines,
+                        num_vis_pols
+                    )
+                ),
+                received: format!("{:?}", weight_dims),
+            }));
+        }
+        let flag_dims = flag_array.dim();
+        if flag_dims
+            != (
+                num_sel_timesteps,
+                num_sel_chans,
+                num_baselines,
+                num_vis_pols,
+            )
+        {
+            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
+                argument: "flag_array".into(),
+                function: "MeasurementSetWriter::write_vis_mwalib".into(),
+                expected: format!(
+                    "{:?}",
+                    (
+                        num_sel_timesteps,
+                        num_sel_chans,
+                        num_baselines,
+                        num_vis_pols
+                    )
+                ),
+                received: format!("{:?}", flag_dims),
+            }));
+        }
+
+        let weight_array = weight_array.map_axis(Axis(3), |weights| {
+            assert!(weights.iter().all(|&w| weights[0] == w));
+            weights[0]
+        });
+
+        let flag_array = flag_array.map_axis(Axis(3), |flags| {
+            assert!(flags.iter().all(|&w| flags[0] == w));
+            flags[0]
+        });
+
+        self.write_vis_marlu(
+            jones_array,
+            weight_array.view(),
+            flag_array.view(),
+            &marlu_context,
+            draw_progress,
+        )
+    }
+
+    fn write_vis_marlu(
+        &mut self,
+        vis: ArrayView3<Jones<f32>>,
+        weights: ArrayView3<f32>,
+        flags: ArrayView3<bool>,
+        context: &MarluVisContext,
+        draw_progress: bool,
+    ) -> Result<(), IOError> {
+        let num_avg_timesteps = context.num_avg_timesteps();
+        let num_avg_chans = context.num_avg_chans();
+        let num_vis_pols = context.num_vis_pols;
+        let num_avg_rows = num_avg_timesteps * context.sel_baselines.len();
 
         // Progress bars
-
         let draw_target = if draw_progress {
             ProgressDrawTarget::stderr()
         } else {
             ProgressDrawTarget::hidden()
         };
-
-        // Create a progress bar to show the writing status
         let write_progress =
-            indicatif::ProgressBar::with_draw_target(total_num_rows as u64, draw_target);
+            indicatif::ProgressBar::with_draw_target(num_avg_rows as u64, draw_target);
         write_progress.set_style(
             ProgressStyle::default_bar()
                 .template(
@@ -1865,15 +1926,7 @@ impl VisWritable for MeasurementSetWriter {
         );
         write_progress.set_message("write ms vis");
 
-        // baselines
-
-        let tiles_xyz_geod = XyzGeodetic::get_tiles_mwa(&context.metafits_context);
-        // let sel_timesteps = &context.timesteps[timestep_range.clone()];
-        let sel_baselines = baseline_idxs
-            .iter()
-            .map(|&idx| &context.metafits_context.baselines[idx])
-            .collect::<Vec<_>>();
-
+        // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         let num_main_rows = main_table.n_rows();
         trace!(
@@ -1884,49 +1937,45 @@ impl VisWritable for MeasurementSetWriter {
         );
         assert!(num_main_rows - self.main_row_idx as u64 >= total_num_rows as u64);
 
-        // Allocating temporary arrays/vectors once here avoid multiple heap allocations.
+        trace!(
+            "num_main_rows={}, self.main_row_idx={}, num_avg_rows (selected)={}",
+            num_main_rows,
+            self.main_row_idx,
+            num_avg_rows
+        );
+        assert!(num_main_rows - self.main_row_idx as u64 >= num_avg_rows as u64);
+
+        let avg_centroid_timestamps = context.avg_centroid_timestamps();
+
         let mut uvw_tmp = Vec::with_capacity(3);
         let sigma_tmp = vec![1., 1., 1., 1.];
-        let mut data_tmp = Array2::zeros((num_avg_chans, 4));
-        let mut weights_tmp = Array2::zeros((num_avg_chans, 4));
-        let mut flags_tmp = Array2::from_elem((num_avg_chans, 4), false);
+        let mut data_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
+        let mut weights_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
+        let mut flags_tmp = Array2::from_elem((num_avg_chans, num_vis_pols), false);
 
-        // iterate through the time dimension of the arrays in chunks of size `avg_time`.
-        for (
-            gps_times_chunk_ms,
-            jones_timestep_chunk,
-            weight_timestep_chunk,
-            flag_timestep_chunk,
-        ) in izip!(
-            sel_gps_times_ms.chunks(avg_time),
-            jones_array.axis_chunks_iter(Axis(0), avg_time),
-            weight_array.axis_chunks_iter(Axis(0), avg_time),
-            flag_array.axis_chunks_iter(Axis(0), avg_time),
+        for (avg_centroid_timestamp, vis_chunk, weight_chunk, flag_chunk) in izip!(
+            avg_centroid_timestamps,
+            vis.axis_chunks_iter(Axis(0), context.avg_time),
+            weights.axis_chunks_iter(Axis(0), context.avg_time),
+            flags.axis_chunks_iter(Axis(0), context.avg_time),
         ) {
-            let gps_time_ms = gps_times_chunk_ms[0];
-
-            let scan_centroid_epoch =
-                Epoch::from_gpst_seconds((gps_time_ms + half_avg_int_time_ms) as f64 / 1e3);
-            let scan_centroid_mjd_utc_s = scan_centroid_epoch.as_mjd_utc_seconds();
+            let scan_centroid_mjd_utc_s = avg_centroid_timestamp.as_mjd_utc_seconds();
 
             let prec_info = precess_time(
                 self.phase_centre,
-                scan_centroid_epoch,
+                avg_centroid_timestamp,
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,
             );
 
-            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&tiles_xyz_geod);
+            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&context.tiles_xyz_geod);
 
-            for (baseline, jones_baseline_chunk, weight_baseline_chunk, flag_baseline_chunk) in izip!(
-                sel_baselines.iter(),
-                jones_timestep_chunk.axis_iter(Axis(2)),
-                weight_timestep_chunk.axis_iter(Axis(2)),
-                flag_timestep_chunk.axis_iter(Axis(2))
+            for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk, flag_chunk) in izip!(
+                context.sel_baselines.clone().into_iter(),
+                vis_chunk.axis_iter(Axis(2)),
+                weight_chunk.axis_iter(Axis(2)),
+                flag_chunk.axis_iter(Axis(2)),
             ) {
-                let ant1_idx = baseline.ant1_index;
-                let ant2_idx = baseline.ant2_index;
-
                 let baseline_xyz_precessed =
                     tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
@@ -1942,34 +1991,36 @@ impl VisWritable for MeasurementSetWriter {
                 // iterate through the channel dimension of the arrays in chunks of size `avg_freq`,
                 // averaging the chunks into the tmp arrays.
                 for (
-                    jones_chunk,
+                    vis_chunk,
                     weight_chunk,
                     flag_chunk,
                     mut data_tmp_view,
                     mut weights_tmp_view,
                     mut flags_tmp_view,
                 ) in izip!(
-                    jones_baseline_chunk.axis_chunks_iter(Axis(1), avg_freq),
-                    weight_baseline_chunk.axis_chunks_iter(Axis(1), avg_freq),
-                    flag_baseline_chunk.axis_chunks_iter(Axis(1), avg_freq),
+                    vis_chunk.axis_chunks_iter(Axis(1), context.avg_freq),
+                    weight_chunk.axis_chunks_iter(Axis(1), context.avg_freq),
+                    flag_chunk.axis_chunks_iter(Axis(1), context.avg_freq),
                     data_tmp.outer_iter_mut(),
                     weights_tmp.outer_iter_mut(),
                     flags_tmp.outer_iter_mut()
                 ) {
-                    if avg_time == 1 && avg_freq == 1 {
-                        data_tmp_view.assign(&ArrayView::from(jones_chunk[[0, 0]].as_slice()));
-                        weights_tmp_view.assign(&weight_chunk.slice(s![0, 0, ..]));
-                        flags_tmp_view.assign(&flag_chunk.slice(s![0, 0, ..]));
+                    let mut avg_weight: f32 = weight_chunk[[0, 0]];
+                    let mut avg_flag: bool = flag_chunk[[0, 0]];
+                    if context.trivial_averaging() {
+                        data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
-                        average_chunk_for_pols_f64!(
-                            jones_chunk,
+                        average_chunk_f64!(
+                            vis_chunk,
                             weight_chunk,
                             flag_chunk,
                             data_tmp_view,
-                            weights_tmp_view,
-                            flags_tmp_view
+                            avg_weight,
+                            avg_flag
                         );
                     }
+                    weights_tmp_view.fill(avg_weight);
+                    flags_tmp_view.fill(avg_flag);
                 }
 
                 let flag_row = flags_tmp.iter().all(|&x| x);
@@ -1982,7 +2033,7 @@ impl VisWritable for MeasurementSetWriter {
                     ant2_idx as _,
                     0,
                     &uvw_tmp,
-                    avg_int_time_s,
+                    context.avg_int_time().in_seconds(),
                     -1,
                     1,
                     -1,
@@ -1998,9 +2049,7 @@ impl VisWritable for MeasurementSetWriter {
                 write_progress.inc(1);
             }
         }
-
         write_progress.finish();
-
         Ok(())
     }
 }
@@ -2018,12 +2067,14 @@ mod tests {
     use approx::abs_diff_eq;
     use itertools::izip;
     use lexical::parse;
-    use ndarray::{Array, Array4};
     use regex::Regex;
     use serial_test::serial;
     use tempfile::tempdir;
 
-    use crate::c64;
+    use crate::{
+        c64,
+        ndarray::{s, Array, Array4},
+    };
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "mwalib")] {
@@ -4129,8 +4180,10 @@ mod tests {
 
         let main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
 
-        assert_eq!(main_table.n_rows() as usize, mwalib_timestep_range.len() * mwalib_baseline_idxs.len());
-
+        assert_eq!(
+            main_table.n_rows() as usize,
+            mwalib_timestep_range.len() * mwalib_baseline_idxs.len()
+        );
 
         let mut ant_table = Table::open(&table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
         let receivers: Vec<i32> = ant_table.get_col_as_vec("MWA_RECEIVER").unwrap();
@@ -4146,9 +4199,7 @@ mod tests {
             ]
         );
         let num_ants = ant_table.n_rows();
-        let exp_slots = Array2::from_shape_fn((128, 2), |(i, _)| {
-            (i % 8 + 1) as i32
-        });
+        let exp_slots = Array2::from_shape_fn((128, 2), |(i, _)| (i % 8 + 1) as i32);
         assert_eq!(num_ants, exp_slots.shape()[0] as u64);
         for (idx, exp_slot) in exp_slots.outer_iter().enumerate() {
             let slot: Vec<i32> = ant_table.get_cell_as_vec("MWA_SLOT", idx as _).unwrap();

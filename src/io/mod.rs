@@ -1,3 +1,5 @@
+use crate::context::MarluVisContext;
+
 mod error;
 pub mod ms;
 
@@ -35,9 +37,18 @@ pub trait VisReadable: Sync + Send {
     ) -> Result<(), IOError>;
 }
 
-/// The container can accept visibilities by passing in the range of mwalib
-/// indices corresponding to the visibilities being written.
+/// The container can accept a chunk of visibilities to be written.
 pub trait VisWritable: Sync + Send {
+    /// Specify the chunk of visibilities to write using a [`MarluVisContext`].
+    fn write_vis_marlu(
+        &mut self,
+        vis: ArrayView3<Jones<f32>>,
+        weights: ArrayView3<f32>,
+        flags: ArrayView3<bool>,
+        context: &MarluVisContext,
+        draw_progress: bool,
+    ) -> Result<(), IOError>;
+
     /// Write visibilities and weights from the arrays. Timestep, coarse channel
     /// and baseline indices are needed for labelling the visibility array
     ///
@@ -68,6 +79,8 @@ pub trait VisWritable: Sync + Send {
     /// `avg_time` - the number of timesteps to average together.
     ///
     /// `avg_freq` - the number of channels to average together.
+    ///
+    /// `draw_progress` - whether or not to draw a progress bar.
     ///
     /// # Errors
     ///

@@ -36,24 +36,13 @@ pub enum AveragingError {
 /// - avg_jones -> [pol]
 /// - avg_weight_view -> [pol]
 /// - avg_flag_view -> [pol]
-///
-/// TODO: this takes 4 flags, but nothing actually uses these, so just rip this out.
-///
-// average_chunk_for_pols(
-// jones_chunk: ArrayView2<Jones<f32>>,
-// weight_chunk: ArrayView3<f32>,
-// flag_chunk: ArrayView3<bool>,
-// avg_jones: &mut [Complex<f32>],
-// avg_weight_view: ArrayViewMut1<f32>,
-// avg_flag_view: ArrayViewMut1<bool>,
-// ) {
 #[macro_export]
 macro_rules! average_chunk_for_pols_f64 {
     (
         // to be averaged
         $jones_chunk:expr,
-        $weight_chunk:expr,
-        $flag_chunk:expr,
+        $weights_chunk:expr,
+        $flags_chunk:expr,
         // to average into
         $avg_jones:expr,
         $avg_weight_view:expr,
@@ -66,14 +55,14 @@ macro_rules! average_chunk_for_pols_f64 {
         let mut jones_weighted_sum = Jones::<f64>::default();
         let mut all_flagged = true;
 
-        for (jones, weight, flag) in izip!(
+        for (jones_chunk, weight_chunk, flag) in izip!(
             $jones_chunk.axis_iter(Axis(0)),
-            $weight_chunk.axis_iter(Axis(0)),
-            $flag_chunk.axis_iter(Axis(0))
+            $weights_chunk.axis_iter(Axis(0)),
+            $flags_chunk.axis_iter(Axis(0))
         ) {
             for (jones, weight, flag) in izip!(
-                jones.iter(),
-                weight.axis_iter(Axis(0)),
+                jones_chunk.iter(),
+                weight_chunk.axis_iter(Axis(0)),
                 flag.axis_iter(Axis(0))
             ) {
                 let jones_c64 = Jones::<f64>::from(*jones);
@@ -121,7 +110,92 @@ macro_rules! average_chunk_for_pols_f64 {
     };
 }
 
-pub type VisData = (Array3<Jones<f32>>, Array4<f32>, Array4<bool>);
+/// compute the weighted geometric average of unflagged visibilities for each time, and frequency
+/// in the chunks. Only weights are required, instead of flags
+///
+/// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
+///
+/// dimensions:
+/// - jones_chunk -> [at, af][pol] (each element is a complex vis array of length pol)
+/// - weight_chunk -> [at, af]
+/// - flag_chunk -> [at, af]
+/// - avg_jones -> [pol]
+/// - avg_weight -> (scalar)
+/// - avg_flag -> (scalar)
+#[macro_export]
+macro_rules! average_chunk_f64 {
+    (
+        // to be averaged
+        $jones_chunk:expr,
+        $weights_chunk:expr,
+        $flags_chunk:expr,
+        // to average into
+        $avg_jones:expr,
+        $avg_weight:expr,
+        $avg_flag:expr
+    ) => {
+        let chunk_size = $jones_chunk.len();
+
+        assert_eq!(
+            $jones_chunk.shape(),
+            $weights_chunk.shape(),
+            "jones and weight arrays must have the same shape"
+        );
+        assert_eq!(
+            $weights_chunk.shape(),
+            $flags_chunk.shape(),
+            "weight and flag arrays must have the same shape"
+        );
+
+        let mut weight_sum = 0_f64;
+        let mut jones_sum = Jones::<f64>::default();
+        let mut jones_weighted_sum = Jones::<f64>::default();
+        $avg_flag = true;
+
+        // TODO: I think this can be done with lanes!
+        for (jones_chunk, weights_chunk, flags_chunk) in izip!(
+            $jones_chunk.axis_iter(Axis(0)),
+            $weights_chunk.axis_iter(Axis(0)),
+            $flags_chunk.axis_iter(Axis(0))
+        ) {
+            for (jones, weight, flag) in
+                izip!(jones_chunk.iter(), weights_chunk.iter(), flags_chunk.iter())
+            {
+                let jones_c64 = Jones::<f64>::from(*jones);
+                jones_sum += jones_c64;
+                if !flag && *weight > 0. {
+                    let weight_f64 = *weight as f64;
+                    weight_sum += weight_f64;
+                    $avg_flag = false;
+                    jones_weighted_sum += jones_c64 * weight_f64;
+                }
+            }
+        }
+
+        for (jones_weighted_sum, jones_sum, avg_jones) in izip!(
+            jones_weighted_sum.iter(),
+            jones_sum.iter(),
+            $avg_jones.iter_mut(),
+        ) {
+            *avg_jones = if !$avg_flag {
+                Complex::<f32>::new(
+                    (jones_weighted_sum.re / weight_sum) as f32,
+                    (jones_weighted_sum.im / weight_sum) as f32,
+                )
+            } else {
+                Complex::<f32>::new(
+                    (jones_sum.re / chunk_size as f64) as f32,
+                    (jones_sum.im / chunk_size as f64) as f32,
+                )
+            };
+        }
+
+        $avg_weight = weight_sum as f32;
+    };
+}
+
+pub type VisData344 = (Array3<Jones<f32>>, Array4<f32>, Array4<bool>);
+pub type VisData33 = (Array3<Jones<f32>>, Array3<f32>);
 
 /// Average a section (timestep_range, coarse_chan_range) of the visibilities
 /// (jones_array, weight_array, flag_array) in time or frequency (time_factor, frequency_factor).
@@ -156,7 +230,7 @@ pub fn average_visibilities(
     flag_array: ArrayView4<bool>,
     avg_time: usize,
     avg_freq: usize,
-) -> Result<VisData, AveragingError> {
+) -> Result<VisData344, AveragingError> {
     let jones_dims = jones_array.dim();
     let weight_dims = weight_array.dim();
     if weight_dims != (jones_dims.0, jones_dims.1, jones_dims.2, 4) {
