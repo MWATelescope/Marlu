@@ -31,15 +31,15 @@ impl<F: Float> Jones<F> {
         ])
     }
 
-    /// Return a matrix with all real parts set to NaN and all imaginary parts
-    /// set to zero. [Jones::any_nan()] will return `true` for this Jones matrix.
+    /// Return a matrix with all real and imaginary parts set to NaN
+    /// [Jones::any_nan()] will return `true` for this Jones matrix.
     #[inline]
     pub fn nan() -> Self {
         Self::from([
-            Complex::new(F::nan(), F::zero()),
-            Complex::new(F::nan(), F::zero()),
-            Complex::new(F::nan(), F::zero()),
-            Complex::new(F::nan(), F::zero()),
+            Complex::new(F::nan(), F::nan()),
+            Complex::new(F::nan(), F::nan()),
+            Complex::new(F::nan(), F::nan()),
+            Complex::new(F::nan(), F::nan()),
         ])
     }
 
