@@ -57,15 +57,26 @@ jobs:
         fi
 
     - name: Run tests
-      run: |
-        cargo test
+      run: cargo test
 
-  test-without-mwalib:
-    name: Test ${{ matrix.os }} without mwalib
+    - name: Run tests, no default features
+      run: cargo test --no-default-features
+
+    - name: Minimum-specified Rust version works
+      run: |
+        MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
+        ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
+        cargo +${MIN_RUST} test --no-default-features
+        # Can't test CUDA here, so can't use --all-features
+        cargo +${MIN_RUST} test --features=all-static
+
+  test_with_cuda:
+    name: Test ${{ matrix.os }} with CUDA
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
+    needs: test
     steps:
     - name: Checkout sources
       uses: actions/checkout@v2
@@ -102,6 +113,17 @@ jobs:
           sudo ldconfig
         fi
 
-    - name: Run tests, no default feaures
+    - name: Install CUDA
+      uses: Jimver/cuda-toolkit@v0.2.5
+      with:
+        cuda: '11.5.1'
+
+    # We can't test because there's no GPU on CI.
+    - name: Build with all features
+      run: cargo build --all-features
+
+    - name: Minimum-specified Rust version works
       run: |
-        cargo test --no-default-features
+        MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
+        ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
+        cargo +${MIN_RUST} build --all-features
