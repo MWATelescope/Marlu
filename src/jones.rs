@@ -147,6 +147,18 @@ impl<F: Float> From<[Complex<F>; 4]> for Jones<F> {
     }
 }
 
+impl<F: Float> From<[F; 8]> for Jones<F> {
+    #[inline]
+    fn from(arr: [F; 8]) -> Self {
+        Self([
+            Complex::new(arr[0], arr[1]),
+            Complex::new(arr[2], arr[3]),
+            Complex::new(arr[4], arr[5]),
+            Complex::new(arr[6], arr[7]),
+        ])
+    }
+}
+
 impl<F: Float> Add<Jones<F>> for Jones<F> {
     type Output = Self;
 
@@ -805,5 +817,13 @@ mod tests {
             c64::new(138.0, 0.0),
         ]);
         assert_abs_diff_eq!(c, expected_c, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_from_eight_floats() {
+        assert_abs_diff_eq!(
+            one_through_eight(),
+            Jones::from([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+        );
     }
 }
