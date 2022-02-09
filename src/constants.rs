@@ -40,17 +40,3 @@ pub const COTTER_MWA_LONGITUDE_RADIANS: f64 = 2.0362897754687257;
 /// cotter's MWA altitude in metres. Use [MWA_HEIGHT_M] unless you know what
 /// you're doing.
 pub const COTTER_MWA_HEIGHT_METRES: f64 = 377.0;
-
-/// This is the number of seconds from 1900 Jan 1 and 1980 Jan 5. The GPS epoch
-/// is 1980 Jan 5, but `hifitime` uses 1900 for everything; subtracting this
-/// number from the result of `hifitime::Epoch::as_gpst_seconds` gives the
-/// expected GPS time.
-pub const HIFITIME_GPS_FACTOR: f64 =
-    hifitime::SECONDS_PER_YEAR * 80.0 + hifitime::SECONDS_PER_DAY * 4.0;
-
-/// The number of seconds between 1858-11-17T00:00:00 (MJD epoch, used by
-/// casacore) and 1900-01-01T00:00:00 (TAI epoch) is 1297728000. I'm using the
-/// TAI epoch because that's well supported by `hifitime`, and `hifitime`
-/// converts an epoch to many formats including JD, and accounts for leap
-/// seconds.
-pub const MJD_TAI_EPOCH_DIFF: f64 = 1297728000.0;

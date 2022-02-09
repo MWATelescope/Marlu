@@ -35,8 +35,7 @@ cfg_if::cfg_if! {
 
         use super::error::IOError;
         use crate::{precession::precess_time,
-            time::gps_millis_to_epoch,
-            Jones, XyzGeodetic, ENH, UVW
+            Jones, XyzGeodetic, ENH, UVW, hifitime::Epoch
         };
     }
 }
@@ -86,7 +85,7 @@ impl MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
             phase_centre,
             array_pos,
-            main_row_idx: 0
+            main_row_idx: 0,
         }
     }
 
@@ -1289,8 +1288,7 @@ impl MeasurementSetWriter {
         let mut spw_table =
             Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
 
-        let mwalib_centre_coarse_chan_idx =
-            coarse_chan_range.start + (num_sel_coarse_chans / 2);
+        let mwalib_centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
         let centre_coarse_chan =
             &context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
         let mwalib_start_fine_chan_idx = coarse_chan_range.start * fine_chans_per_coarse;
@@ -1443,7 +1441,7 @@ impl MeasurementSetWriter {
             .0;
 
         let sched_start_time_mjd_utc_s =
-            gps_millis_to_epoch(context.metafits_context.sched_start_gps_time_ms)
+            Epoch::from_gpst_seconds(context.metafits_context.sched_start_gps_time_ms as f64 / 1e3)
                 .as_mjd_utc_seconds();
 
         field_table.add_rows(1).unwrap();
@@ -1499,12 +1497,14 @@ impl MeasurementSetWriter {
             Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite).unwrap();
         obs_table.add_rows(1).unwrap();
 
-        let start_time_centroid_mjd_utc_s =
-            gps_millis_to_epoch(context.metafits_context.sched_start_gps_time_ms + int_time_ms / 2)
-                .as_mjd_utc_seconds();
-        let end_time_centroid_mjd_utc_s =
-            gps_millis_to_epoch(context.metafits_context.sched_end_gps_time_ms + int_time_ms / 2)
-                .as_mjd_utc_seconds();
+        let start_time_centroid_mjd_utc_s = Epoch::from_gpst_seconds(
+            (context.metafits_context.sched_start_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
+        )
+        .as_mjd_utc_seconds();
+        let end_time_centroid_mjd_utc_s = Epoch::from_gpst_seconds(
+            (context.metafits_context.sched_end_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
+        )
+        .as_mjd_utc_seconds();
 
         self.write_observation_row_mwa(
             &mut obs_table,
@@ -1854,7 +1854,8 @@ impl VisWritable for MeasurementSetWriter {
         };
 
         // Create a progress bar to show the writing status
-        let write_progress = indicatif::ProgressBar::with_draw_target(total_num_rows as u64, draw_target);
+        let write_progress =
+            indicatif::ProgressBar::with_draw_target(total_num_rows as u64, draw_target);
         write_progress.set_style(
             ProgressStyle::default_bar()
                 .template(
@@ -1875,7 +1876,12 @@ impl VisWritable for MeasurementSetWriter {
 
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         let num_main_rows = main_table.n_rows();
-        trace!("num_main_rows={}, self.main_row_idx={}, total_num_rows (selected)={}", num_main_rows, self.main_row_idx, total_num_rows);
+        trace!(
+            "num_main_rows={}, self.main_row_idx={}, total_num_rows (selected)={}",
+            num_main_rows,
+            self.main_row_idx,
+            total_num_rows
+        );
         assert!(num_main_rows - self.main_row_idx as u64 >= total_num_rows as u64);
 
         // Allocating temporary arrays/vectors once here avoid multiple heap allocations.
@@ -1899,7 +1905,8 @@ impl VisWritable for MeasurementSetWriter {
         ) {
             let gps_time_ms = gps_times_chunk_ms[0];
 
-            let scan_centroid_epoch = gps_millis_to_epoch(gps_time_ms + half_avg_int_time_ms);
+            let scan_centroid_epoch =
+                Epoch::from_gpst_seconds((gps_time_ms + half_avg_int_time_ms) as f64 / 1e3);
             let scan_centroid_mjd_utc_s = scan_centroid_epoch.as_mjd_utc_seconds();
 
             let prec_info = precess_time(
@@ -2008,12 +2015,12 @@ mod tests {
 
     use super::*;
 
-    use serial_test::serial;
     use approx::abs_diff_eq;
     use itertools::izip;
     use lexical::parse;
     use ndarray::{Array, Array4};
     use regex::Regex;
+    use serial_test::serial;
     use tempfile::tempdir;
 
     use crate::c64;
@@ -4120,7 +4127,6 @@ mod tests {
             }
         }
 
-
         let main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
 
         assert_eq!(main_table.n_rows() as usize, mwalib_timestep_range.len() * mwalib_baseline_idxs.len());
@@ -4811,11 +4817,8 @@ mod tests {
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
             let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
-            let mut exp_table = Table::open(
-                PATH_1254670392.join(table_name),
-                TableOpenMode::Read,
-            )
-            .unwrap();
+            let mut exp_table =
+                Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in col_names.iter() {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
