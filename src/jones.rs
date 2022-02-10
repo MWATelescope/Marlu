@@ -753,10 +753,24 @@ mod tests {
     }
 
     #[test]
-    fn test_is_nan_works() {
+    fn test_any_nan_works() {
         let j: Jones<f64> = Jones::nan();
         assert!(j.iter().any(|f| f.is_nan()));
         assert!(j.any_nan());
+
+        let mut j: Jones<f64> = Jones::from([0.0; 8]);
+        assert!(!j.any_nan());
+        for i in 0..4 {
+            j[i] = c64::new(f64::NAN, 0.0);
+            assert!(j.any_nan());
+            j[i] = c64::zero();
+            assert!(!j.any_nan());
+
+            j[i] = c64::new(0.0, f64::NAN);
+            assert!(j.any_nan());
+            j[i] = c64::zero();
+            assert!(!j.any_nan());
+        }
     }
 
     #[test]
