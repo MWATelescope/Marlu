@@ -99,7 +99,6 @@ impl Display for LatLngHeight {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

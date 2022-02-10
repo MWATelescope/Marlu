@@ -1,6 +1,6 @@
 use hifitime::{Duration, Epoch};
 
-use crate::{time::gps_millis_to_epoch, XyzGeodetic};
+use crate::XyzGeodetic;
 
 use std::ops::Range;
 
@@ -67,8 +67,9 @@ impl MarluVisContext {
         let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
         let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
 
-        let start_timestamp =
-            gps_millis_to_epoch(context.timesteps[timestep_range.start].gps_time_ms);
+        let start_timestamp = Epoch::from_gpst_seconds(
+            context.timesteps[timestep_range.start].gps_time_ms as f64 / 1e3,
+        );
 
         let int_time =
             Duration::from_milliseconds(context.metafits_context.corr_int_time_ms.into());

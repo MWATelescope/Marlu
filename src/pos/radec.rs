@@ -268,10 +268,7 @@ mod tests {
 
     #[test]
     fn test_display_radec() {
-        let radec = RADec {
-            ra: 0.0,
-            dec: 0.0,
-        };
+        let radec = RADec { ra: 0.0, dec: 0.0 };
         let result = format!("{}", radec);
         assert!(!result.is_empty());
     }

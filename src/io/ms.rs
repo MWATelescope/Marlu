@@ -38,7 +38,7 @@ cfg_if::cfg_if! {
 
         use super::error::IOError;
         use crate::{precession::precess_time,
-            Jones, XyzGeodetic, ENH, UVW, hifitime::Epoch
+            Jones, ENH, UVW, hifitime::Epoch
         };
     }
 }
@@ -1934,12 +1934,12 @@ impl VisWritable for MeasurementSetWriter {
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         let num_main_rows = main_table.n_rows();
         trace!(
-            "num_main_rows={}, self.main_row_idx={}, total_num_rows (selected)={}",
+            "num_main_rows={}, self.main_row_idx={}, num_avg_rows (selected)={}",
             num_main_rows,
             self.main_row_idx,
-            total_num_rows
+            num_avg_rows
         );
-        assert!(num_main_rows - self.main_row_idx as u64 >= total_num_rows as u64);
+        assert!(num_main_rows - self.main_row_idx as u64 >= num_avg_rows as u64);
 
         trace!(
             "num_main_rows={}, self.main_row_idx={}, num_avg_rows (selected)={}",
