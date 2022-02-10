@@ -209,35 +209,34 @@ mod tests {
 
     use super::*;
     use crate::constants::{MWA_LAT_RAD, MWA_LONG_RAD};
-    use crate::time::gps_to_epoch;
 
     // astropy doesn't exactly agree with the numbers below, I think because the
     // LST listed in MWA metafits files doesn't agree with what astropy thinks
     // it should be. But, it's all very close.
     #[test]
     fn test_get_lst() {
-        let epoch = gps_to_epoch(1090008642.0);
+        let epoch = Epoch::from_gpst_seconds(1090008642.0);
         assert_abs_diff_eq!(
             get_lmst(epoch, MWA_LONG_RAD),
             6.262087947389409,
             epsilon = 1e-10
         );
 
-        let epoch = gps_to_epoch(1090008643.0);
+        let epoch = Epoch::from_gpst_seconds(1090008643.0);
         assert_abs_diff_eq!(
             get_lmst(epoch, MWA_LONG_RAD),
             6.2621608685650045,
             epsilon = 1e-10
         );
 
-        let epoch = gps_to_epoch(1090008647.0);
+        let epoch = Epoch::from_gpst_seconds(1090008647.0);
         assert_abs_diff_eq!(
             get_lmst(epoch, MWA_LONG_RAD),
             6.262452553175729,
             epsilon = 1e-10
         );
 
-        let epoch = gps_to_epoch(1090008644.0);
+        let epoch = Epoch::from_gpst_seconds(1090008644.0);
         assert_abs_diff_eq!(
             get_lmst(epoch, MWA_LONG_RAD),
             6.262233789694743,
@@ -296,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_precess_1065880128_to_j2000() {
-        let epoch = gps_to_epoch(1065880128.0);
+        let epoch = Epoch::from_gpst_seconds(1065880128.0);
         let phase_centre = RADec::new_degrees(0.0, -27.0);
 
         let p = precess_time(phase_centre, epoch, MWA_LONG_RAD, MWA_LAT_RAD);
@@ -327,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_precess_1099334672_to_j2000() {
-        let epoch = gps_to_epoch(1099334672.0);
+        let epoch = Epoch::from_gpst_seconds(1099334672.0);
         let phase_centre = RADec::new_degrees(60.0, -30.0);
 
         let p = precess_time(phase_centre, epoch, MWA_LONG_RAD, MWA_LAT_RAD);

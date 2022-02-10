@@ -31,15 +31,15 @@ impl<F: Float> Jones<F> {
         ])
     }
 
-    /// Return a matrix with all real parts set to NaN and all imaginary parts
-    /// set to zero. [Jones::any_nan()] will return `true` for this Jones matrix.
+    /// Return a matrix with all real and imaginary parts set to NaN
+    /// [Jones::any_nan()] will return `true` for this Jones matrix.
     #[inline]
     pub fn nan() -> Self {
         Self::from([
-            Complex::new(F::nan(), F::zero()),
-            Complex::new(F::nan(), F::zero()),
-            Complex::new(F::nan(), F::zero()),
-            Complex::new(F::nan(), F::zero()),
+            Complex::new(F::nan(), F::nan()),
+            Complex::new(F::nan(), F::nan()),
+            Complex::new(F::nan(), F::nan()),
+            Complex::new(F::nan(), F::nan()),
         ])
     }
 
@@ -144,6 +144,18 @@ impl<F: Float> From<[Complex<F>; 4]> for Jones<F> {
     #[inline]
     fn from(arr: [Complex<F>; 4]) -> Self {
         Self(arr)
+    }
+}
+
+impl<F: Float> From<[F; 8]> for Jones<F> {
+    #[inline]
+    fn from(arr: [F; 8]) -> Self {
+        Self([
+            Complex::new(arr[0], arr[1]),
+            Complex::new(arr[2], arr[3]),
+            Complex::new(arr[4], arr[5]),
+            Complex::new(arr[6], arr[7]),
+        ])
     }
 }
 
@@ -741,10 +753,24 @@ mod tests {
     }
 
     #[test]
-    fn test_is_nan_works() {
+    fn test_any_nan_works() {
         let j: Jones<f64> = Jones::nan();
         assert!(j.iter().any(|f| f.is_nan()));
         assert!(j.any_nan());
+
+        let mut j: Jones<f64> = Jones::from([0.0; 8]);
+        assert!(!j.any_nan());
+        for i in 0..4 {
+            j[i] = c64::new(f64::NAN, 0.0);
+            assert!(j.any_nan());
+            j[i] = c64::zero();
+            assert!(!j.any_nan());
+
+            j[i] = c64::new(0.0, f64::NAN);
+            assert!(j.any_nan());
+            j[i] = c64::zero();
+            assert!(!j.any_nan());
+        }
     }
 
     #[test]
@@ -805,5 +831,13 @@ mod tests {
             c64::new(138.0, 0.0),
         ]);
         assert_abs_diff_eq!(c, expected_c, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_from_eight_floats() {
+        assert_abs_diff_eq!(
+            one_through_eight(),
+            Jones::from([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+        );
     }
 }

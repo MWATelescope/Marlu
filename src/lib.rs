@@ -15,7 +15,6 @@ pub mod jones;
 pub mod math;
 pub mod pos;
 pub mod sexagesimal;
-pub mod time;
 
 #[cfg(feature = "io")]
 pub mod io;
@@ -61,3 +60,18 @@ pub use rubbl_casatables;
 // If "cuda" is enabled, re-export cuda-runtime-sys here.
 #[cfg(feature = "cuda")]
 pub use cuda_runtime_sys;
+
+#[cfg(test)]
+#[test]
+fn hifitime_works_as_expected() {
+    use hifitime::Epoch;
+
+    let gps = 1065880128.0;
+    let epoch = Epoch::from_gpst_seconds(gps);
+    approx::assert_abs_diff_eq!(epoch.as_gpst_seconds(), gps);
+
+    let jd_utc = 2444244.5;
+    let epoch = Epoch::from_jde_utc(jd_utc);
+    approx::assert_abs_diff_eq!(epoch.as_jde_utc_days(), jd_utc);
+    approx::assert_abs_diff_eq!(epoch.as_gpst_seconds(), 0.0);
+}
