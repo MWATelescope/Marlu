@@ -7,6 +7,17 @@ use std::ops::Range;
 #[cfg(feature = "mwalib")]
 use mwalib::CorrelatorContext;
 
+// use crate::{LatLngHeight, RADec};
+// /// A lightweight container for observation metadata used in Marlu operations.
+// pub struct MarluObsContext {
+//     /// The observation ID, which is also the observation's scheduled start GPS
+//     /// time.
+//     pub(crate) obsid: Option<u32>,
+
+//     array_pos: LatLngHeight,
+//     phase_centre: RADec,
+//     ...
+// }
 
 /// A lightweight container for correlator visibility metadata used in Marlu operations.
 ///
@@ -64,7 +75,6 @@ impl MarluVisContext {
 
         // baselines
         let tiles_xyz_geod = XyzGeodetic::get_tiles_mwa(&context.metafits_context);
-        // let sel_timesteps = &context.timesteps[timestep_range.clone()];
         let sel_baselines = baseline_idxs
             .iter()
             .map(|&idx| {

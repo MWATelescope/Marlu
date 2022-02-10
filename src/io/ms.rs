@@ -1260,6 +1260,13 @@ impl MeasurementSetWriter {
             num_avg_chans
         );
 
+        let ants = &context.metafits_context.antennas;
+        let num_ant_pols = context.metafits_context.num_ant_pols;
+
+        // ////// //
+        // Cutoff //
+        // ////// //
+
         self.decompress_default_tables().unwrap();
         self.decompress_source_table().unwrap();
         self.add_cotter_mods(num_avg_chans);
@@ -1347,9 +1354,9 @@ impl MeasurementSetWriter {
         let mut ant_table =
             Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite).unwrap();
 
-        let antennae = &context.metafits_context.antennas;
-        ant_table.add_rows(antennae.len()).unwrap();
-        for (idx, antenna) in antennae.iter().enumerate() {
+        let num_ants = ants.len();
+        ant_table.add_rows(num_ants).unwrap();
+        for (idx, antenna) in ants.iter().enumerate() {
             let position_enh = ENH {
                 e: antenna.east_m,
                 n: antenna.north_m,
@@ -1564,10 +1571,7 @@ impl MeasurementSetWriter {
             Table::open(&self.path.join("FEED"), TableOpenMode::ReadWrite).unwrap();
 
         // all of this assumes num_pols = 2
-        assert_eq!(context.metafits_context.num_ant_pols, 2);
-
-        let num_ants = context.metafits_context.num_ants;
-
+        assert_eq!(num_ant_pols, 2);
         feed_table.add_rows(num_ants).unwrap();
 
         for idx in 0..num_ants {
@@ -1579,7 +1583,7 @@ impl MeasurementSetWriter {
                 -1,
                 source_time,
                 source_interval,
-                context.metafits_context.num_ant_pols as _,
+                num_ant_pols as _,
                 -1,
                 &array![[0., 0.], [0., 0.]],
                 &vec!["X".into(), "Y".into()],
