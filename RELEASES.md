@@ -1,5 +1,13 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.5.0 (2022-02-11)
+
+- use mwalib v0.13.0
+- kill ::time with latest hifitime
+- bump min rust version from 1.56 to 1.7
+- set minimum dependency versions for all deps
+- Jones::nan() is more... NaNny
+
 # Version 0.4.0 (2022-01-27)
 
 - MeasurementSetWriter keeps track of the current row in the main table, so that rows can be written in chunks.
