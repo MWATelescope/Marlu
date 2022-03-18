@@ -2662,7 +2662,7 @@ mod tests {
             false,
         );
 
-        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })));
     }
 
     #[test]
@@ -3290,7 +3290,7 @@ mod tests {
         let result =
             ms_writer.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false);
 
-        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })));
     }
 
     #[test]
@@ -3315,7 +3315,7 @@ mod tests {
         let result =
             ms_writer.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false);
 
-        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })));
     }
 
     #[test]
@@ -3506,7 +3506,7 @@ mod tests {
             false,
         );
 
-        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })));
     }
 
     #[test]
@@ -4108,7 +4108,7 @@ mod tests {
         for row in reader.records() {
             let record = row.unwrap();
             let time = record[indices["time"]].parse::<f64>().unwrap();
-            timestep_idx = if let Some(idx) = times.iter().position(|&x| x == time) {
+            timestep_idx = if let Some(idx) = times.iter().position(|&x| abs_diff_eq!(x, time)) {
                 idx
             } else {
                 times.push(time);
@@ -4195,7 +4195,7 @@ mod tests {
 
         for (idx, cell) in headers.iter().enumerate() {
             let mut remove: Option<String> = None;
-            for key in remaining_keys.iter() {
+            for key in &remaining_keys {
                 if cell == key {
                     indices.insert(String::from(cell), idx);
                     remove = Some(key.clone());

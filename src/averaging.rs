@@ -336,7 +336,7 @@ mod tess {
     use approx::assert_abs_diff_eq;
     use ndarray::{Array3, Array4};
 
-    use super::*;
+    use super::{Jones, average_visibilities};
 
     fn synthesize_test_data(
         shape: (usize, usize, usize, usize),

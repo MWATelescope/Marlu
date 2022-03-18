@@ -19,7 +19,7 @@ use rayon::prelude::*;
 
 use super::ErfaError;
 use crate::{
-    constants::*,
+    constants::MWA_LAT_RAD,
     math::{baseline_to_tiles, cross_correlation_baseline_to_tiles},
     HADec, LatLngHeight, ENH, UVW,
 };

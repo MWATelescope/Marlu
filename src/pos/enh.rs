@@ -5,7 +5,7 @@
 //! Handle East, North and Height coordinates (typically associated with MWA
 //! tiles).
 
-use crate::{constants::*, XyzGeodetic};
+use crate::{constants::MWA_LAT_RAD, XyzGeodetic};
 
 /// East, North and Height coordinates.
 #[derive(Clone, Copy, Debug, Default)]

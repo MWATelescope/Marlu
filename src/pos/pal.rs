@@ -64,7 +64,7 @@ pub fn palGmst(ut1: f64) -> f64 {
 ///
 /// v will be modified
 pub unsafe fn palDcs2c(a: f64, b: f64, v: *mut f64) {
-    eraS2c(a, b, v)
+    eraS2c(a, b, v);
 }
 
 /// Cartesian to spherical coordinates
@@ -90,7 +90,7 @@ pub unsafe fn palDcs2c(a: f64, b: f64, v: *mut f64) {
 ///
 /// `a` and `b` will be modified.
 pub unsafe fn palDcc2s(v: *mut f64, a: &mut f64, b: &mut f64) {
-    eraC2s(v, a, b)
+    eraC2s(v, a, b);
 }
 
 /// Normalize angle into range 0-2 pi
@@ -131,7 +131,7 @@ pub fn palDranrm(angle: f64) -> f64 {
 ///
 /// `uv` and `vm` will be modified.
 pub unsafe fn palDvn(v: *mut f64, uv: *mut f64, vm: *mut f64) {
-    eraPn(v, vm, uv)
+    eraPn(v, vm, uv);
 }
 
 /// Scalar product of two 3-vectors
@@ -169,7 +169,7 @@ pub unsafe fn palDvdv(va: *mut f64, vb: *mut f64) -> f64 {
 ///
 /// `dp` will be modified.
 pub unsafe fn palDmxv(dm: *mut [f64; 3], va: *mut f64, vb: *mut f64) {
-    eraRxp(dm, va, vb)
+    eraRxp(dm, va, vb);
 }
 
 /// Barycentric and heliocentric velocity and position of the Earth.
@@ -536,7 +536,7 @@ mod tests {
                 dpb.as_mut_ptr(),
                 dvh.as_mut_ptr(),
                 dph.as_mut_ptr(),
-            )
+            );
         };
 
         assert_abs_diff_eq!(dvb, vbex, epsilon = 1e-12);

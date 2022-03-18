@@ -4,6 +4,26 @@
 
 //! Core code to describe coordinate transformations, Jones matrices, etc.
 
+// #![warn(clippy::missing_safety_doc)]
+// #![warn(clippy::missing_errors_doc)]
+#![warn(clippy::float_cmp)]
+#![warn(clippy::if_not_else)]
+#![warn(clippy::explicit_iter_loop)]
+#![warn(clippy::wildcard_imports)]
+#![warn(clippy::cloned_instead_of_copied)]
+// #![warn(clippy::cognitive_complexity)]
+#![warn(clippy::type_repetition_in_bounds)]
+#![warn(clippy::redundant_closure_for_method_calls)]
+// #![warn(clippy::manual_assert)]
+// #![warn(clippy::doc_markdown)]
+#![warn(clippy::match_same_arms)]
+#![warn(clippy::default_trait_access)]
+#![warn(clippy::semicolon_if_nothing_returned)]
+#![warn(clippy::explicit_into_iter_loop)]
+#![warn(clippy::inefficient_to_string)]
+// #![warn(clippy::needless_pass_by_value)]
+#![warn(clippy::used_underscore_binding)]
+
 #[allow(non_camel_case_types)]
 pub type c32 = num_complex::Complex<f32>;
 #[allow(non_camel_case_types)]
