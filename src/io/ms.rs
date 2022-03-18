@@ -1,10 +1,9 @@
 use crate::{
     average_chunk_f64, c32,
-    context::MarluVisContext,
-    io::error::MeasurementSetWriteError,
-    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, ArrayView4, Axis},
+    io::error::IOError,
+    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
-    LatLngHeight, RADec,
+    LatLngHeight, RADec, VisContext,
 };
 
 use std::{
@@ -36,7 +35,6 @@ cfg_if::cfg_if! {
         use itertools::izip;
         use mwalib::CorrelatorContext;
 
-        use super::error::IOError;
         use crate::{precession::precess_time,
             Jones, ENH, UVW, hifitime::Epoch
         };
@@ -501,7 +499,7 @@ impl MeasurementSetWriter {
         chan_info: Array2<f64>,
         total_bw: f64,
         flag: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         match chan_info.shape() {
@@ -511,7 +509,7 @@ impl MeasurementSetWriter {
                     .unwrap();
             }
             sh => {
-                return Err(MeasurementSetWriteError::BadArrayShape {
+                return Err(IOError::BadArrayShape {
                     argument: "chan_info".into(),
                     function: "write_spectral_window_row".into(),
                     expected: "[n, 4]".into(),
@@ -563,7 +561,7 @@ impl MeasurementSetWriter {
         total_bw: f64,
         centre_subband_nr: i32,
         flag: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         self.write_spectral_window_row(table, idx, name, ref_freq, chan_info, total_bw, flag)
@@ -590,7 +588,7 @@ impl MeasurementSetWriter {
         spectral_window_id: i32,
         polarization_id: i32,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         table
@@ -628,7 +626,7 @@ impl MeasurementSetWriter {
         position: &Vec<f64>,
         dish_diameter: f64,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         table.put_cell("NAME", idx, &name.to_string()).unwrap();
@@ -680,7 +678,7 @@ impl MeasurementSetWriter {
         slot: &Vec<i32>,
         cable_length: &Vec<f64>,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         self.write_antenna_row(
@@ -723,7 +721,7 @@ impl MeasurementSetWriter {
         corr_type: &Vec<i32>,
         corr_product: &Array2<i32>,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         let num_corr_type = corr_type.len();
@@ -735,7 +733,7 @@ impl MeasurementSetWriter {
                     .unwrap();
             }
             sh => {
-                return Err(MeasurementSetWriteError::BadArrayShape {
+                return Err(IOError::BadArrayShape {
                     argument: "corr_product".into(),
                     function: "write_polarization_row".into(),
                     expected: format!("[n, 2] (where n = corr_type.len() = {})", num_corr_type),
@@ -779,7 +777,7 @@ impl MeasurementSetWriter {
         // TODO: should this be an `RADec`?
         direction: Vec<f64>,
         proper_motion: Vec<f64>,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         match (direction.len(), proper_motion.len()) {
@@ -790,7 +788,7 @@ impl MeasurementSetWriter {
                     .unwrap();
             }
             sh => {
-                return Err(MeasurementSetWriteError::BadArrayShape {
+                return Err(IOError::BadArrayShape {
                     argument: "direction|proper_motion".into(),
                     function: "write_source_row".into(),
                     expected: "(2, 2)".into(),
@@ -840,7 +838,7 @@ impl MeasurementSetWriter {
         dir_info: &Array3<f64>,
         source_id: i32,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         match dir_info.shape() {
@@ -848,7 +846,7 @@ impl MeasurementSetWriter {
                 table.put_cell("NUM_POLY", idx, &((*p - 1) as i32)).unwrap();
             }
             sh => {
-                return Err(MeasurementSetWriteError::BadArrayShape {
+                return Err(IOError::BadArrayShape {
                     argument: "dir_info".into(),
                     function: "write_field_row".into(),
                     expected: "[3, p, 2] (where p is highest polynomial order)".into(),
@@ -899,7 +897,7 @@ impl MeasurementSetWriter {
         source_id: i32,
         has_calibrator: bool,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         self.write_field_row(table, idx, name, code, time, dir_info, source_id, flag_row)
@@ -935,7 +933,7 @@ impl MeasurementSetWriter {
         project: &str,
         release_date: f64,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         table
@@ -990,7 +988,7 @@ impl MeasurementSetWriter {
         flag_window_size: i32,
         date_requested: f64,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         self.write_observation_row(
@@ -1040,7 +1038,7 @@ impl MeasurementSetWriter {
         message: &str,
         application: &str,
         params: &str,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         let cmd_line: Vec<String> = vec![cmd_line.to_string()];
         let params: Vec<String> = vec![params.to_string()];
 
@@ -1099,11 +1097,11 @@ impl MeasurementSetWriter {
         // TODO: should this be an XyzGeodetic/XyzGeocentric?
         position: &Vec<f64>,
         receptor_angle: &Vec<f64>,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         if beam_offset.shape() != [num_receptors as usize, 2] {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "beam_offset".into(),
                 function: "write_feed_row".into(),
                 expected: "[n, 2]".into(),
@@ -1111,7 +1109,7 @@ impl MeasurementSetWriter {
             });
         }
         if pol_type.len() != num_receptors as usize {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "pol_type".into(),
                 function: "write_feed_row".into(),
                 expected: "n".into(),
@@ -1119,7 +1117,7 @@ impl MeasurementSetWriter {
             });
         }
         if pol_response.shape() != [num_receptors as usize, num_receptors as usize] {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "pol_response".into(),
                 function: "write_feed_row".into(),
                 expected: "[n, n]".into(),
@@ -1127,7 +1125,7 @@ impl MeasurementSetWriter {
             });
         }
         if position.len() != 3 {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "position".into(),
                 function: "write_feed_row".into(),
                 expected: "3".into(),
@@ -1135,7 +1133,7 @@ impl MeasurementSetWriter {
             });
         }
         if receptor_angle.len() != num_receptors as usize {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "receptor_angle".into(),
                 function: "write_feed_row".into(),
                 expected: "n".into(),
@@ -1179,7 +1177,7 @@ impl MeasurementSetWriter {
         delays: &Vec<i32>,
         direction_ra: f64,
         direction_dec: f64,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         table.put_cell("INTERVAL", idx, &vec![start, end]).unwrap();
         table.put_cell("DELAYS", idx, delays).unwrap();
         table
@@ -1201,7 +1199,7 @@ impl MeasurementSetWriter {
         number: i32,
         gain: f64,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         table.put_cell("NUMBER", idx, &number).unwrap();
         table.put_cell("GAIN", idx, &gain).unwrap();
         table.put_cell("FLAG_ROW", idx, &flag_row).unwrap();
@@ -1238,17 +1236,26 @@ impl MeasurementSetWriter {
     #[cfg(feature = "mwalib")]
     pub fn initialize_from_mwalib(
         &self,
-        context: &CorrelatorContext,
+        corr_ctx: &CorrelatorContext,
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
         baseline_idxs: &[usize],
         avg_time: usize,
         avg_freq: usize,
-    ) -> Result<(), MeasurementSetWriteError> {
-        // use itertools::Itertools;
+    ) -> Result<(), IOError> {
+        // TODO: initialise from marlu
+        // pub fn initialize(
+        //     &self,
+        //     vis_ctx: &VisContext,
+        //     timestep_range: &Range<usize>,
+        //     coarse_chan_range: &Range<usize>,
+        //     baseline_idxs: &[usize],
+        //     avg_time: usize,
+        //     avg_freq: usize,
+        // ) -> Result<(), IOError> {
         trace!("initialize_from_mwalib");
 
-        let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
+        let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
         let num_sel_coarse_chans = coarse_chan_range.len();
         let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
         let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
@@ -1260,8 +1267,8 @@ impl MeasurementSetWriter {
             num_avg_chans
         );
 
-        let ants = &context.metafits_context.antennas;
-        let num_ant_pols = context.metafits_context.num_ant_pols;
+        let ants = &corr_ctx.metafits_context.antennas;
+        let num_ant_pols = corr_ctx.metafits_context.num_ant_pols;
 
         // ////// //
         // Cutoff //
@@ -1300,15 +1307,16 @@ impl MeasurementSetWriter {
 
         let mwalib_centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
         let centre_coarse_chan =
-            &context.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
+            &corr_ctx.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
         let mwalib_start_fine_chan_idx = coarse_chan_range.start * fine_chans_per_coarse;
-        let fine_chan_width_hz = avg_freq as u32 * context.metafits_context.corr_fine_chan_width_hz;
+        let fine_chan_width_hz =
+            avg_freq as u32 * corr_ctx.metafits_context.corr_fine_chan_width_hz;
 
-        let avg_fine_chan_freqs_hz: Vec<f64> = context.metafits_context.metafits_fine_chan_freqs_hz
-            [mwalib_start_fine_chan_idx..]
-            .chunks(avg_freq)
-            .map(Self::get_centre_freq)
-            .collect();
+        let avg_fine_chan_freqs_hz: Vec<f64> =
+            corr_ctx.metafits_context.metafits_fine_chan_freqs_hz[mwalib_start_fine_chan_idx..]
+                .chunks(avg_freq)
+                .map(Self::get_centre_freq)
+                .collect();
 
         let chan_info = Array2::from_shape_fn((num_avg_chans, 4), |(c, i)| {
             if i == 0 {
@@ -1421,12 +1429,12 @@ impl MeasurementSetWriter {
         let mut field_table =
             Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite).unwrap();
 
-        let ra_phase_rad = context
+        let ra_phase_rad = corr_ctx
             .metafits_context
             .ra_phase_center_degrees
             .unwrap()
             .to_radians();
-        let dec_phase_rad = context
+        let dec_phase_rad = corr_ctx
             .metafits_context
             .dec_phase_center_degrees
             .unwrap()
@@ -1444,15 +1452,16 @@ impl MeasurementSetWriter {
             [[ra_phase_rad, dec_phase_rad]],
         ];
 
-        let obs_name = &context.metafits_context.obs_name;
+        let obs_name = &corr_ctx.metafits_context.obs_name;
         let field_name = obs_name
             .rsplit_once('_')
             .unwrap_or((obs_name.as_str(), ""))
             .0;
 
-        let sched_start_time_mjd_utc_s =
-            Epoch::from_gpst_seconds(context.metafits_context.sched_start_gps_time_ms as f64 / 1e3)
-                .as_mjd_utc_seconds();
+        let sched_start_time_mjd_utc_s = Epoch::from_gpst_seconds(
+            corr_ctx.metafits_context.sched_start_gps_time_ms as f64 / 1e3,
+        )
+        .as_mjd_utc_seconds();
 
         field_table.add_rows(1).unwrap();
         self.write_field_row_mwa(
@@ -1463,7 +1472,7 @@ impl MeasurementSetWriter {
             sched_start_time_mjd_utc_s,
             &dir_info,
             -1,
-            context.metafits_context.calibrator,
+            corr_ctx.metafits_context.calibrator,
             false,
         )
         .unwrap();
@@ -1475,8 +1484,8 @@ impl MeasurementSetWriter {
         let mut source_table =
             Table::open(&self.path.join("SOURCE"), TableOpenMode::ReadWrite).unwrap();
 
-        let duration_ms = context.metafits_context.sched_duration_ms;
-        let int_time_ms = context.metafits_context.corr_int_time_ms;
+        let duration_ms = corr_ctx.metafits_context.sched_duration_ms;
+        let int_time_ms = corr_ctx.metafits_context.corr_int_time_ms;
 
         // interval is from start of first scan to end of last scan.
         let source_interval = (duration_ms + int_time_ms) as f64 / 1000.0;
@@ -1508,11 +1517,11 @@ impl MeasurementSetWriter {
         obs_table.add_rows(1).unwrap();
 
         let start_time_centroid_mjd_utc_s = Epoch::from_gpst_seconds(
-            (context.metafits_context.sched_start_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
+            (corr_ctx.metafits_context.sched_start_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
         )
         .as_mjd_utc_seconds();
         let end_time_centroid_mjd_utc_s = Epoch::from_gpst_seconds(
-            (context.metafits_context.sched_end_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
+            (corr_ctx.metafits_context.sched_end_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
         )
         .as_mjd_utc_seconds();
 
@@ -1521,13 +1530,13 @@ impl MeasurementSetWriter {
             0,
             "MWA",
             (start_time_centroid_mjd_utc_s, end_time_centroid_mjd_utc_s),
-            &context.metafits_context.creator,
+            &corr_ctx.metafits_context.creator,
             "MWA",
-            &context.metafits_context.project_id,
+            &corr_ctx.metafits_context.project_id,
             0.,
-            context.metafits_context.obs_id as _,
-            &context.metafits_context.obs_name,
-            &context.metafits_context.mode.to_string(),
+            corr_ctx.metafits_context.obs_id as _,
+            &corr_ctx.metafits_context.obs_name,
+            &corr_ctx.metafits_context.mode.to_string(),
             (timestep_range.len() + 1) as _,
             sched_start_time_mjd_utc_s,
             false,
@@ -1609,7 +1618,7 @@ impl MeasurementSetWriter {
 
         point_table.add_rows(1).unwrap();
 
-        let delays = context
+        let delays = corr_ctx
             .metafits_context
             .delays
             .iter()
@@ -1695,11 +1704,11 @@ impl MeasurementSetWriter {
         flags: &Array2<bool>,
         weights: &Array2<f32>,
         flag_row: bool,
-    ) -> Result<(), MeasurementSetWriteError> {
+    ) -> Result<(), IOError> {
         let num_pols = 4;
 
         if uvw.len() != 3 {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "uvw".into(),
                 function: "write_main_row".into(),
                 expected: "3".into(),
@@ -1708,7 +1717,7 @@ impl MeasurementSetWriter {
         }
 
         if sigma.len() != num_pols {
-            return Err(MeasurementSetWriteError::BadArrayShape {
+            return Err(IOError::BadArrayShape {
                 argument: "sigma".into(),
                 function: "write_main_row".into(),
                 expected: format!("{}", num_pols),
@@ -1724,7 +1733,7 @@ impl MeasurementSetWriter {
                     && f1 == &num_pols
                     && w1 == &num_pols => {}
             (dsh, fsh, wsh) => {
-                return Err(MeasurementSetWriteError::BadArrayShape {
+                return Err(IOError::BadArrayShape {
                     argument: "data|flags|weights".into(),
                     function: "write_main_row".into(),
                     expected: format!(
@@ -1767,151 +1776,18 @@ impl MeasurementSetWriter {
 }
 
 impl VisWritable for MeasurementSetWriter {
-    #[cfg(feature = "mwalib")]
-    fn write_vis_mwalib(
-        &mut self,
-        jones_array: ArrayView3<Jones<f32>>,
-        weight_array: ArrayView4<f32>,
-        flag_array: ArrayView4<bool>,
-        context: &CorrelatorContext,
-        timestep_range: &Range<usize>,
-        coarse_chan_range: &Range<usize>,
-        baseline_idxs: &[usize],
-        avg_time: usize,
-        avg_freq: usize,
-        draw_progress: bool,
-    ) -> Result<(), IOError> {
-        trace!("write_vis_mwalib");
-
-        let marlu_context = MarluVisContext::from_mwalib(
-            context,
-            timestep_range,
-            coarse_chan_range,
-            baseline_idxs,
-            avg_time,
-            avg_freq,
-        );
-
-        trace!(
-            "timesteps {:?} * coarse chans {:?} * {:?} baselines, avg_time={}, avg_freq={}",
-            &timestep_range,
-            &coarse_chan_range,
-            &baseline_idxs.len(),
-            avg_time,
-            avg_freq
-        );
-
-        let (num_sel_timesteps, num_sel_chans, num_baselines) = marlu_context.sel_dims();
-        let num_avg_timesteps = marlu_context.num_avg_timesteps();
-
-        trace!(
-            "num_sel_timesteps={}, num_avg_timesteps={}",
-            num_sel_timesteps,
-            num_avg_timesteps
-        );
-
-        let num_avg_chans = marlu_context.num_avg_chans();
-        let fine_chans_per_coarse = context.metafits_context.num_corr_fine_chans_per_coarse;
-
-        trace!(
-            "fine_chans_per_coarse={}, num_sel_chans={}, num_avg_chans={}",
-            fine_chans_per_coarse,
-            num_sel_chans,
-            num_avg_chans
-        );
-
-        let num_vis_pols = marlu_context.num_vis_pols;
-
-        let jones_dims = jones_array.dim();
-        if jones_dims != (num_sel_timesteps, num_sel_chans, num_baselines) {
-            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
-                argument: "jones_array".into(),
-                function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!("{:?}", (num_sel_timesteps, num_sel_chans, num_baselines)),
-                received: format!("{:?}", jones_dims),
-            }));
-        }
-
-        let weight_dims = weight_array.dim();
-        if weight_dims
-            != (
-                num_sel_timesteps,
-                num_sel_chans,
-                num_baselines,
-                num_vis_pols,
-            )
-        {
-            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
-                argument: "weight_array".into(),
-                function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!(
-                    "{:?}",
-                    (
-                        num_sel_timesteps,
-                        num_sel_chans,
-                        num_baselines,
-                        num_vis_pols
-                    )
-                ),
-                received: format!("{:?}", weight_dims),
-            }));
-        }
-        let flag_dims = flag_array.dim();
-        if flag_dims
-            != (
-                num_sel_timesteps,
-                num_sel_chans,
-                num_baselines,
-                num_vis_pols,
-            )
-        {
-            return Err(IOError::from(MeasurementSetWriteError::BadArrayShape {
-                argument: "flag_array".into(),
-                function: "MeasurementSetWriter::write_vis_mwalib".into(),
-                expected: format!(
-                    "{:?}",
-                    (
-                        num_sel_timesteps,
-                        num_sel_chans,
-                        num_baselines,
-                        num_vis_pols
-                    )
-                ),
-                received: format!("{:?}", flag_dims),
-            }));
-        }
-
-        let weight_array = weight_array.map_axis(Axis(3), |weights| {
-            assert!(weights.iter().all(|&w| weights[0] == w));
-            weights[0]
-        });
-
-        let flag_array = flag_array.map_axis(Axis(3), |flags| {
-            assert!(flags.iter().all(|&w| flags[0] == w));
-            flags[0]
-        });
-
-        self.write_vis_marlu(
-            jones_array,
-            weight_array.view(),
-            flag_array.view(),
-            &marlu_context,
-            draw_progress,
-        )
-    }
-
     fn write_vis_marlu(
         &mut self,
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
         flags: ArrayView3<bool>,
-        context: &MarluVisContext,
+        vis_ctx: &VisContext,
         draw_progress: bool,
     ) -> Result<(), IOError> {
-        let num_avg_timesteps = context.num_avg_timesteps();
-        let num_avg_chans = context.num_avg_chans();
-        let num_vis_pols = context.num_vis_pols;
-        let num_avg_rows = num_avg_timesteps * context.sel_baselines.len();
+        let num_avg_timesteps = vis_ctx.num_avg_timesteps();
+        let num_avg_chans = vis_ctx.num_avg_chans();
+        let num_vis_pols = vis_ctx.num_vis_pols;
+        let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
 
         // Progress bars
         let draw_target = if draw_progress {
@@ -1941,16 +1817,6 @@ impl VisWritable for MeasurementSetWriter {
         );
         assert!(num_main_rows - self.main_row_idx as u64 >= num_avg_rows as u64);
 
-        trace!(
-            "num_main_rows={}, self.main_row_idx={}, num_avg_rows (selected)={}",
-            num_main_rows,
-            self.main_row_idx,
-            num_avg_rows
-        );
-        assert!(num_main_rows - self.main_row_idx as u64 >= num_avg_rows as u64);
-
-        let avg_centroid_timestamps = context.avg_centroid_timestamps();
-
         let mut uvw_tmp = Vec::with_capacity(3);
         let sigma_tmp = vec![1., 1., 1., 1.];
         let mut data_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
@@ -1958,10 +1824,10 @@ impl VisWritable for MeasurementSetWriter {
         let mut flags_tmp = Array2::from_elem((num_avg_chans, num_vis_pols), false);
 
         for (avg_centroid_timestamp, vis_chunk, weight_chunk, flag_chunk) in izip!(
-            avg_centroid_timestamps,
-            vis.axis_chunks_iter(Axis(0), context.avg_time),
-            weights.axis_chunks_iter(Axis(0), context.avg_time),
-            flags.axis_chunks_iter(Axis(0), context.avg_time),
+            vis_ctx.timeseries(true, true),
+            vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
+            weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
+            flags.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.as_mjd_utc_seconds();
 
@@ -1972,10 +1838,10 @@ impl VisWritable for MeasurementSetWriter {
                 self.array_pos.latitude_rad,
             );
 
-            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&context.tiles_xyz_geod);
+            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&vis_ctx.tiles_xyz_geod);
 
             for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk, flag_chunk) in izip!(
-                context.sel_baselines.clone().into_iter(),
+                vis_ctx.sel_baselines.clone().into_iter(),
                 vis_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
                 flag_chunk.axis_iter(Axis(2)),
@@ -2002,16 +1868,16 @@ impl VisWritable for MeasurementSetWriter {
                     mut weights_tmp_view,
                     mut flags_tmp_view,
                 ) in izip!(
-                    vis_chunk.axis_chunks_iter(Axis(1), context.avg_freq),
-                    weight_chunk.axis_chunks_iter(Axis(1), context.avg_freq),
-                    flag_chunk.axis_chunks_iter(Axis(1), context.avg_freq),
+                    vis_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
+                    weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
+                    flag_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     data_tmp.outer_iter_mut(),
                     weights_tmp.outer_iter_mut(),
                     flags_tmp.outer_iter_mut()
                 ) {
                     let mut avg_weight: f32 = weight_chunk[[0, 0]];
                     let mut avg_flag: bool = flag_chunk[[0, 0]];
-                    if context.trivial_averaging() {
+                    if vis_ctx.trivial_averaging() {
                         data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
                         average_chunk_f64!(
@@ -2037,7 +1903,7 @@ impl VisWritable for MeasurementSetWriter {
                     ant2_idx as _,
                     0,
                     &uvw_tmp,
-                    context.avg_int_time().in_seconds(),
+                    vis_ctx.avg_int_time().in_seconds(),
                     -1,
                     1,
                     -1,
@@ -2796,10 +2662,7 @@ mod tests {
             false,
         );
 
-        assert!(matches!(
-            result,
-            Err(MeasurementSetWriteError::BadArrayShape { .. })
-        ))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
     }
 
     #[test]
@@ -3427,10 +3290,7 @@ mod tests {
         let result =
             ms_writer.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false);
 
-        assert!(matches!(
-            result,
-            Err(MeasurementSetWriteError::BadArrayShape { .. })
-        ))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
     }
 
     #[test]
@@ -3455,10 +3315,7 @@ mod tests {
         let result =
             ms_writer.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false);
 
-        assert!(matches!(
-            result,
-            Err(MeasurementSetWriteError::BadArrayShape { .. })
-        ))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
     }
 
     #[test]
@@ -3649,10 +3506,7 @@ mod tests {
             false,
         );
 
-        assert!(matches!(
-            result,
-            Err(MeasurementSetWriteError::BadArrayShape { .. })
-        ))
+        assert!(matches!(result, Err(IOError::BadArrayShape { .. })))
     }
 
     #[test]
@@ -3964,7 +3818,7 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let context = CorrelatorContext::new(
+        let corr_ctx = CorrelatorContext::new(
             &String::from("tests/data/1254670392_avg/1254670392.metafits"),
             &((1..=24)
                 .map(|i| {
@@ -3977,20 +3831,20 @@ mod tests {
         )
         .unwrap();
 
-        let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
         let mwalib_timestep_range = 0..3;
-        let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
-            ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
-        // let mwalib_baseline_idxs: Vec<usize> = (0..context.metafits_context.num_baselines).collect();
+        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
+            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
+        // let mwalib_baseline_idxs: Vec<usize> = (0..corr_ctx.metafits_context.num_baselines).collect();
         let mwalib_baseline_idxs: Vec<usize> = vec![0];
 
         let (avg_time, avg_freq) = (1, 1);
 
         ms_writer
             .initialize_from_mwalib(
-                &context,
+                &corr_ctx,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
@@ -4630,7 +4484,7 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let context = CorrelatorContext::new(
+        let corr_ctx = CorrelatorContext::new(
             &String::from("tests/data/1254670392_avg/1254670392.metafits"),
             &((1..=24)
                 .map(|i| {
@@ -4643,19 +4497,19 @@ mod tests {
         )
         .unwrap();
 
-        let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
         let mwalib_timestep_range = 0..2_usize;
-        let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
-            ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
+        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
+            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
         let mwalib_baseline_idxs = vec![1_usize];
 
         let (avg_time, avg_freq) = (1, 1);
 
         ms_writer
             .initialize_from_mwalib(
-                &context,
+                &corr_ctx,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
@@ -4676,7 +4530,7 @@ mod tests {
                 jones_array.view(),
                 weight_array.view(),
                 flag_array.view(),
-                &context,
+                &corr_ctx,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
@@ -4713,7 +4567,7 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let context = CorrelatorContext::new(
+        let corr_ctx = CorrelatorContext::new(
             &String::from("tests/data/1254670392_avg/1254670392.metafits"),
             &((1..=24)
                 .map(|i| {
@@ -4726,19 +4580,19 @@ mod tests {
         )
         .unwrap();
 
-        let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
         let mwalib_timestep_range = 0..2_usize;
-        let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
-            ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
+        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
+            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
         let mwalib_baseline_idxs = vec![1_usize];
 
         let (avg_time, avg_freq) = (2, 2);
 
         ms_writer
             .initialize_from_mwalib(
-                &context,
+                &corr_ctx,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
@@ -4759,7 +4613,7 @@ mod tests {
                 jones_array.view(),
                 weight_array.view(),
                 flag_array.view(),
-                &context,
+                &corr_ctx,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
@@ -4802,7 +4656,7 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let context = CorrelatorContext::new(
+        let corr_ctx = CorrelatorContext::new(
             &String::from("tests/data/1254670392_avg/1254670392.metafits"),
             &((1..=24)
                 .map(|i| {
@@ -4815,19 +4669,19 @@ mod tests {
         )
         .unwrap();
 
-        let phase_centre = RADec::from_mwalib_phase_or_pointing(&context.metafits_context);
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
         let mwalib_timestep_range = 0..2_usize;
-        let mwalib_coarse_chan_range = *context.provided_coarse_chan_indices.first().unwrap()
-            ..(*context.provided_coarse_chan_indices.last().unwrap() + 1);
+        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
+            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
         let mwalib_baseline_idxs = vec![1_usize];
 
         let (avg_time, avg_freq) = (1, 1);
 
         ms_writer
             .initialize_from_mwalib(
-                &context,
+                &corr_ctx,
                 &mwalib_timestep_range,
                 &mwalib_coarse_chan_range,
                 &mwalib_baseline_idxs,
@@ -4859,7 +4713,7 @@ mod tests {
                     jones_array_chunk.view(),
                     weight_array_chunk.view(),
                     flag_array_chunk.view(),
-                    &context,
+                    &corr_ctx,
                     &timestep_range,
                     &mwalib_coarse_chan_range,
                     &mwalib_baseline_idxs,

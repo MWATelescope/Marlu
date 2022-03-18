@@ -1,15 +1,22 @@
-use crate::context::MarluVisContext;
+use crate::context::VisContext;
 
-mod error;
+pub mod error;
 pub mod ms;
+pub mod uvfits;
+
+// re-exports
+pub use ms::MeasurementSetWriter;
+pub use uvfits::UvfitsWriter;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         use std::ops::Range;
 
         use crate::{mwalib::CorrelatorContext, Jones};
-        use ndarray::{ArrayView3, ArrayView4, ArrayViewMut3};
+        use ndarray::{ArrayView3, ArrayView4, ArrayViewMut3, Axis};
         use self::error::IOError;
+        use approx::abs_diff_eq;
+        use log::trace;
     }
 }
 
@@ -39,18 +46,38 @@ pub trait VisReadable: Sync + Send {
 
 /// The container can accept a chunk of visibilities to be written.
 pub trait VisWritable: Sync + Send {
-    /// Specify the chunk of visibilities to write using a [`MarluVisContext`].
+    /// Write a chunk of visibilities, contextualised with a [`VisContext`].
+    ///
+    /// This makes use of the heuristic that the weights of all pols of a visibility
+    /// should be equal, and thus, only three dimensions of weights / flags are used.
+    ///
+    /// `vis` - a three dimensional array of jones matrix visibilities.
+    ///     The dimensions of the array are `[timestep][channel][baseline]`
+    ///
+    /// `weights` - a three dimensional array of visibility weights.
+    ///     The dimensions of the array are `[timestep][channel][baseline]`
+    ///
+    /// `flags` - a three dimensional array of visibility flags.
+    ///     The dimensions of the array are `[timestep][channel][baseline]`
+    ///
+    /// `vis_ctx` - a [`VisContext`] which contextualises each axis of the visibilities.
+    ///
+    /// `draw_progress` - whether or not to draw a progress bar.
+    ///
+    /// Hyperdrive:
+    /// - shim for baseline
+    /// - shim for timestep indices
     fn write_vis_marlu(
         &mut self,
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
         flags: ArrayView3<bool>,
-        context: &MarluVisContext,
+        vis_ctx: &VisContext,
         draw_progress: bool,
     ) -> Result<(), IOError>;
 
-    /// Write visibilities and weights from the arrays. Timestep, coarse channel
-    /// and baseline indices are needed for labelling the visibility array
+    /// Contract the weight and flag arrays along the pol axis, and write using
+    /// [`VisWritable::write_vis_marlu`]
     ///
     /// `jones_array` - a three dimensional array of jones matrix visibilities.
     ///     The dimensions of the array are `[timestep][channel][baseline]`
@@ -86,6 +113,8 @@ pub trait VisWritable: Sync + Send {
     ///
     /// Can throw IOError if there is an issue writing to the file, or the indices
     /// into `context` are invalid.
+    ///
+    // TODO: deprecate this entirely
     #[allow(clippy::too_many_arguments)]
     #[cfg(feature = "mwalib")]
     fn write_vis_mwalib(
@@ -100,5 +129,34 @@ pub trait VisWritable: Sync + Send {
         avg_time: usize,
         avg_freq: usize,
         draw_progress: bool,
-    ) -> Result<(), IOError>;
+    ) -> Result<(), IOError> {
+        trace!("write_vis_mwalib");
+
+        let marlu_context = VisContext::from_mwalib(
+            context,
+            timestep_range,
+            coarse_chan_range,
+            baseline_idxs,
+            avg_time,
+            avg_freq,
+        );
+
+        let weight_array = weight_array.map_axis(Axis(3), |weights| {
+            assert!(weights.iter().all(|&w| abs_diff_eq!(weights[0], w)));
+            weights[0]
+        });
+
+        let flag_array = flag_array.map_axis(Axis(3), |flags| {
+            assert!(flags.iter().all(|&w| flags[0] == w));
+            flags[0]
+        });
+
+        self.write_vis_marlu(
+            jones_array,
+            weight_array.view(),
+            flag_array.view(),
+            &marlu_context,
+            draw_progress,
+        )
+    }
 }

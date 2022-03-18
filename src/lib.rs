@@ -15,6 +15,7 @@ pub mod context;
 pub mod jones;
 pub mod math;
 pub mod pos;
+pub mod selection;
 pub mod sexagesimal;
 
 #[cfg(feature = "io")]
@@ -24,6 +25,8 @@ pub mod io;
 pub mod cuda;
 
 // Re-exports.
+pub use context::VisContext;
+pub use io::{MeasurementSetWriter, UvfitsWriter, VisWritable};
 pub use jones::Jones;
 pub use pos::{
     azel::AzEl,
@@ -36,8 +39,8 @@ pub use pos::{
     uvw::UVW,
     xyz::{XyzGeocentric, XyzGeodetic},
 };
+pub use selection::{SelectionError, VisSelection};
 
-pub use context::MarluVisContext;
 pub use erfa_sys;
 pub use hifitime;
 pub use ndarray;
