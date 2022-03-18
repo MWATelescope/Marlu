@@ -46,7 +46,6 @@ pub mod cuda;
 
 // Re-exports.
 pub use context::VisContext;
-pub use io::{MeasurementSetWriter, UvfitsWriter, VisWritable};
 pub use jones::Jones;
 pub use pos::{
     azel::AzEl,
@@ -75,6 +74,12 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         pub use mwalib;
         pub use mwalib::{fitsio, fitsio_sys};
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "mwalib")] {
+        pub use io::{MeasurementSetWriter, UvfitsWriter, VisWritable};
     }
 }
 

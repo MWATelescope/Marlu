@@ -23,73 +23,49 @@
 //! # Examples
 //!
 //! ```rust
-//! use marlu::{mwalib::CorrelatorContext, VisSelection};
+//! use marlu::{VisSelection};
 //!
-//! // define our input files
-//! let metafits_path = "tests/data/1297526432_mwax/1297526432.metafits";
-//! let gpufits_paths = vec![
-//!     "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_000.fits",
-//!     "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_001.fits",
-//!     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_000.fits",
-//!     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_001.fits",
-//! ];
-//!
-//! // Create an mwalib::CorrelatorContext for accessing visibilities.
-//! let corr_ctx = CorrelatorContext::new(&metafits_path, &gpufits_paths).unwrap();
-//!
-//! // Determine which timesteps and coarse channels we want to use
-//! let img_timestep_idxs = &corr_ctx.common_timestep_indices;
-//! let good_timestep_idxs = &corr_ctx.common_good_timestep_indices;
-//!
-//! let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
-//! vis_sel.timestep_range =
-//!     *img_timestep_idxs.first().unwrap()..(*img_timestep_idxs.last().unwrap() + 1);
+//! let mut vis_sel = VisSelection {
+//!     timestep_range: 0..1,
+//!     coarse_chan_range: 0..1,
+//!     baseline_idxs: vec![0, 1],
+//! };
 //!
 //! // Create a blank array to store flags and visibilities
-//! let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
-//! let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+//! let fine_chans_per_coarse = 2;
 //! let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
 //!
-//! // read visibilities out of the gpubox files
-//! vis_sel
-//!     .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut(), false)
-//!     .unwrap();
+//! let dims = jones_array.dim();
 //!
-//! let dims_common = jones_array.dim();
+//! // now try only with a different range of timesteps
+//! vis_sel.timestep_range = 0..2;
 //!
-//! // now try only with good timesteps
-//! vis_sel.timestep_range =
-//!     *good_timestep_idxs.first().unwrap()..(*good_timestep_idxs.last().unwrap() + 1);
-//!
-//! // read visibilities out of the gpubox files
-//! let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
 //! let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
-//! vis_sel
-//!     .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut(), false)
-//!     .unwrap();
-//!
-//! let dims_good = jones_array.dim();
 //!
 //! // different selections have different sized arrays.
-//! assert_ne!(dims_common, dims_good);
+//! assert_ne!(dims, jones_array.dim());
 //! ```
 
 use std::ops::Range;
 
-use crossbeam_channel::unbounded;
-use crossbeam_utils::thread;
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-use itertools::izip;
-use log::warn;
 use thiserror::Error;
 
-use crate::{
-    mwalib::{CorrelatorContext, MetafitsContext},
-    ndarray::{Array3, ArrayViewMut3, Axis},
-    num_traits::Zero,
-    rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
-    Complex, Jones,
-};
+use crate::{ndarray::Array3, num_traits::Zero, Complex, Jones};
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "mwalib")] {
+        use itertools::izip;
+        use log::warn;
+        use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+        use crossbeam_channel::unbounded;
+        use crossbeam_utils::thread;
+        use crate::{
+            mwalib::{CorrelatorContext, MetafitsContext},
+            ndarray::{ArrayViewMut3, Axis},
+            rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
+        };
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum SelectionError {
@@ -180,6 +156,7 @@ impl VisSelection {
     ///
     /// [`marlu::mwalib::CorrelatorContext.common_timestep_indices`]:
     /// [`marlu::mwalib::CorrelatorContext.provided_timestep_indices`]:
+    #[cfg(feature = "mwalib")]
     pub fn from_mwalib(corr_ctx: &CorrelatorContext) -> Result<Self, SelectionError> {
         Ok(Self {
             timestep_range: match (
@@ -214,6 +191,7 @@ impl VisSelection {
     }
 
     /// The selected antenna index pairs corresponding to `sel_baselines_idxs`
+    #[cfg(feature = "mwalib")]
     pub fn get_ant_pairs(&self, meta_ctx: &MetafitsContext) -> Vec<(usize, usize)> {
         self.baseline_idxs
             .iter()
@@ -341,6 +319,61 @@ impl VisSelection {
     ///
     /// Can raise [`SelectionError::BadArrayShape`] if `jones_array` or `flag_array` does not match the
     /// expected shape of this selection.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use marlu::{mwalib::CorrelatorContext, VisSelection};
+    ///
+    /// // define our input files
+    /// let metafits_path = "tests/data/1297526432_mwax/1297526432.metafits";
+    /// let gpufits_paths = vec![
+    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_000.fits",
+    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_001.fits",
+    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_000.fits",
+    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_001.fits",
+    /// ];
+    ///
+    /// // Create an mwalib::CorrelatorContext for accessing visibilities.
+    /// let corr_ctx = CorrelatorContext::new(&metafits_path, &gpufits_paths).unwrap();
+    ///
+    /// // Determine which timesteps and coarse channels we want to use
+    /// let img_timestep_idxs = &corr_ctx.common_timestep_indices;
+    /// let good_timestep_idxs = &corr_ctx.common_good_timestep_indices;
+    ///
+    /// let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+    /// vis_sel.timestep_range =
+    ///     *img_timestep_idxs.first().unwrap()..(*img_timestep_idxs.last().unwrap() + 1);
+    ///
+    /// // Create a blank array to store flags and visibilities
+    /// let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
+    /// let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+    /// let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
+    ///
+    /// // read visibilities out of the gpubox files
+    /// vis_sel
+    ///     .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut(), false)
+    ///     .unwrap();
+    ///
+    /// let dims_common = jones_array.dim();
+    ///
+    /// // now try only with good timesteps
+    /// vis_sel.timestep_range =
+    ///     *good_timestep_idxs.first().unwrap()..(*good_timestep_idxs.last().unwrap() + 1);
+    ///
+    /// // read visibilities out of the gpubox files
+    /// let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+    /// let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
+    /// vis_sel
+    ///     .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut(), false)
+    ///     .unwrap();
+    ///
+    /// let dims_good = jones_array.dim();
+    ///
+    /// // different selections have different sized arrays.
+    /// assert_ne!(dims_common, dims_good);
+    /// ```
+    #[cfg(feature = "mwalib")]
     pub fn read_mwalib(
         &self,
         corr_ctx: &CorrelatorContext,
@@ -521,6 +554,7 @@ impl VisSelection {
 }
 
 #[cfg(test)]
+#[cfg(feature = "mwalib")]
 mod tests {
     use approx::assert_abs_diff_eq;
 

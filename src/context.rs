@@ -1,11 +1,14 @@
-use hifitime::{Duration, Epoch, TimeSeries, Unit::Millisecond};
+use hifitime::{Duration, Epoch, TimeSeries};
 
 use crate::XyzGeodetic;
 
-use std::ops::Range;
-
-#[cfg(feature = "mwalib")]
-use mwalib::CorrelatorContext;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "mwalib")] {
+        use std::ops::Range;
+        use mwalib::CorrelatorContext;
+        use hifitime::Unit::Millisecond;
+    }
+}
 
 // use crate::{LatLngHeight, RADec};
 // /// A lightweight container for observation metadata used in Marlu operations.
