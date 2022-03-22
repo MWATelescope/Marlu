@@ -18,6 +18,7 @@ use crate::{
     erfa_sys::ERFA_DJM0,
     fitsio, fitsio_sys,
     hifitime::Epoch,
+    io::error::BadArrayShape,
     mwalib::{
         fitsio::{errors::check_status as fits_check_status, FitsFile},
         CorrelatorContext, MetafitsContext,
@@ -25,7 +26,7 @@ use crate::{
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
-    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW, io::error::BadArrayShape,
+    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
 };
 use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::izip;
@@ -176,7 +177,7 @@ impl UvfitsWriter {
         centre_freq_hz: f64,
         centre_freq_chan: usize,
         phase_centre: RADec,
-        obs_name: Option<&str>,
+        obs_name: Option<String>,
         array_pos: LatLngHeight,
     ) -> Result<Self, UvfitsWriteError> {
         // Delete any file that already exists.
@@ -291,7 +292,11 @@ impl UvfitsWriter {
         hdu.write_key(&mut u, "OBSDEC", phase_centre.dec.to_degrees())?;
         hdu.write_key(&mut u, "EPOCH", 2000.0)?;
 
-        hdu.write_key(&mut u, "OBJECT", obs_name.unwrap_or("Undefined"))?;
+        hdu.write_key(
+            &mut u,
+            "OBJECT",
+            obs_name.unwrap_or_else(|| "Undefined".into()),
+        )?;
         hdu.write_key(&mut u, "TELESCOP", "MWA")?;
         hdu.write_key(&mut u, "INSTRUME", "MWA")?;
 
@@ -369,8 +374,8 @@ impl UvfitsWriter {
 
         let obs_name = corr_ctx.metafits_context.obs_name.clone();
         let field_name = match obs_name.rsplit_once('_') {
-            Some((field_name, _)) => field_name,
-            None => obs_name.as_str(),
+            Some((field_name, _)) => field_name.to_string(),
+            None => obs_name,
         };
 
         let vis_ctx = VisContext::from_mwalib(
@@ -390,7 +395,7 @@ impl UvfitsWriter {
         vis_ctx: &VisContext,
         array_pos: Option<LatLngHeight>,
         phase_centre: RADec,
-        obs_name: Option<&str>,
+        obs_name: Option<String>,
     ) -> Result<Self, UvfitsWriteError> {
         let avg_freqs_hz: Vec<f64> = vis_ctx.avg_frequencies_hz();
         let avg_centre_chan = avg_freqs_hz.len() / 2;
@@ -864,7 +869,6 @@ impl VisWritable for UvfitsWriter {
         &mut self,
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
-        flags: ArrayView3<bool>,
         vis_ctx: &VisContext,
         tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
@@ -884,14 +888,6 @@ impl VisWritable for UvfitsWriter {
                 function: "write_vis_marlu".into(),
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", weights.dim()),
-            }));
-        }
-        if flags.dim() != sel_dims {
-            return Err(IOError::BadArrayShape(BadArrayShape {
-                argument: "flags".into(),
-                function: "write_vis_marlu".into(),
-                expected: format!("{:?}", sel_dims),
-                received: format!("{:?}", flags.dim()),
             }));
         }
 
@@ -941,11 +937,10 @@ impl VisWritable for UvfitsWriter {
         let mut avg_flag: bool;
         let mut avg_jones: Jones<f32>;
 
-        for (avg_centroid_timestamp, jones_chunk, weight_chunk, flag_chunk) in izip!(
+        for (avg_centroid_timestamp, jones_chunk, weight_chunk) in izip!(
             vis_ctx.timeseries(true, true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
-            flags.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
             let prec_info = precess_time(
                 self.phase_centre,
@@ -956,11 +951,10 @@ impl VisWritable for UvfitsWriter {
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
 
-            for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk, flag_chunk) in izip!(
+            for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.clone().into_iter(),
                 jones_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
-                flag_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyz_precessed =
                     tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
@@ -969,29 +963,22 @@ impl VisWritable for UvfitsWriter {
                 // MWA/CASA/AOFlagger visibility order is XX,XY,YX,YY
                 // UVFits visibility order is XX,YY,XY,YX
 
-                for (jones_chunk, weight_chunk, flag_chunk, vis_chunk) in izip!(
+                for (jones_chunk, weight_chunk, vis_chunk) in izip!(
                     jones_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    flag_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     vis_tmp.chunks_exact_mut(12),
                 ) {
                     avg_weight = weight_chunk[[0, 0]];
-                    avg_flag = flag_chunk[[0, 0]];
                     avg_jones = jones_chunk[[0, 0]];
 
                     if !vis_ctx.trivial_averaging() {
                         average_chunk_f64!(
                             jones_chunk,
                             weight_chunk,
-                            flag_chunk,
                             avg_jones,
                             avg_weight,
                             avg_flag
                         );
-                    }
-                    // TODO: merge weights and flags outside the interface?
-                    if avg_flag {
-                        avg_weight = -avg_weight.abs();
                     }
 
                     // TODO: something a little prettier
@@ -1007,7 +994,6 @@ impl VisWritable for UvfitsWriter {
                     vis_chunk[9] = avg_jones[2].re;
                     vis_chunk[10] = avg_jones[2].im;
                     vis_chunk[11] = avg_weight;
-                    // dbg!(&write_progress.position(), &jones_chunk, &jones_chunk.len(), &weight_chunk, &avg_jones, &avg_weight, &vis_chunk);
                 }
 
                 self.write_vis_row(
@@ -1633,7 +1619,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
-            Some(&corr_ctx.metafits_context.obs_name.clone()),
+            Some(corr_ctx.metafits_context.obs_name.clone()),
         )
         .unwrap();
 
@@ -1670,7 +1656,7 @@ mod tests {
             170e6,
             3,
             RADec::new_degrees(0.0, 60.0),
-            Some("test"),
+            Some("test".to_string()),
             LatLngHeight::new_mwa(),
         )
         .unwrap();
@@ -1772,13 +1758,12 @@ mod tests {
             .iter_mut()
             .zip(flag_array.iter())
             .for_each(|(w, f)| {
-                *w = if *f { -*w } else { *w };
+                *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
         u.write_vis_marlu(
             jones_array.view(),
             weight_array.view(),
-            flag_array.view(),
             &vis_ctx,
             &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             false,
@@ -1867,13 +1852,12 @@ mod tests {
             .iter_mut()
             .zip(flag_array.iter())
             .for_each(|(w, f)| {
-                *w = if *f { -*w } else { *w };
+                *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
         u.write_vis_marlu(
             jones_array.view(),
             weight_array.view(),
-            flag_array.view(),
             &vis_ctx,
             &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             false,
@@ -1962,13 +1946,12 @@ mod tests {
             .iter_mut()
             .zip(flag_array.iter())
             .for_each(|(w, f)| {
-                *w = if *f { -*w } else { *w };
+                *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
         u.write_vis_marlu(
             jones_array.view(),
             weight_array.view(),
-            flag_array.view(),
             &vis_ctx,
             &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             false,

@@ -4,9 +4,13 @@ pub mod error;
 pub mod ms;
 pub mod uvfits;
 
+use itertools::izip;
 // re-exports
 pub use ms::MeasurementSetWriter;
+use ndarray::Array3;
 pub use uvfits::UvfitsWriter;
+
+use self::error::BadArrayShape;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
@@ -54,11 +58,9 @@ pub trait VisWritable: Sync + Send {
     /// `vis` - a three dimensional array of jones matrix visibilities.
     ///     The dimensions of the array are `[timestep][channel][baseline]`
     ///
-    /// `weights` - a three dimensional array of visibility weights.
-    ///     The dimensions of the array are `[timestep][channel][baseline]`
-    ///
-    /// `flags` - a three dimensional array of visibility flags.
-    ///     The dimensions of the array are `[timestep][channel][baseline]`
+    /// `weights` - a three dimensional array of visibility weights, where the sign
+    ///     of the double is the flag. Assumes all weights and flags are the same
+    ///     for a given pol. The dimensions of the array are `[timestep][channel][baseline]`
     ///
     /// `vis_ctx` - a [`VisContext`] which contextualises each axis of the visibilities.
     ///
@@ -71,7 +73,6 @@ pub trait VisWritable: Sync + Send {
         &mut self,
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
-        flags: ArrayView3<bool>,
         vis_ctx: &VisContext,
         tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
@@ -118,6 +119,7 @@ pub trait VisWritable: Sync + Send {
     // TODO: deprecate this entirely
     #[allow(clippy::too_many_arguments)]
     #[cfg(feature = "mwalib")]
+    #[deprecated(note = "use write_vis_marlu instead")]
     fn write_vis_mwalib(
         &mut self,
         jones_array: ArrayView3<Jones<f32>>,
@@ -152,13 +154,32 @@ pub trait VisWritable: Sync + Send {
             flags[0]
         });
 
+        let weights = encode_flags(weight_array.view(), flag_array.view())?;
         self.write_vis_marlu(
             jones_array,
-            weight_array.view(),
-            flag_array.view(),
+            weights.view(),
             &vis_ctx,
             &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             draw_progress,
         )
     }
+}
+
+pub fn encode_flags(
+    weights: ArrayView3<f32>,
+    flags: ArrayView3<bool>,
+) -> Result<Array3<f32>, IOError> {
+    if flags.dim() != weights.dim() {
+        return Err(IOError::BadArrayShape(BadArrayShape {
+            argument: "flags".into(),
+            function: "encode_flags".into(),
+            expected: format!("{:?}", weights.dim()),
+            received: format!("{:?}", flags.dim()),
+        }));
+    }
+    let mut new_weights = weights.to_owned();
+    for (weight, &flag) in izip!(new_weights.iter_mut(), flags.iter()) {
+        *weight = if flag { -1. } else { 1. } * weight.abs();
+    }
+    Ok(new_weights)
 }

@@ -76,7 +76,7 @@ macro_rules! average_chunk_for_pols_f64 {
                 ) {
                     let weight_f64: f64 = *weight_elem as _;
 
-                    if !flag_elem && *weight_elem > 0. {
+                    if !flag_elem && *weight_elem >= 0. {
                         *weighted_vis_sum += jones_elem * weight_f64;
                         *weight_sum += weight_f64;
                         all_flagged = false;
@@ -128,7 +128,6 @@ macro_rules! average_chunk_f64 {
         // to be averaged
         $jones_chunk:expr,
         $weights_chunk:expr,
-        $flags_chunk:expr,
         // to average into
         $avg_jones:expr,
         $avg_weight:expr,
@@ -141,33 +140,25 @@ macro_rules! average_chunk_f64 {
             $weights_chunk.shape(),
             "jones and weight arrays must have the same shape"
         );
-        assert_eq!(
-            $weights_chunk.shape(),
-            $flags_chunk.shape(),
-            "weight and flag arrays must have the same shape"
-        );
 
-        let mut weight_sum = 0_f64;
+        let mut weight_sum_f64 = 0_f64;
         let mut jones_sum = Jones::<f64>::default();
         let mut jones_weighted_sum = Jones::<f64>::default();
         $avg_flag = true;
 
         // TODO: I think this can be done with lanes!
-        for (jones_chunk, weights_chunk, flags_chunk) in izip!(
+        for (jones_chunk, weights_chunk) in izip!(
             $jones_chunk.axis_iter(Axis(0)),
             $weights_chunk.axis_iter(Axis(0)),
-            $flags_chunk.axis_iter(Axis(0))
         ) {
-            for (jones, weight, flag) in
-                izip!(jones_chunk.iter(), weights_chunk.iter(), flags_chunk.iter())
-            {
+            for (jones, weight) in izip!(jones_chunk.iter(), weights_chunk.iter()) {
                 let jones_c64 = Jones::<f64>::from(*jones);
                 jones_sum += jones_c64;
-                if !flag && *weight > 0. {
-                    let weight_f64 = *weight as f64;
-                    weight_sum += weight_f64;
+                if *weight >= 0. && weight.abs() > 0. {
+                    let weight_abs_f64 = (*weight as f64).abs();
+                    weight_sum_f64 += weight_abs_f64;
                     $avg_flag = false;
-                    jones_weighted_sum += jones_c64 * weight_f64;
+                    jones_weighted_sum += jones_c64 * weight_abs_f64;
                 }
             }
         }
@@ -179,8 +170,8 @@ macro_rules! average_chunk_f64 {
         ) {
             *avg_jones = if !$avg_flag {
                 Complex::<f32>::new(
-                    (jones_weighted_sum.re / weight_sum) as f32,
-                    (jones_weighted_sum.im / weight_sum) as f32,
+                    (jones_weighted_sum.re / weight_sum_f64) as f32,
+                    (jones_weighted_sum.im / weight_sum_f64) as f32,
                 )
             } else {
                 Complex::<f32>::new(
@@ -190,7 +181,7 @@ macro_rules! average_chunk_f64 {
             };
         }
 
-        $avg_weight = weight_sum as f32;
+        $avg_weight = weight_sum_f64 as f32;
     };
 }
 

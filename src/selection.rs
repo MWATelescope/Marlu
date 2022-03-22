@@ -50,7 +50,7 @@ use std::ops::Range;
 
 use thiserror::Error;
 
-use crate::{ndarray::Array3, num_traits::Zero, Complex, Jones};
+use crate::{ndarray::Array3, num_traits::Zero, Jones};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
@@ -210,20 +210,6 @@ impl VisSelection {
         let num_baselines = self.baseline_idxs.len();
         let num_timesteps = self.timestep_range.len();
         (num_timesteps, num_chans, num_baselines)
-    }
-
-    /// Estimate the memory size in bytes required to store the given selection with redundant pols.
-    ///
-    /// TODO: rip out everything that does redundant pols
-    pub fn estimate_bytes_worst(&self, fine_chans_per_coarse: usize, num_pols: usize) -> usize {
-        let shape = self.get_shape(fine_chans_per_coarse);
-        shape.0
-            * shape.1
-            * shape.2
-            * num_pols
-            * (std::mem::size_of::<Complex<f32>>()
-                + std::mem::size_of::<f32>()
-                + std::mem::size_of::<bool>())
     }
 
     /// Estimate the memory size in bytes required to store the given selection without redundant pols.

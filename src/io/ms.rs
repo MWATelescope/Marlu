@@ -1168,7 +1168,7 @@ impl MeasurementSetWriter {
     ///
     /// A typicaly measurement set is initialized with [`MeasurementSetWriter::initialize()`],
     /// then the MWA extension tables are createed and initialized.
-    fn initialize_mwa(
+    pub fn initialize_mwa(
         &self,
         vis_ctx: &VisContext,
         obs_ctx: &ObsContext,
@@ -1683,7 +1683,6 @@ impl VisWritable for MeasurementSetWriter {
         &mut self,
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
-        flags: ArrayView3<bool>,
         vis_ctx: &VisContext,
         tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
@@ -1703,14 +1702,6 @@ impl VisWritable for MeasurementSetWriter {
                 function: "write_vis_marlu".into(),
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", weights.dim()),
-            }));
-        }
-        if flags.dim() != sel_dims {
-            return Err(IOError::BadArrayShape(BadArrayShape {
-                argument: "flags".into(),
-                function: "write_vis_marlu".into(),
-                expected: format!("{:?}", sel_dims),
-                received: format!("{:?}", flags.dim()),
             }));
         }
 
@@ -1747,17 +1738,18 @@ impl VisWritable for MeasurementSetWriter {
             }));
         }
 
-        let mut uvw_tmp = Vec::with_capacity(3);
-        let sigma_tmp = vec![1., 1., 1., 1.];
+        let mut uvw_tmp = vec![0.; 3];
+        let sigma_tmp = vec![1.; 4];
         let mut data_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
         let mut weights_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
         let mut flags_tmp = Array2::from_elem((num_avg_chans, num_vis_pols), false);
+        let mut avg_weight: f32;
+        let mut avg_flag: bool;
 
-        for (avg_centroid_timestamp, vis_chunk, weight_chunk, flag_chunk) in izip!(
+        for (avg_centroid_timestamp, vis_chunk, weight_chunk) in izip!(
             vis_ctx.timeseries(true, true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
-            flags.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.as_mjd_utc_seconds();
 
@@ -1770,19 +1762,17 @@ impl VisWritable for MeasurementSetWriter {
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
 
-            for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk, flag_chunk) in izip!(
+            for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.clone().into_iter(),
                 vis_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
-                flag_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyz_precessed =
                     tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
 
                 // copy values into temporary arrays to avoid heap allocs.
-                uvw_tmp.clear();
-                uvw_tmp.extend_from_slice(&[uvw.u, uvw.v, uvw.w]);
+                uvw_tmp.clone_from_slice(&[uvw.u, uvw.v, uvw.w]);
 
                 data_tmp.fill(Complex::default());
                 weights_tmp.fill(0.);
@@ -1793,31 +1783,31 @@ impl VisWritable for MeasurementSetWriter {
                 for (
                     vis_chunk,
                     weight_chunk,
-                    flag_chunk,
                     mut data_tmp_view,
                     mut weights_tmp_view,
                     mut flags_tmp_view,
                 ) in izip!(
                     vis_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    flag_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     data_tmp.outer_iter_mut(),
                     weights_tmp.outer_iter_mut(),
                     flags_tmp.outer_iter_mut()
                 ) {
-                    let mut avg_weight: f32 = weight_chunk[[0, 0]];
-                    let mut avg_flag: bool = flag_chunk[[0, 0]];
+                    avg_weight = weight_chunk[[0, 0]];
+                    avg_flag = avg_weight < 0.;
                     if vis_ctx.trivial_averaging() {
                         data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
                         average_chunk_f64!(
                             vis_chunk,
                             weight_chunk,
-                            flag_chunk,
                             data_tmp_view,
                             avg_weight,
                             avg_flag
                         );
+                    }
+                    if avg_flag {
+                        avg_weight = avg_weight.abs();
                     }
                     weights_tmp_view.fill(avg_weight);
                     flags_tmp_view.fill(avg_flag);
@@ -3972,6 +3962,7 @@ mod tests {
                 assert_table_nrows_match!(table, exp_table);
                 for col_name in col_names {
                     let epsilon = 1e-6;
+                    // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, epsilon);
                 }
             }
@@ -4416,6 +4407,7 @@ mod tests {
     #[cfg(feature = "mwalib")]
     #[test]
     #[serial]
+    #[allow(deprecated)]
     fn test_write_vis_from_mwalib() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -4478,6 +4470,7 @@ mod tests {
             assert_table_nrows_match!(table, exp_table);
             for col_name in col_names.iter() {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                    // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
@@ -4489,6 +4482,7 @@ mod tests {
     #[cfg(feature = "mwalib")]
     #[test]
     #[serial]
+    #[allow(deprecated)]
     fn test_write_vis_from_mwalib_averaging() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -4553,6 +4547,7 @@ mod tests {
             assert_table_nrows_match!(table, exp_table);
             for col_name in col_names.iter() {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                    // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
@@ -4565,6 +4560,7 @@ mod tests {
     #[cfg(feature = "mwalib")]
     #[test]
     #[serial]
+    #[allow(deprecated)]
     fn test_write_vis_from_mwalib_chunks() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
@@ -4638,6 +4634,7 @@ mod tests {
             assert_table_nrows_match!(table, exp_table);
             for col_name in col_names.iter() {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                    // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
@@ -4699,7 +4696,6 @@ mod tests {
         ms_writer.initialize(&vis_ctx, &obs_ctx).unwrap();
 
         let good_jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
-        let good_flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
         let good_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
         // make sure it works normally first
@@ -4707,7 +4703,6 @@ mod tests {
             ms_writer.write_vis_marlu(
                 good_jones_array.view(),
                 good_weight_array.view(),
-                good_flag_array.view(),
                 &vis_ctx,
                 &obs_ctx.ant_positions_geodetic(),
                 false,
@@ -4722,14 +4717,12 @@ mod tests {
         vis_sel.timestep_range = 0..1;
 
         let bad_jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
-        let bad_flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
         let bad_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
         assert!(matches!(
             ms_writer.write_vis_marlu(
                 bad_jones_array.view(),
                 good_weight_array.view(),
-                good_flag_array.view(),
                 &vis_ctx,
                 &obs_ctx.ant_positions_geodetic(),
                 false,
@@ -4741,19 +4734,6 @@ mod tests {
             ms_writer.write_vis_marlu(
                 good_jones_array.view(),
                 bad_weight_array.view(),
-                good_flag_array.view(),
-                &vis_ctx,
-                &obs_ctx.ant_positions_geodetic(),
-                false,
-            ),
-            Err(IOError::BadArrayShape { .. })
-        ));
-
-        assert!(matches!(
-            ms_writer.write_vis_marlu(
-                good_jones_array.view(),
-                good_weight_array.view(),
-                bad_flag_array.view(),
                 &vis_ctx,
                 &obs_ctx.ant_positions_geodetic(),
                 false,
@@ -4819,14 +4799,12 @@ mod tests {
         vis_sel.timestep_range = 0..3;
 
         let jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
-        let flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
         let weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
         assert!(matches!(
             ms_writer.write_vis_marlu(
                 jones_array.view(),
                 weight_array.view(),
-                flag_array.view(),
                 &vis_ctx,
                 &obs_ctx.ant_positions_geodetic(),
                 false,
