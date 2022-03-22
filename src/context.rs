@@ -1,4 +1,5 @@
 use hifitime::{Duration, Epoch, TimeSeries};
+use ndarray::Array2;
 
 use crate::{LatLngHeight, RADec, XyzGeocentric, XyzGeodetic, ENH};
 
@@ -7,10 +8,12 @@ cfg_if::cfg_if! {
         use std::ops::Range;
         use mwalib::{CorrelatorContext, MetafitsContext};
         use hifitime::Unit::Millisecond;
+        use itertools::izip;
+        use ndarray::array;
     }
 }
 
-/// A container for observation metadata used in Marlu operations.
+/// A container for observation metadata common across most file types
 pub struct ObsContext {
     /// Scheduled start time
     pub sched_start_timestamp: Epoch,
@@ -108,6 +111,84 @@ impl ObsContext {
 
     pub fn num_ants(&self) -> usize {
         self.ant_positions_enh.len()
+    }
+}
+
+/// An extension of [`ObsContext`] that for MWA-specific metadata that is not
+/// present in some file types like uvfits.
+pub struct MwaObsContext {
+    /// Antenna input numbers. [ant_idx][pol]
+    pub ant_inputs: Array2<usize>,
+
+    /// Antenna tile numbers
+    pub ant_numbers: Vec<usize>,
+
+    /// Antenna receiver numbers
+    pub ant_receivers: Vec<usize>,
+
+    /// Antenna slot numbers. [ant_idx][pol]
+    pub ant_slots: Array2<usize>,
+
+    /// Antenna slot numbers. [ant_idx][pol]
+    pub ant_cable_lengths: Array2<f64>,
+
+    /// Coarse Channel Receiver Numbers
+    pub coarse_chan_recs: Vec<usize>,
+
+    /// Whether the observation has a calibrator
+    pub has_calibrator: bool,
+
+    /// MWA Observation Mode. See: [`mwalib::MetafitsContext::obs_mode`]
+    pub mode: String,
+
+    /// Tile pointing delays
+    pub delays: Vec<u32>,
+}
+
+impl MwaObsContext {
+    #[cfg(feature = "mwalib")]
+    pub fn from_mwalib(meta_ctx: &MetafitsContext) -> Self {
+        let ants = &meta_ctx.antennas;
+
+        let mut result = Self {
+            ant_inputs: Array2::zeros((ants.len(), 2)),
+            ant_numbers: vec![0; ants.len()],
+            ant_receivers: vec![0; ants.len()],
+            ant_slots: Array2::zeros((ants.len(), 2)),
+            ant_cable_lengths: Array2::zeros((ants.len(), 2)),
+            coarse_chan_recs: meta_ctx
+                .metafits_coarse_chans
+                .iter()
+                .map(|c| c.rec_chan_number)
+                .collect(),
+            has_calibrator: meta_ctx.calibrator,
+            mode: meta_ctx.mode.to_string(),
+            delays: meta_ctx.delays.clone(),
+        };
+
+        for (ant, mut input, number, receiver, mut slot, mut length) in izip!(
+            ants,
+            result.ant_inputs.outer_iter_mut(),
+            result.ant_numbers.iter_mut(),
+            result.ant_receivers.iter_mut(),
+            result.ant_slots.outer_iter_mut(),
+            result.ant_cable_lengths.outer_iter_mut(),
+        ) {
+            let (rf_x, rf_y) = (ant.rfinput_x.clone(), ant.rfinput_y.clone());
+            input.assign(&array![rf_x.input as usize, rf_y.input as _]);
+            *number = ant.tile_id as _;
+            *receiver = rf_x.rec_number as _;
+            slot.assign(&array![
+                rf_x.rec_slot_number as usize,
+                rf_y.rec_slot_number as _
+            ]);
+            length.assign(&array![
+                rf_x.electrical_length_m as f64,
+                rf_y.electrical_length_m as _
+            ]);
+        }
+
+        result
     }
 }
 

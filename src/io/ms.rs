@@ -1,10 +1,9 @@
 use crate::{
     average_chunk_f64, c32,
-    context::ObsContext,
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
-    LatLngHeight, RADec, VisContext, XyzGeodetic,
+    LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
 };
 
 use std::{
@@ -1256,6 +1255,23 @@ impl MeasurementSetWriter {
         obs_ctx.phase_centre = self.phase_centre;
         obs_ctx.array_pos = self.array_pos;
 
+        let mwa_ctx = MwaObsContext::from_mwalib(&corr_ctx.metafits_context);
+
+        self.initialize_mwa(vis_ctx, obs_ctx, mwa_ctx, coarse_chan_range)
+    }
+
+    /// Initialize a measurement set, including the extended MWA tables from a [`context::VisContext`],
+    /// [`context::].
+    ///
+    /// A typicaly measurement set is initialized with [`MeasurementSetWriter::initialize()`],
+    /// then the MWA extension tables are createed and initialized.
+    fn initialize_mwa(
+        &self,
+        vis_ctx: VisContext,
+        obs_ctx: ObsContext,
+        mwa_ctx: MwaObsContext,
+        coarse_chan_range: &Range<usize>,
+    ) -> Result<(), IOError> {
         self.initialize(&vis_ctx, &obs_ctx).unwrap();
 
         self.add_mwa_mods();
@@ -1266,48 +1282,39 @@ impl MeasurementSetWriter {
 
         let mut ant_table =
             Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite).unwrap();
-
-        let ants = &corr_ctx.metafits_context.antennas;
-
-        for (idx, antenna) in ants.iter().enumerate() {
+        for (idx, input, number, receiver, slot, length) in izip!(
+            0..,
+            mwa_ctx.ant_inputs.outer_iter(),
+            mwa_ctx.ant_numbers.iter(),
+            mwa_ctx.ant_receivers.iter(),
+            mwa_ctx.ant_slots.outer_iter(),
+            mwa_ctx.ant_cable_lengths.outer_iter(),
+        ) {
             ant_table
                 .put_cell(
                     "MWA_INPUT",
                     idx as _,
-                    &vec![
-                        antenna.rfinput_x.input as i32,
-                        antenna.rfinput_y.input as i32,
-                    ],
+                    &vec![input[[0]] as i32, input[[1]] as i32],
                 )
                 .unwrap();
             ant_table
-                .put_cell("MWA_TILE_NR", idx as _, &(antenna.tile_id as i32))
+                .put_cell("MWA_TILE_NR", idx as _, &(*number as i32))
                 .unwrap();
             ant_table
-                .put_cell(
-                    "MWA_RECEIVER",
-                    idx as _,
-                    &(antenna.rfinput_x.rec_number as i32),
-                )
+                .put_cell("MWA_RECEIVER", idx as _, &(*receiver as i32))
                 .unwrap();
             ant_table
                 .put_cell(
                     "MWA_SLOT",
                     idx as _,
-                    &vec![
-                        antenna.rfinput_x.rec_slot_number as i32,
-                        antenna.rfinput_y.rec_slot_number as i32,
-                    ],
+                    &vec![slot[[0]] as i32, slot[[1]] as i32],
                 )
                 .unwrap();
             ant_table
                 .put_cell(
                     "MWA_CABLE_LENGTH",
                     idx as _,
-                    &vec![
-                        antenna.rfinput_x.electrical_length_m,
-                        antenna.rfinput_y.electrical_length_m,
-                    ],
+                    &vec![length[[0]] as f64, length[[1]] as f64],
                 )
                 .unwrap();
         }
@@ -1318,18 +1325,11 @@ impl MeasurementSetWriter {
 
         let mut spw_table =
             Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
-
         let num_sel_coarse_chans = coarse_chan_range.len();
-        let mwalib_centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
-        let centre_coarse_chan =
-            &corr_ctx.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
-
+        let centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
+        let centre_coarse_chan_rec = mwa_ctx.coarse_chan_recs[centre_coarse_chan_idx];
         spw_table
-            .put_cell(
-                "MWA_CENTRE_SUBBAND_NR",
-                0,
-                &(centre_coarse_chan.rec_chan_number as i32),
-            )
+            .put_cell("MWA_CENTRE_SUBBAND_NR", 0, &(centre_coarse_chan_rec as i32))
             .unwrap();
 
         // ///////// //
@@ -1338,11 +1338,8 @@ impl MeasurementSetWriter {
 
         let mut field_table =
             Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite).unwrap();
-
-        let has_calibrator = corr_ctx.metafits_context.calibrator;
-
         field_table
-            .put_cell("MWA_HAS_CALIBRATOR", 0, &has_calibrator)
+            .put_cell("MWA_HAS_CALIBRATOR", 0, &mwa_ctx.has_calibrator)
             .unwrap();
 
         // /////////////// //
@@ -1356,18 +1353,14 @@ impl MeasurementSetWriter {
             .put_cell(
                 "MWA_GPS_TIME",
                 0,
-                &(corr_ctx.metafits_context.obs_id as f64),
+                &(obs_ctx.sched_start_timestamp.as_gpst_seconds() as f64),
             )
             .unwrap();
         obs_table
-            .put_cell("MWA_FILENAME", 0, &corr_ctx.metafits_context.obs_name)
+            .put_cell("MWA_FILENAME", 0, &obs_ctx.name.unwrap())
             .unwrap();
         obs_table
-            .put_cell(
-                "MWA_OBSERVATION_MODE",
-                0,
-                &corr_ctx.metafits_context.mode.to_string(),
-            )
+            .put_cell("MWA_OBSERVATION_MODE", 0, &mwa_ctx.mode)
             .unwrap();
         obs_table
             .put_cell(
@@ -1380,10 +1373,7 @@ impl MeasurementSetWriter {
             .put_cell(
                 "MWA_DATE_REQUESTED",
                 0,
-                &Epoch::from_gpst_seconds(
-                    corr_ctx.metafits_context.sched_start_gps_time_ms as f64 / 1e3,
-                )
-                .as_mjd_utc_seconds(),
+                &obs_ctx.sched_start_timestamp.as_mjd_utc_seconds(),
             )
             .unwrap();
 
@@ -1397,18 +1387,10 @@ impl MeasurementSetWriter {
         )
         .unwrap();
         point_table.add_rows(1).unwrap();
-
-        let delays = corr_ctx
-            .metafits_context
-            .delays
-            .iter()
-            .map(|&x| x as _)
-            .collect();
-
+        let delays = mwa_ctx.delays.iter().map(|&x| x as _).collect();
         let mut avg_centroid_timeseries = vis_ctx.timeseries(true, true);
         let avg_centroid_start = avg_centroid_timeseries.next().unwrap();
         let avg_centroid_end = avg_centroid_timeseries.last().unwrap_or(avg_centroid_start);
-
         self.write_mwa_tile_pointing_row(
             &mut point_table,
             0,
@@ -1424,18 +1406,13 @@ impl MeasurementSetWriter {
         // MWA Subband //
         // /////////// //
 
-        use hifitime::Epoch;
-
         let mut subband_table =
             Table::open(&self.path.join("MWA_SUBBAND"), TableOpenMode::ReadWrite).unwrap();
-
         subband_table.add_rows(num_sel_coarse_chans).unwrap();
-
         for i in 0..num_sel_coarse_chans {
             self.write_mwa_subband_row(&mut subband_table, i as _, i as _, 0 as _, false)
                 .unwrap();
         }
-
         Ok(())
     }
 
