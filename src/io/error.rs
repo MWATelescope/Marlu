@@ -1,11 +1,18 @@
+use rubbl_casatables::CasacoreError;
 use thiserror::Error;
+
+#[derive(Error, Debug)]
+#[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
+pub struct BadArrayShape {
+    pub argument: String,
+    pub function: String,
+    pub expected: String,
+    pub received: String,
+}
 
 // TODO: there are plenty of panics in ms that need enums
 #[derive(Error, Debug)]
 pub enum MeasurementSetWriteError {
-    // TODO: https://github.com/pkgw/rubbl/pull/148
-    // #[error("{0}")]
-    // RubblError(#[from] CasacoreError)
     /// An error when trying to write to an unexpected row.
     #[error("Tried to write {rows_attempted} rows, but only {rows_remaining} rows are remaining out of {rows_total}")]
     MeasurementSetFull {
@@ -16,6 +23,37 @@ pub enum MeasurementSetWriteError {
         /// Total capacity of measurement set
         rows_total: usize,
     },
+
+    // TODO: https://github.com/pkgw/rubbl/pull/148
+    /// From Rubbl Casacore
+    #[error("Rubbl CASACore error {inner:?}")]
+    CasacoreError { inner: CasacoreError },
+
+    /// From Rubbl
+    #[error("Rubbl error {inner:?}")]
+    RubblError { inner: failure::Error },
+
+    #[error(transparent)]
+    BadArrayShape(#[from] BadArrayShape),
+
+    /// An IO error.
+    #[error(transparent)]
+    StdIo(#[from] std::io::Error),
+
+    #[error(transparent)]
+    SystemTimeError(#[from] std::time::SystemTimeError),
+}
+
+impl From<failure::Error> for MeasurementSetWriteError {
+    fn from(inner: failure::Error) -> Self {
+        Self::RubblError { inner }
+    }
+}
+
+impl From<CasacoreError> for MeasurementSetWriteError {
+    fn from(inner: CasacoreError) -> Self {
+        Self::CasacoreError { inner }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -52,21 +90,13 @@ pub enum UvfitsWriteError {
 
     /// An IO error.
     #[error(transparent)]
-    IO(#[from] std::io::Error),
+    StdIo(#[from] std::io::Error),
 }
 
 #[derive(Error, Debug)]
 #[allow(clippy::upper_case_acronyms)]
 /// All the errors that can occur in file io operations
 pub enum IOError {
-    #[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
-    BadArrayShape {
-        argument: String,
-        function: String,
-        expected: String,
-        received: String,
-    },
-
     #[error(transparent)]
     /// Error derived from [`io::errors::MeasurementSetWriteError`]
     MeasurementSetWriteError(#[from] MeasurementSetWriteError),
@@ -82,4 +112,17 @@ pub enum IOError {
     #[error(transparent)]
     /// Error derived from [`io::errors::UvfitsWriteError`]
     UvfitsWriteError(#[from] UvfitsWriteError),
+
+    #[error(transparent)]
+    BadArrayShape(#[from] BadArrayShape),
+
+    /// From Rubbl
+    #[error("Rubbl error {inner:?}")]
+    RubblError { inner: failure::Error },
+}
+
+impl From<failure::Error> for IOError {
+    fn from(inner: failure::Error) -> Self {
+        Self::RubblError { inner }
+    }
 }

@@ -25,7 +25,7 @@ use crate::{
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
-    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
+    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW, io::error::BadArrayShape,
 };
 use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::izip;
@@ -871,28 +871,28 @@ impl VisWritable for UvfitsWriter {
     ) -> Result<(), IOError> {
         let sel_dims = vis_ctx.sel_dims();
         if vis.dim() != sel_dims {
-            return Err(IOError::BadArrayShape {
+            return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "vis".into(),
                 function: "write_vis_marlu".into(),
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", vis.dim()),
-            });
+            }));
         }
         if weights.dim() != sel_dims {
-            return Err(IOError::BadArrayShape {
+            return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "weights".into(),
                 function: "write_vis_marlu".into(),
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", weights.dim()),
-            });
+            }));
         }
         if flags.dim() != sel_dims {
-            return Err(IOError::BadArrayShape {
+            return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "flags".into(),
                 function: "write_vis_marlu".into(),
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", flags.dim()),
-            });
+            }));
         }
 
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
