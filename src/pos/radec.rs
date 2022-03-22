@@ -26,7 +26,7 @@ pub struct RADec {
 }
 
 impl RADec {
-    /// Make a new [RADec] struct from values in radians.
+    /// Make a new [`RADec`] struct from values in radians.
     pub fn new(ra_rad: f64, dec_rad: f64) -> RADec {
         Self {
             ra: ra_rad,
@@ -34,12 +34,12 @@ impl RADec {
         }
     }
 
-    /// Make a new [RADec] struct from values in degrees.
+    /// Make a new [`RADec`] struct from values in degrees.
     pub fn new_degrees(ra_deg: f64, dec_deg: f64) -> RADec {
         Self::new(ra_deg.to_radians(), dec_deg.to_radians())
     }
 
-    /// Given a local sidereal time, make a new [HADec] struct from a [RADec].
+    /// Given a local sidereal time, make a new [`HADec`] struct from a [`RADec`].
     pub fn to_hadec(self, lst_rad: f64) -> HADec {
         HADec {
             ha: lst_rad - self.ra,
@@ -47,7 +47,7 @@ impl RADec {
         }
     }
 
-    /// Given a local sidereal time, make a new [RADec] struct from a [HADec].
+    /// Given a local sidereal time, make a new [`RADec`] struct from a [`HADec`].
     pub fn from_hadec(hadec: HADec, lst_rad: f64) -> Self {
         Self {
             ra: lst_rad - hadec.ha,
@@ -55,10 +55,10 @@ impl RADec {
         }
     }
 
-    /// From a collection of [RADec] coordinates and weights, find the average
-    /// [RADec] position. The lengths of both collection must be the same to get
-    /// sensible results. Not providing any [RADec] coordinates will make this
-    /// function return [None].
+    /// From a collection of [`RADec`] coordinates and weights, find the average
+    /// [`RADec`] position. The lengths of both collection must be the same to get
+    /// sensible results. Not providing any [`RADec`] coordinates will make this
+    /// function return [`None`].
     ///
     /// This function accounts for Right Ascension coordinates that range over
     /// 360 degrees.
@@ -114,7 +114,7 @@ impl RADec {
         Some(weighted_pos)
     }
 
-    /// Get the [LMN] direction cosines from an [RADec] and a phase centre.
+    /// Get the [LMN] direction cosines from an [`RADec`] and a phase centre.
     ///
     /// Derived using "Coordinate transformations" on page 388 of Synthesis
     /// Imaging in Radio Astronomy II.
@@ -151,7 +151,7 @@ impl RADec {
         }
     }
 
-    /// Given an [`mwalib::MetafitsContext`], make a [RADec] from the
+    /// Given an [`mwalib::MetafitsContext`], make a [`RADec`] from the
     /// `(ra|dec)_tile_pointing_degrees`.
     #[cfg(feature = "mwalib")]
     pub fn from_mwalib_tile_pointing(context: &mwalib::MetafitsContext) -> RADec {
@@ -161,7 +161,7 @@ impl RADec {
         )
     }
 
-    /// Given an [`mwalib::MetafitsContext`], make a [RADec] from the
+    /// Given an [`mwalib::MetafitsContext`], make a [`RADec`] from the
     /// `(ra|dec)_phase_center_degrees` if these are available, otherwise use
     /// the `(ra|dec)_tile_pointing_degrees`.
     #[cfg(feature = "mwalib")]

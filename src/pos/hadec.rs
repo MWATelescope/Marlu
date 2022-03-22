@@ -17,7 +17,7 @@ pub struct HADec {
 }
 
 impl HADec {
-    /// Make a new [HADec] struct from values in radians.
+    /// Make a new [`HADec`] struct from values in radians.
     pub fn new(ha_rad: f64, dec_rad: f64) -> HADec {
         Self {
             ha: ha_rad,
@@ -25,12 +25,12 @@ impl HADec {
         }
     }
 
-    /// Make a new [HADec] struct from values in degrees.
+    /// Make a new [`HADec`] struct from values in degrees.
     pub fn new_degrees(ha_deg: f64, dec_deg: f64) -> HADec {
         Self::new(ha_deg.to_radians(), dec_deg.to_radians())
     }
 
-    /// Given a local sidereal time, make a new [RADec] struct from a [HADec].
+    /// Given a local sidereal time, make a new [`RADec`] struct from a [`HADec`].
     pub fn to_radec(self, lst_rad: f64) -> RADec {
         RADec {
             ra: lst_rad - self.ha,
@@ -38,7 +38,7 @@ impl HADec {
         }
     }
 
-    /// Given a local sidereal time, make a new [HADec] struct from a [RADec].
+    /// Given a local sidereal time, make a new [`HADec`] struct from a [`RADec`].
     pub fn from_radec(radec: RADec, lst_rad: f64) -> HADec {
         Self {
             ha: lst_rad - radec.ra,

@@ -105,10 +105,10 @@ pub enum SelectionError {
 }
 
 /// Keep track of which mwalib indices the values in a jones array, its' weights and its' flags
-/// came from. Similar to a VisSelection, but requires an mwalib::CorrelatorContext to be
+/// came from. Similar to a `VisSelection`, but requires an `mwalib::CorrelatorContext` to be
 /// fully interpreted
 ///
-/// TODO: this definitely needs fine_chans_per_coarse
+/// TODO: this definitely needs `fine_chans_per_coarse`
 /// TODO: what about <https://doc.rust-lang.org/std/ops/trait.RangeBounds.html> insetad of Range?
 #[derive(Debug, Default, Clone)]
 pub struct VisSelection {

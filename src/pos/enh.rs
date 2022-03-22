@@ -21,7 +21,7 @@ pub struct ENH {
 
 impl ENH {
     /// Convert coords in local topocentric East, North, Height units to 'local'
-    /// [XyzGeodetic] units. Local means Z points north, X points through the
+    /// [`XyzGeodetic`] units. Local means Z points north, X points through the
     /// equator from the geocenter along the local meridian and Y is East. This
     /// is like the absolute system except that zero longitude is now the local
     /// meridian rather than prime meridian. Latitude is geodetic, in radians.
@@ -37,8 +37,8 @@ impl ENH {
     }
 
     /// Convert coords in local topocentric East, North, Height units to 'local'
-    /// [XyzGeodetic] units. See [ENH::to_xyz()] for more information. This
-    /// function is less convenient than [ENH::to_xyz()], but is slightly more
+    /// [`XyzGeodetic`] units. See [`ENH::to_xyz(`)] for more information. This
+    /// function is less convenient than [`ENH::to_xyz()`], but is slightly more
     /// efficient because the caller can prevent needless `sin` and `cos`
     /// calculations.
     pub fn to_xyz_inner(self, sin_latitude: f64, cos_latitude: f64) -> XyzGeodetic {
@@ -49,7 +49,7 @@ impl ENH {
         }
     }
 
-    /// Convert [ENH] coordinates to [XyzGeodetic] for the MWA's latitude.
+    /// Convert [ENH] coordinates to [`XyzGeodetic`] for the MWA's latitude.
     pub fn to_xyz_mwa(self) -> XyzGeodetic {
         self.to_xyz(MWA_LAT_RAD)
     }

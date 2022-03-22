@@ -201,7 +201,7 @@ impl MwaObsContext {
 /// timesteps and frequencies with a given configuration of averaging, and other
 /// pre-processing settings.
 ///
-/// A VisContext is oblivious to mwalib concepts like coarse channels.
+/// A `VisContext` is oblivious to mwalib concepts like coarse channels.
 pub struct VisContext {
     /// The number of selected timesteps (Axis 0) in the accompanying visibility and weight ndarrays.
     pub num_sel_timesteps: usize,

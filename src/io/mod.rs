@@ -28,7 +28,7 @@ pub trait VisReadable: Sync + Send {
     ///
     /// # Errors
     ///
-    /// Can throw IOError if there is an issue reading.
+    /// Can throw `IOError` if there is an issue reading.
     ///
     /// TODO: reduce number of arguments.
     #[allow(clippy::too_many_arguments)]
@@ -112,7 +112,7 @@ pub trait VisWritable: Sync + Send {
     ///
     /// # Errors
     ///
-    /// Can throw IOError if there is an issue writing to the file, or the indices
+    /// Can throw [`IOError`] if there is an issue writing to the file, or the indices
     /// into `context` are invalid.
     ///
     // TODO: deprecate this entirely

@@ -30,12 +30,12 @@ pub enum AveragingError {
 /// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
 ///
 /// dimensions:
-/// - jones_chunk -> [at, af][pol] (each element is a complex vis array of length pol)
-/// - weight_chunk -> [at, af, pol]
-/// - flag_chunk shape -> [at, af, pol]
-/// - avg_jones -> [pol]
-/// - avg_weight_view -> [pol]
-/// - avg_flag_view -> [pol]
+/// - `jones_chunk` -> [at, af][pol] (each element is a complex vis array of length pol)
+/// - `weight_chunk` -> [at, af, pol]
+/// - `flags_chunk` -> [at, af, pol]
+/// - `avg_jones` -> [pol]
+/// - `avg_weight_view` -> [pol]
+/// - `avg_flag_view` -> [pol]
 #[macro_export]
 macro_rules! average_chunk_for_pols_f64 {
     (
@@ -116,12 +116,12 @@ macro_rules! average_chunk_for_pols_f64 {
 /// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
 ///
 /// dimensions:
-/// - jones_chunk -> [at, af][pol] (each element is a complex vis array of length pol)
-/// - weight_chunk -> [at, af]
-/// - flag_chunk -> [at, af]
-/// - avg_jones -> [pol]
-/// - avg_weight -> (scalar)
-/// - avg_flag -> (scalar)
+/// - `jones_chunk` -> [at, af][pol] (each element is a complex vis array of length pol)
+/// - `weight_chunk` -> [at, af]
+/// - `flag_chunk` -> [at, af]
+/// - `avg_jones` -> [pol]
+/// - `avg_weight` -> (scalar)
+/// - `avg_flag` -> (scalar)
 #[macro_export]
 macro_rules! average_chunk_f64 {
     (
@@ -197,8 +197,8 @@ macro_rules! average_chunk_f64 {
 pub type VisData344 = (Array3<Jones<f32>>, Array4<f32>, Array4<bool>);
 pub type VisData33 = (Array3<Jones<f32>>, Array3<f32>);
 
-/// Average a section (timestep_range, coarse_chan_range) of the visibilities
-/// (jones_array, weight_array, flag_array) in time or frequency (time_factor, frequency_factor).
+/// Average a section (`timestep_range`, `coarse_chan_range`) of the visibilities
+/// (`jones_array`, `weight_array`, `flag_array`) in time or frequency (`time_factor`, `frequency_factor`).
 ///
 /// `jones_array` - a three dimensional array of jones matrix visibilities.
 ///     The dimensions of the array are `[timestep][channel][baseline]`

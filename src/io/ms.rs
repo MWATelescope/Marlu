@@ -473,8 +473,8 @@ impl MeasurementSetWriter {
         self.add_mwa_subband_mods();
     }
 
-    /// Write a row into the SPECTRAL_WINDOW table. Remember to also write to
-    /// the DATA_DESCRIPTION table.
+    /// Write a row into the `SPECTRAL_WINDOW` table. Remember to also write to
+    /// the `DATA_DESCRIPTION` table.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `idx` - row index to write to (ensure enough rows have been added)
@@ -532,8 +532,8 @@ impl MeasurementSetWriter {
         Ok(())
     }
 
-    /// Write a row into the SPECTRAL_WINDOW table with extra mwa columns enabled.
-    /// Remember to also write to the DATA_DESCRIPTION table.
+    /// Write a row into the `SPECTRAL_WINDOW` table with extra mwa columns enabled.
+    /// Remember to also write to the `DATA_DESCRIPTION` table.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `idx` - row index to write to (ensure enough rows have been added)
@@ -573,7 +573,7 @@ impl MeasurementSetWriter {
         Ok(())
     }
 
-    /// Write a row into the DATA_DESCRIPTION table.
+    /// Write a row into the `DATA_DESCRIPTION` table.
     ///
     /// - `table` - [`rubbl_casatables::Table`] object to write to.
     /// - `idx` - row index to write to (ensure enough rows have been added)
@@ -1253,8 +1253,8 @@ impl MeasurementSetWriter {
         self.initialize_mwa(&vis_ctx, &obs_ctx, &mwa_ctx, coarse_chan_range)
     }
 
-    /// Initialize a measurement set, including the extended MWA tables from a [`context::VisContext`],
-    /// [`context::].
+    /// Initialize a measurement set, including the extended MWA tables from a [`VisContext`],
+    /// [`ObsContext`] and [`MwaObsContext`].
     ///
     /// A typicaly measurement set is initialized with [`MeasurementSetWriter::initialize()`],
     /// then the MWA extension tables are createed and initialized.

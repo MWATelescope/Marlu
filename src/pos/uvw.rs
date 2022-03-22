@@ -21,7 +21,7 @@ pub struct UVW {
 }
 
 impl UVW {
-    /// Convert an [XyzGeodetic] to [UVW], given the phase centre.
+    /// Convert an [`XyzGeodetic`] to [UVW], given the phase centre.
     ///
     /// This is Equation 4.1 of: Interferometry and Synthesis in Radio
     /// Astronomy, Third Edition, Section 4: Geometrical Relationships,
@@ -32,8 +32,8 @@ impl UVW {
         Self::from_xyz_inner(xyz, s_ha, c_ha, s_dec, c_dec)
     }
 
-    /// Convert an [XyzGeodetic] to [UVW], given the phase centre. This function
-    /// is less convenient than [UVW::from_xyz()], but may be better in tight
+    /// Convert an [`XyzGeodetic`] to [UVW], given the phase centre. This function
+    /// is less convenient than [`UVW::from_xyz`()], but may be better in tight
     /// loops as the `sin` and `cos` of the phase centre don't need to be
     /// uselessly re-calculated.
     ///
