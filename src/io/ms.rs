@@ -495,7 +495,7 @@ impl MeasurementSetWriter {
         idx: u64,
         name: &str,
         ref_freq: f64,
-        chan_info: Array2<f64>,
+        chan_info: &Array2<f64>,
         total_bw: f64,
         flag: bool,
     ) -> Result<(), IOError> {
@@ -556,7 +556,7 @@ impl MeasurementSetWriter {
         idx: u64,
         name: &str,
         ref_freq: f64,
-        chan_info: Array2<f64>,
+        chan_info: &Array2<f64>,
         total_bw: f64,
         centre_subband_nr: i32,
         flag: bool,
@@ -773,29 +773,18 @@ impl MeasurementSetWriter {
         name: &str,
         calibration_group: i32,
         code: &str,
-        // TODO: should this be an `RADec`?
-        direction: Vec<f64>,
-        proper_motion: Vec<f64>,
+        direction: RADec,
+        proper_motion: &[f64],
     ) -> Result<(), IOError> {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
-
-        match (direction.len(), proper_motion.len()) {
-            (2, 2) => {
-                table.put_cell("DIRECTION", idx, &direction).unwrap();
-                table
-                    .put_cell("PROPER_MOTION", idx, &proper_motion)
-                    .unwrap();
-            }
-            sh => {
-                return Err(IOError::BadArrayShape {
-                    argument: "direction|proper_motion".into(),
-                    function: "write_source_row".into(),
-                    expected: "(2, 2)".into(),
-                    received: format!("{:?}", sh),
-                })
-            }
+        if proper_motion.len() != 2 {
+            return Err(IOError::BadArrayShape {
+                argument: "proper_motion".into(),
+                function: "write_source_row".into(),
+                expected: "[2]".into(),
+                received: format!("{:?}", proper_motion.len()),
+            })
         }
-
         table.put_cell("SOURCE_ID", idx, &source_id).unwrap();
         table.put_cell("TIME", idx, &time).unwrap();
         table.put_cell("INTERVAL", idx, &interval).unwrap();
@@ -803,9 +792,13 @@ impl MeasurementSetWriter {
         table.put_cell("NUM_LINES", idx, &num_lines).unwrap();
         table.put_cell("NAME", idx, &name.to_string()).unwrap();
         table
-            .put_cell("CALIBRATION_GROUP", idx, &calibration_group)
-            .unwrap();
+        .put_cell("CALIBRATION_GROUP", idx, &calibration_group)
+        .unwrap();
         table.put_cell("CODE", idx, &code.to_string()).unwrap();
+        table.put_cell("DIRECTION", idx, &vec![direction.ra, direction.dec]).unwrap();
+        table
+            .put_cell("PROPER_MOTION", idx, &proper_motion.to_vec())
+            .unwrap();
         Ok(())
     }
 
@@ -1257,7 +1250,7 @@ impl MeasurementSetWriter {
 
         let mwa_ctx = MwaObsContext::from_mwalib(&corr_ctx.metafits_context);
 
-        self.initialize_mwa(vis_ctx, obs_ctx, mwa_ctx, coarse_chan_range)
+        self.initialize_mwa(&vis_ctx, &obs_ctx, &mwa_ctx, coarse_chan_range)
     }
 
     /// Initialize a measurement set, including the extended MWA tables from a [`context::VisContext`],
@@ -1267,12 +1260,19 @@ impl MeasurementSetWriter {
     /// then the MWA extension tables are createed and initialized.
     fn initialize_mwa(
         &self,
-        vis_ctx: VisContext,
-        obs_ctx: ObsContext,
-        mwa_ctx: MwaObsContext,
+        vis_ctx: &VisContext,
+        obs_ctx: &ObsContext,
+        mwa_ctx: &MwaObsContext,
         coarse_chan_range: &Range<usize>,
     ) -> Result<(), IOError> {
-        self.initialize(&vis_ctx, &obs_ctx).unwrap();
+        let ObsContext {
+            sched_start_timestamp,
+            name,
+            phase_centre,
+            ..
+        } = &obs_ctx;
+
+        self.initialize(vis_ctx, obs_ctx).unwrap();
 
         self.add_mwa_mods();
 
@@ -1353,11 +1353,11 @@ impl MeasurementSetWriter {
             .put_cell(
                 "MWA_GPS_TIME",
                 0,
-                &(obs_ctx.sched_start_timestamp.as_gpst_seconds() as f64),
+                &(sched_start_timestamp.as_gpst_seconds() as f64),
             )
             .unwrap();
         obs_table
-            .put_cell("MWA_FILENAME", 0, &obs_ctx.name.unwrap())
+            .put_cell("MWA_FILENAME", 0, name.as_ref().unwrap())
             .unwrap();
         obs_table
             .put_cell("MWA_OBSERVATION_MODE", 0, &mwa_ctx.mode)
@@ -1373,7 +1373,7 @@ impl MeasurementSetWriter {
             .put_cell(
                 "MWA_DATE_REQUESTED",
                 0,
-                &obs_ctx.sched_start_timestamp.as_mjd_utc_seconds(),
+                &sched_start_timestamp.as_mjd_utc_seconds(),
             )
             .unwrap();
 
@@ -1397,8 +1397,8 @@ impl MeasurementSetWriter {
             avg_centroid_start.as_mjd_utc_seconds(),
             avg_centroid_end.as_mjd_utc_seconds(),
             &delays,
-            obs_ctx.phase_centre.ra,
-            obs_ctx.phase_centre.dec,
+            phase_centre.ra,
+            phase_centre.dec,
         )
         .unwrap();
 
@@ -1477,7 +1477,7 @@ impl MeasurementSetWriter {
             0,
             format!("MWA_BAND_{:.1}", center_freq_hz / 1_000_000.).as_str(),
             center_freq_hz,
-            chan_info,
+            &chan_info,
             avg_chan_width_hz as f64 * num_avg_chans as f64,
             false,
         )
@@ -1598,8 +1598,8 @@ impl MeasurementSetWriter {
             obs_ctx.field_name.as_ref().unwrap_or(&"".into()),
             0,
             "",
-            vec![obs_ctx.phase_centre.ra, obs_ctx.phase_centre.dec],
-            vec![0., 0.],
+            obs_ctx.phase_centre,
+            &[0., 0.],
         )
         .unwrap();
 
@@ -2641,7 +2641,7 @@ mod tests {
                 0,
                 "MWA_BAND_182.4",
                 182395000.,
-                chan_info,
+                &chan_info,
                 30720000.,
                 false,
             )
@@ -2704,7 +2704,7 @@ mod tests {
                 0,
                 "MWA_BAND_182.4",
                 182395000.,
-                chan_info,
+                &chan_info,
                 30720000.,
                 143,
                 false,
@@ -2743,7 +2743,7 @@ mod tests {
             0,
             "MWA_BAND_182.4",
             182395000.,
-            chan_info,
+            &chan_info,
             30720000.,
             false,
         );
@@ -3432,8 +3432,8 @@ mod tests {
                 "high_2019B_2458765_EOR0_RADec0.0,-27.0",
                 0,
                 "",
-                vec![phase_centre.ra, phase_centre.dec],
-                vec![0., 0.],
+                phase_centre,
+                &[0., 0.],
             )
             .unwrap();
         drop(ms_writer);
