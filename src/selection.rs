@@ -1,4 +1,4 @@
-//! Selecting a subset of visibilities from an observation using ranges and vectors of indices.
+//! Selecting a subset of correlator visibilities from an observation using mwalib indices.
 //!
 //! Observations can sometimes be too large to fit in memory. This method will only load
 //! visibilities from the selected timesteps, coarse channels and baselines in order to enable

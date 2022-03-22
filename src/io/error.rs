@@ -1,15 +1,22 @@
 use thiserror::Error;
 
-// #[derive(Error, Debug)]
-// pub enum MeasurementSetWriteError {
-//     // TODO: https://github.com/pkgw/rubbl/pull/148
-//     // #[error("{0}")]
-//     // RubblError(#[from] CasacoreError)
-
-//     // TODO: there are plenty of panics in ms that need enums
-//     #[error("Generic error")]
-//     Error {}
-// }
+// TODO: there are plenty of panics in ms that need enums
+#[derive(Error, Debug)]
+pub enum MeasurementSetWriteError {
+    // TODO: https://github.com/pkgw/rubbl/pull/148
+    // #[error("{0}")]
+    // RubblError(#[from] CasacoreError)
+    /// An error when trying to write to an unexpected row.
+    #[error("Tried to write {rows_attempted} rows, but only {rows_remaining} rows are remaining out of {rows_total}")]
+    MeasurementSetFull {
+        /// The row number (0-indexed)
+        rows_attempted: usize,
+        /// Rows remaining.
+        rows_remaining: usize,
+        /// Total capacity of measurement set
+        rows_total: usize,
+    },
+}
 
 #[derive(Error, Debug)]
 pub enum UvfitsWriteError {
@@ -60,9 +67,10 @@ pub enum IOError {
         received: String,
     },
 
-    // #[error(transparent)]
-    // /// Error derived from [`io::errors::MeasurementSetWriteError`]
-    // MeasurementSetWriteError(#[from] MeasurementSetWriteError),
+    #[error(transparent)]
+    /// Error derived from [`io::errors::MeasurementSetWriteError`]
+    MeasurementSetWriteError(#[from] MeasurementSetWriteError),
+
     #[error(transparent)]
     /// Error derived from [`marlu::mwalib::FitsError`]
     FitsError(#[from] mwalib::FitsError),

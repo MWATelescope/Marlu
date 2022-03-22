@@ -1,26 +1,115 @@
 use hifitime::{Duration, Epoch, TimeSeries};
 
-use crate::XyzGeodetic;
+use crate::{LatLngHeight, RADec, XyzGeocentric, XyzGeodetic, ENH};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         use std::ops::Range;
-        use mwalib::CorrelatorContext;
+        use mwalib::{CorrelatorContext, MetafitsContext};
         use hifitime::Unit::Millisecond;
     }
 }
 
-// use crate::{LatLngHeight, RADec};
-// /// A lightweight container for observation metadata used in Marlu operations.
-// pub struct MarluObsContext {
-//     /// The observation ID, which is also the observation's scheduled start GPS
-//     /// time.
-//     pub(crate) obsid: Option<u32>,
+/// A container for observation metadata used in Marlu operations.
+pub struct ObsContext {
+    /// Scheduled start time
+    pub sched_start_timestamp: Epoch,
 
-//     array_pos: LatLngHeight,
-//     phase_centre: RADec,
-//     ...
-// }
+    /// Scheduled duration
+    pub sched_duration: Duration,
+
+    /// Observation name
+    pub name: Option<String>,
+
+    /// Name of field being observed
+    pub field_name: Option<String>,
+
+    /// The project ID of the observation
+    pub project_id: Option<String>,
+
+    /// The observer or creator of the observation
+    pub observer: Option<String>,
+
+    /// The phase centre.
+    pub phase_centre: RADec,
+
+    /// The pointing centre.
+    pub pointing_centre: Option<RADec>,
+
+    /// The Earth position of the instrumental array
+    pub array_pos: LatLngHeight,
+
+    /// TODO: store in ENH or geodetic?
+    /// The geodetic position of each antenna.
+    // pub tiles_xyz_geod: Vec<XyzGeodetic>,
+    /// The east-north-height position of each antenna
+    pub ant_positions_enh: Vec<ENH>,
+
+    /// The name of each antenna / tile.
+    pub ant_names: Vec<String>,
+}
+
+impl ObsContext {
+    #[cfg(feature = "mwalib")]
+    pub fn from_mwalib(meta_ctx: &MetafitsContext) -> Self {
+        let obs_name = meta_ctx.obs_name.clone();
+        let field_name: String = obs_name
+            .rsplit_once('_')
+            .unwrap_or((obs_name.as_str(), ""))
+            .0
+            .into();
+
+        let ants = &meta_ctx.antennas;
+        let mut ant_positions_enh = Vec::<ENH>::with_capacity(ants.len());
+        let mut ant_names = Vec::<String>::with_capacity(ants.len());
+        for ant in ants {
+            ant_positions_enh.push(ENH {
+                e: ant.east_m,
+                n: ant.north_m,
+                h: ant.height_m,
+            });
+            ant_names.push(ant.tile_name.clone());
+        }
+
+        Self {
+            sched_start_timestamp: Epoch::from_gpst_seconds(
+                meta_ctx.sched_start_gps_time_ms as f64 / 1e3,
+            ),
+            sched_duration: Duration::from_f64(meta_ctx.sched_duration_ms as f64, Millisecond),
+            name: Some(obs_name),
+            field_name: Some(field_name),
+            project_id: Some(meta_ctx.project_id.clone()),
+            observer: Some(meta_ctx.creator.clone()),
+            phase_centre: RADec::from_mwalib_phase_or_pointing(meta_ctx),
+            pointing_centre: Some(RADec::from_mwalib_tile_pointing(meta_ctx)),
+            array_pos: LatLngHeight::new_mwa(),
+            ant_positions_enh,
+            ant_names,
+        }
+    }
+
+    pub fn ant_positions_geodetic(&self) -> Vec<XyzGeodetic> {
+        self.ant_positions_enh
+            .iter()
+            .map(|enh| enh.to_xyz(self.array_pos.latitude_rad))
+            .collect()
+    }
+
+    pub fn ant_positions_geocentric(&self) -> Vec<XyzGeocentric> {
+        self.ant_positions_enh
+            .iter()
+            .map(|enh| {
+                enh.to_xyz(self.array_pos.latitude_rad)
+                    .to_geocentric(self.array_pos)
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    pub fn num_ants(&self) -> usize {
+        self.ant_positions_enh.len()
+    }
+}
 
 /// A lightweight container for correlator visibility metadata used in Marlu operations.
 ///
@@ -30,6 +119,8 @@ cfg_if::cfg_if! {
 /// but applies to a specific selection of baselines from a contiguous range of
 /// timesteps and frequencies with a given configuration of averaging, and other
 /// pre-processing settings.
+///
+/// A VisContext is oblivious to mwalib concepts like coarse channels.
 pub struct VisContext {
     /// The number of selected timesteps (Axis 0) in the accompanying visibility and weight ndarrays.
     pub num_sel_timesteps: usize,
@@ -45,9 +136,6 @@ pub struct VisContext {
     pub freq_resolution_hz: f64,
     /// The tile index pairs for each selected baseline
     pub sel_baselines: Vec<(usize, usize)>,
-    /// The geodetic position of each antenna.
-    // TODO: maybe this doesn't belong here.
-    pub tiles_xyz_geod: Vec<XyzGeodetic>,
     /// Time averaging factor
     pub avg_time: usize,
     /// Frequency averaging factor
@@ -85,7 +173,6 @@ impl VisContext {
         let freq_resolution_hz = corr_ctx.metafits_context.corr_fine_chan_width_hz as f64;
 
         // baseline axis
-        let tiles_xyz_geod = XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context);
         let sel_baselines = baseline_idxs
             .iter()
             .map(|&idx| {
@@ -104,7 +191,6 @@ impl VisContext {
             start_freq_hz,
             freq_resolution_hz,
             sel_baselines,
-            tiles_xyz_geod,
             avg_time,
             avg_freq,
             num_vis_pols,

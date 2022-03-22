@@ -866,6 +866,7 @@ impl VisWritable for UvfitsWriter {
         weights: ArrayView3<f32>,
         flags: ArrayView3<bool>,
         vis_ctx: &VisContext,
+        tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError> {
         let sel_dims = vis_ctx.sel_dims();
@@ -953,7 +954,7 @@ impl VisWritable for UvfitsWriter {
                 self.array_pos.latitude_rad,
             );
 
-            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&vis_ctx.tiles_xyz_geod);
+            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk, flag_chunk) in izip!(
                 vis_ctx.sel_baselines.clone().into_iter(),
@@ -1779,6 +1780,7 @@ mod tests {
             weight_array.view(),
             flag_array.view(),
             &vis_ctx,
+            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             false,
         )
         .unwrap();
@@ -1873,6 +1875,7 @@ mod tests {
             weight_array.view(),
             flag_array.view(),
             &vis_ctx,
+            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             false,
         )
         .unwrap();
@@ -1967,6 +1970,7 @@ mod tests {
             weight_array.view(),
             flag_array.view(),
             &vis_ctx,
+            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             false,
         )
         .unwrap();

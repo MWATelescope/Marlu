@@ -1,9 +1,10 @@
 use crate::{
     average_chunk_f64, c32,
-    io::error::IOError,
+    context::ObsContext,
+    io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
-    LatLngHeight, RADec, VisContext,
+    LatLngHeight, RADec, VisContext, XyzGeodetic,
 };
 
 use std::{
@@ -12,6 +13,7 @@ use std::{
 };
 
 use flate2::read::GzDecoder;
+use hifitime::Unit;
 use lazy_static::lazy_static;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
@@ -35,9 +37,7 @@ cfg_if::cfg_if! {
         use itertools::izip;
         use mwalib::CorrelatorContext;
 
-        use crate::{precession::precess_time,
-            Jones, ENH, UVW, hifitime::Epoch
-        };
+        use crate::{precession::precess_time, Jones, UVW};
     }
 }
 
@@ -1219,10 +1219,10 @@ impl MeasurementSetWriter {
     /// Create an MWA measurement set, with all tables (except the main visibility table)
     /// prefilled with metadata from a [`mwalib::CorrelatorContext`]
     ///
-    /// `mwalib_timestep_range` the range of timestep indices (according to mwalib)
+    /// `timestep_range` the range of timestep indices (according to mwalib)
     /// of the current chunk being written to the measurement set.
     ///
-    /// `mwalib_coarse_chan_range` the range of coarse channel indices (according to mwalib)
+    /// `coarse_chan_range` the range of coarse channel indices (according to mwalib)
     /// of the current chunk being written to the measurement set.
     ///
     /// `baseline_idxs` - the range of indices into `CorrelatorContext.metafits_context.baselines`
@@ -1243,60 +1243,238 @@ impl MeasurementSetWriter {
         avg_time: usize,
         avg_freq: usize,
     ) -> Result<(), IOError> {
-        // TODO: initialise from marlu
-        // pub fn initialize(
-        //     &self,
-        //     vis_ctx: &VisContext,
-        //     timestep_range: &Range<usize>,
-        //     coarse_chan_range: &Range<usize>,
-        //     baseline_idxs: &[usize],
-        //     avg_time: usize,
-        //     avg_freq: usize,
-        // ) -> Result<(), IOError> {
-        trace!("initialize_from_mwalib");
-
-        let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
-        let num_sel_coarse_chans = coarse_chan_range.len();
-        let num_sel_chans = fine_chans_per_coarse * num_sel_coarse_chans;
-        let num_avg_chans = (num_sel_chans as f64 / avg_freq as f64).ceil() as usize;
-        trace!(
-            "fine_chans_per_coarse={}, num_sel_coarse_chans={}, num_sel_chans={}, num_avg_chans={}",
-            fine_chans_per_coarse,
-            num_sel_coarse_chans,
-            num_sel_chans,
-            num_avg_chans
+        let vis_ctx = VisContext::from_mwalib(
+            corr_ctx,
+            timestep_range,
+            coarse_chan_range,
+            baseline_idxs,
+            avg_time,
+            avg_freq,
         );
 
-        let ants = &corr_ctx.metafits_context.antennas;
-        let num_ant_pols = corr_ctx.metafits_context.num_ant_pols;
+        let mut obs_ctx = ObsContext::from_mwalib(&corr_ctx.metafits_context);
+        obs_ctx.phase_centre = self.phase_centre;
+        obs_ctx.array_pos = self.array_pos;
 
-        // ////// //
-        // Cutoff //
-        // ////// //
+        self.initialize(&vis_ctx, &obs_ctx).unwrap();
+
+        self.add_mwa_mods();
+
+        // //////////// //
+        // MWA Antennae //
+        // //////////// //
+
+        let mut ant_table =
+            Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite).unwrap();
+
+        let ants = &corr_ctx.metafits_context.antennas;
+
+        for (idx, antenna) in ants.iter().enumerate() {
+            ant_table
+                .put_cell(
+                    "MWA_INPUT",
+                    idx as _,
+                    &vec![
+                        antenna.rfinput_x.input as i32,
+                        antenna.rfinput_y.input as i32,
+                    ],
+                )
+                .unwrap();
+            ant_table
+                .put_cell("MWA_TILE_NR", idx as _, &(antenna.tile_id as i32))
+                .unwrap();
+            ant_table
+                .put_cell(
+                    "MWA_RECEIVER",
+                    idx as _,
+                    &(antenna.rfinput_x.rec_number as i32),
+                )
+                .unwrap();
+            ant_table
+                .put_cell(
+                    "MWA_SLOT",
+                    idx as _,
+                    &vec![
+                        antenna.rfinput_x.rec_slot_number as i32,
+                        antenna.rfinput_y.rec_slot_number as i32,
+                    ],
+                )
+                .unwrap();
+            ant_table
+                .put_cell(
+                    "MWA_CABLE_LENGTH",
+                    idx as _,
+                    &vec![
+                        antenna.rfinput_x.electrical_length_m,
+                        antenna.rfinput_y.electrical_length_m,
+                    ],
+                )
+                .unwrap();
+        }
+
+        // /////////////////// //
+        // MWA Spectral Window //
+        // /////////////////// //
+
+        let mut spw_table =
+            Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
+
+        let num_sel_coarse_chans = coarse_chan_range.len();
+        let mwalib_centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
+        let centre_coarse_chan =
+            &corr_ctx.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
+
+        spw_table
+            .put_cell(
+                "MWA_CENTRE_SUBBAND_NR",
+                0,
+                &(centre_coarse_chan.rec_chan_number as i32),
+            )
+            .unwrap();
+
+        // ///////// //
+        // MWA Field //
+        // ///////// //
+
+        let mut field_table =
+            Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite).unwrap();
+
+        let has_calibrator = corr_ctx.metafits_context.calibrator;
+
+        field_table
+            .put_cell("MWA_HAS_CALIBRATOR", 0, &has_calibrator)
+            .unwrap();
+
+        // /////////////// //
+        // MWA Observation //
+        // /////////////// //
+
+        let mut obs_table =
+            Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite).unwrap();
+
+        obs_table
+            .put_cell(
+                "MWA_GPS_TIME",
+                0,
+                &(corr_ctx.metafits_context.obs_id as f64),
+            )
+            .unwrap();
+        obs_table
+            .put_cell("MWA_FILENAME", 0, &corr_ctx.metafits_context.obs_name)
+            .unwrap();
+        obs_table
+            .put_cell(
+                "MWA_OBSERVATION_MODE",
+                0,
+                &corr_ctx.metafits_context.mode.to_string(),
+            )
+            .unwrap();
+        obs_table
+            .put_cell(
+                "MWA_FLAG_WINDOW_SIZE",
+                0,
+                &((vis_ctx.num_sel_timesteps + 1) as i32),
+            )
+            .unwrap();
+        obs_table
+            .put_cell(
+                "MWA_DATE_REQUESTED",
+                0,
+                &Epoch::from_gpst_seconds(
+                    corr_ctx.metafits_context.sched_start_gps_time_ms as f64 / 1e3,
+                )
+                .as_mjd_utc_seconds(),
+            )
+            .unwrap();
+
+        // ///////////////// //
+        // MWA Tile Pointing //
+        // ///////////////// //
+
+        let mut point_table = Table::open(
+            &self.path.join("MWA_TILE_POINTING"),
+            TableOpenMode::ReadWrite,
+        )
+        .unwrap();
+        point_table.add_rows(1).unwrap();
+
+        let delays = corr_ctx
+            .metafits_context
+            .delays
+            .iter()
+            .map(|&x| x as _)
+            .collect();
+
+        let mut avg_centroid_timeseries = vis_ctx.timeseries(true, true);
+        let avg_centroid_start = avg_centroid_timeseries.next().unwrap();
+        let avg_centroid_end = avg_centroid_timeseries.last().unwrap_or(avg_centroid_start);
+
+        self.write_mwa_tile_pointing_row(
+            &mut point_table,
+            0,
+            avg_centroid_start.as_mjd_utc_seconds(),
+            avg_centroid_end.as_mjd_utc_seconds(),
+            &delays,
+            obs_ctx.phase_centre.ra,
+            obs_ctx.phase_centre.dec,
+        )
+        .unwrap();
+
+        // /////////// //
+        // MWA Subband //
+        // /////////// //
+
+        use hifitime::Epoch;
+
+        let mut subband_table =
+            Table::open(&self.path.join("MWA_SUBBAND"), TableOpenMode::ReadWrite).unwrap();
+
+        subband_table.add_rows(num_sel_coarse_chans).unwrap();
+
+        for i in 0..num_sel_coarse_chans {
+            self.write_mwa_subband_row(&mut subband_table, i as _, i as _, 0 as _, false)
+                .unwrap();
+        }
+
+        Ok(())
+    }
+
+    /// Create an MWA measurement set, with all tables (except the main visibility table, and
+    /// custom MWA tables) prefilled with metadata from a [`VisContext`] and [`ObsContext`] (except
+    /// custom MWA columns).
+    pub fn initialize(&self, vis_ctx: &VisContext, obs_ctx: &ObsContext) -> Result<(), IOError> {
+        trace!("initialize_from_mwalib");
+
+        // times
+        let sched_start_centroid = obs_ctx.sched_start_timestamp + vis_ctx.int_time / 2.;
+        let sched_end_centroid = sched_start_centroid + obs_ctx.sched_duration;
+
+        let num_avg_timesteps = vis_ctx.num_avg_timesteps();
+        let avg_int_time = vis_ctx.avg_int_time();
+        let sel_duration = (num_avg_timesteps as f64 + 1.) * avg_int_time;
+        let sel_start_timestamp = vis_ctx.start_timestamp;
+        let sel_midpoint_timestamp = sel_start_timestamp + sel_duration / 2.;
+
+        // chans
+        let num_avg_chans = vis_ctx.num_avg_chans();
+        let avg_chan_width_hz = vis_ctx.avg_freq_resolution_hz();
+        let avg_fine_chan_freqs_hz: Vec<f64> = vis_ctx.avg_frequencies_hz();
+
+        // baselines
+        let num_sel_baselines = vis_ctx.sel_baselines.len();
 
         self.decompress_default_tables().unwrap();
         self.decompress_source_table().unwrap();
         self.add_cotter_mods(num_avg_chans);
-        self.add_mwa_mods();
 
         // //// //
         // Main //
         // //// //
 
-        let num_sel_timesteps = timestep_range.len();
-        let num_avg_timesteps = (num_sel_timesteps as f64 / avg_time as f64).ceil() as usize;
-
-        trace!(
-            "num_sel_timesteps={}, num_avg_timesteps={}",
-            num_sel_timesteps,
-            num_avg_timesteps
-        );
-
-        let num_baselines = baseline_idxs.len();
-        let total_num_rows = num_avg_timesteps * num_baselines;
+        let num_avg_rows = num_avg_timesteps * num_sel_baselines;
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
 
-        main_table.add_rows(total_num_rows).unwrap();
+        main_table.add_rows(num_avg_rows).unwrap();
 
         // /////////////// //
         // Spectral Window //
@@ -1305,38 +1483,25 @@ impl MeasurementSetWriter {
         let mut spw_table =
             Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite).unwrap();
 
-        let mwalib_centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
-        let centre_coarse_chan =
-            &corr_ctx.metafits_context.metafits_coarse_chans[mwalib_centre_coarse_chan_idx];
-        let mwalib_start_fine_chan_idx = coarse_chan_range.start * fine_chans_per_coarse;
-        let fine_chan_width_hz =
-            avg_freq as u32 * corr_ctx.metafits_context.corr_fine_chan_width_hz;
-
-        let avg_fine_chan_freqs_hz: Vec<f64> =
-            corr_ctx.metafits_context.metafits_fine_chan_freqs_hz[mwalib_start_fine_chan_idx..]
-                .chunks(avg_freq)
-                .map(Self::get_centre_freq)
-                .collect();
-
         let chan_info = Array2::from_shape_fn((num_avg_chans, 4), |(c, i)| {
             if i == 0 {
                 avg_fine_chan_freqs_hz[c]
             } else {
-                fine_chan_width_hz as f64
+                avg_chan_width_hz as f64
             }
         });
 
         let center_freq_hz = Self::get_centre_freq(&avg_fine_chan_freqs_hz);
 
         spw_table.add_rows(1).unwrap();
-        self.write_spectral_window_row_mwa(
+
+        self.write_spectral_window_row(
             &mut spw_table,
             0,
             format!("MWA_BAND_{:.1}", center_freq_hz / 1_000_000.).as_str(),
             center_freq_hz,
             chan_info,
-            fine_chan_width_hz as f64 * num_avg_chans as f64,
-            centre_coarse_chan.rec_chan_number as _,
+            avg_chan_width_hz as f64 * num_avg_chans as f64,
             false,
         )
         .unwrap();
@@ -1362,41 +1527,23 @@ impl MeasurementSetWriter {
         let mut ant_table =
             Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite).unwrap();
 
-        let num_ants = ants.len();
-        ant_table.add_rows(num_ants).unwrap();
-        for (idx, antenna) in ants.iter().enumerate() {
-            let position_enh = ENH {
-                e: antenna.east_m,
-                n: antenna.north_m,
-                h: antenna.height_m,
-            };
-            let position = position_enh
-                .to_xyz(self.array_pos.latitude_rad)
-                .to_geocentric(self.array_pos)
-                .unwrap();
-            self.write_antenna_row_mwa(
+        ant_table.add_rows(obs_ctx.num_ants()).unwrap();
+
+        for (idx, (position_geoc, name)) in izip!(
+            obs_ctx.ant_positions_geocentric(),
+            obs_ctx.ant_names.clone(),
+        )
+        .enumerate()
+        {
+            self.write_antenna_row(
                 &mut ant_table,
                 idx as _,
-                &antenna.tile_name,
+                &name,
                 "MWA",
                 "GROUND-BASED",
                 "ALT-AZ",
-                &vec![position.x, position.y, position.z],
+                &vec![position_geoc.x, position_geoc.y, position_geoc.z],
                 4.0,
-                &vec![
-                    antenna.rfinput_x.input as i32,
-                    antenna.rfinput_y.input as i32,
-                ],
-                antenna.tile_id as i32,
-                antenna.rfinput_x.rec_number as i32,
-                &vec![
-                    antenna.rfinput_x.rec_slot_number as i32,
-                    antenna.rfinput_y.rec_slot_number as i32,
-                ],
-                &vec![
-                    antenna.rfinput_x.electrical_length_m,
-                    antenna.rfinput_y.electrical_length_m,
-                ],
                 false,
             )
             .unwrap();
@@ -1429,17 +1576,6 @@ impl MeasurementSetWriter {
         let mut field_table =
             Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite).unwrap();
 
-        let ra_phase_rad = corr_ctx
-            .metafits_context
-            .ra_phase_center_degrees
-            .unwrap()
-            .to_radians();
-        let dec_phase_rad = corr_ctx
-            .metafits_context
-            .dec_phase_center_degrees
-            .unwrap()
-            .to_radians();
-
         // TODO: get phase centre from self.phase_centre
         // TODO: is dir_info right?
         //  - `DELAY_DIR` - Direction of delay center (e.g. RA, DEC) in time
@@ -1447,32 +1583,21 @@ impl MeasurementSetWriter {
         //  - `REFERENCE_DIR` - Direction of reference center (e.g. RA, DEC) in time
 
         let dir_info = array![
-            [[ra_phase_rad, dec_phase_rad]],
-            [[ra_phase_rad, dec_phase_rad]],
-            [[ra_phase_rad, dec_phase_rad]],
+            [[obs_ctx.phase_centre.ra, obs_ctx.phase_centre.dec]],
+            [[obs_ctx.phase_centre.ra, obs_ctx.phase_centre.dec]],
+            [[obs_ctx.phase_centre.ra, obs_ctx.phase_centre.dec]],
         ];
 
-        let obs_name = &corr_ctx.metafits_context.obs_name;
-        let field_name = obs_name
-            .rsplit_once('_')
-            .unwrap_or((obs_name.as_str(), ""))
-            .0;
-
-        let sched_start_time_mjd_utc_s = Epoch::from_gpst_seconds(
-            corr_ctx.metafits_context.sched_start_gps_time_ms as f64 / 1e3,
-        )
-        .as_mjd_utc_seconds();
-
         field_table.add_rows(1).unwrap();
-        self.write_field_row_mwa(
+
+        self.write_field_row(
             &mut field_table,
             0,
-            field_name,
+            obs_ctx.field_name.as_ref().unwrap_or(&"".into()),
             "",
-            sched_start_time_mjd_utc_s,
+            obs_ctx.sched_start_timestamp.as_mjd_utc_seconds(),
             &dir_info,
             -1,
-            corr_ctx.metafits_context.calibrator,
             false,
         )
         .unwrap();
@@ -1484,26 +1609,19 @@ impl MeasurementSetWriter {
         let mut source_table =
             Table::open(&self.path.join("SOURCE"), TableOpenMode::ReadWrite).unwrap();
 
-        let duration_ms = corr_ctx.metafits_context.sched_duration_ms;
-        let int_time_ms = corr_ctx.metafits_context.corr_int_time_ms;
-
-        // interval is from start of first scan to end of last scan.
-        let source_interval = (duration_ms + int_time_ms) as f64 / 1000.0;
-        let source_time = sched_start_time_mjd_utc_s + source_interval / 2.;
-
         source_table.add_rows(1).unwrap();
         self.write_source_row(
             &mut source_table,
             0,
             0,
-            source_time,
-            source_interval,
+            sel_midpoint_timestamp.as_mjd_utc_seconds(),
+            sel_duration.in_unit(Unit::Millisecond),
             0,
             0,
-            field_name,
+            obs_ctx.field_name.as_ref().unwrap_or(&"".into()),
             0,
             "",
-            vec![ra_phase_rad, dec_phase_rad],
+            vec![obs_ctx.phase_centre.ra, obs_ctx.phase_centre.dec],
             vec![0., 0.],
         )
         .unwrap();
@@ -1516,29 +1634,19 @@ impl MeasurementSetWriter {
             Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite).unwrap();
         obs_table.add_rows(1).unwrap();
 
-        let start_time_centroid_mjd_utc_s = Epoch::from_gpst_seconds(
-            (corr_ctx.metafits_context.sched_start_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
-        )
-        .as_mjd_utc_seconds();
-        let end_time_centroid_mjd_utc_s = Epoch::from_gpst_seconds(
-            (corr_ctx.metafits_context.sched_end_gps_time_ms + int_time_ms / 2) as f64 / 1e3,
-        )
-        .as_mjd_utc_seconds();
-
-        self.write_observation_row_mwa(
+        // TODO: is it better to use sel_start_centroid and sel_end_centroid?
+        self.write_observation_row(
             &mut obs_table,
             0,
             "MWA",
-            (start_time_centroid_mjd_utc_s, end_time_centroid_mjd_utc_s),
-            &corr_ctx.metafits_context.creator,
+            (
+                sched_start_centroid.as_mjd_utc_seconds(),
+                sched_end_centroid.as_mjd_utc_seconds(),
+            ),
+            obs_ctx.observer.as_ref().unwrap_or(&"".into()),
             "MWA",
-            &corr_ctx.metafits_context.project_id,
+            obs_ctx.project_id.as_ref().unwrap_or(&"".into()),
             0.,
-            corr_ctx.metafits_context.obs_id as _,
-            &corr_ctx.metafits_context.obs_name,
-            &corr_ctx.metafits_context.mode.to_string(),
-            (timestep_range.len() + 1) as _,
-            sched_start_time_mjd_utc_s,
             false,
         )
         .unwrap();
@@ -1557,7 +1665,7 @@ impl MeasurementSetWriter {
             .unwrap()
             .as_millis() as f64
             / 1000.;
-        // TODO:
+        // TODO: cmd_line, message, params
         let cmd_line = "TODO";
         let message = "TODO";
         let params = "TODO";
@@ -1567,7 +1675,7 @@ impl MeasurementSetWriter {
             time,
             cmd_line,
             message,
-            &format!("Birli {}", PKG_VERSION),
+            &format!("{} {}", PKG_NAME, PKG_VERSION),
             params,
         )
         .unwrap();
@@ -1579,20 +1687,18 @@ impl MeasurementSetWriter {
         let mut feed_table =
             Table::open(&self.path.join("FEED"), TableOpenMode::ReadWrite).unwrap();
 
-        // all of this assumes num_pols = 2
-        assert_eq!(num_ant_pols, 2);
-        feed_table.add_rows(num_ants).unwrap();
+        feed_table.add_rows(obs_ctx.num_ants()).unwrap();
 
-        for idx in 0..num_ants {
+        for idx in 0..obs_ctx.num_ants() {
             self.write_feed_row(
                 &mut feed_table,
                 idx as _,
                 idx as _,
                 0,
                 -1,
-                source_time,
-                source_interval,
-                num_ant_pols as _,
+                sel_midpoint_timestamp.as_mjd_utc_seconds(),
+                sel_duration.in_unit(Unit::Millisecond),
+                2,
                 -1,
                 &array![[0., 0.], [0., 0.]],
                 &vec!["X".into(), "Y".into()],
@@ -1604,50 +1710,6 @@ impl MeasurementSetWriter {
                 &vec![0., FRAC_PI_2],
             )
             .unwrap();
-        }
-
-        // ///////////////// //
-        // MWA Tile Pointing //
-        // ///////////////// //
-
-        let mut point_table = Table::open(
-            &self.path.join("MWA_TILE_POINTING"),
-            TableOpenMode::ReadWrite,
-        )
-        .unwrap();
-
-        point_table.add_rows(1).unwrap();
-
-        let delays = corr_ctx
-            .metafits_context
-            .delays
-            .iter()
-            .map(|&x| x as _)
-            .collect();
-
-        self.write_mwa_tile_pointing_row(
-            &mut point_table,
-            0,
-            start_time_centroid_mjd_utc_s,
-            end_time_centroid_mjd_utc_s,
-            &delays,
-            ra_phase_rad,
-            dec_phase_rad,
-        )
-        .unwrap();
-
-        // /////////// //
-        // MWA Subband //
-        // /////////// //
-
-        let mut subband_table =
-            Table::open(&self.path.join("MWA_SUBBAND"), TableOpenMode::ReadWrite).unwrap();
-
-        subband_table.add_rows(num_sel_coarse_chans).unwrap();
-
-        for i in 0..num_sel_coarse_chans {
-            self.write_mwa_subband_row(&mut subband_table, i as _, i as _, 0 as _, false)
-                .unwrap();
         }
 
         Ok(())
@@ -1782,8 +1844,35 @@ impl VisWritable for MeasurementSetWriter {
         weights: ArrayView3<f32>,
         flags: ArrayView3<bool>,
         vis_ctx: &VisContext,
+        tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError> {
+        let sel_dims = vis_ctx.sel_dims();
+        if vis.dim() != sel_dims {
+            return Err(IOError::BadArrayShape {
+                argument: "vis".into(),
+                function: "write_vis_marlu".into(),
+                expected: format!("{:?}", sel_dims),
+                received: format!("{:?}", vis.dim()),
+            });
+        }
+        if weights.dim() != sel_dims {
+            return Err(IOError::BadArrayShape {
+                argument: "weights".into(),
+                function: "write_vis_marlu".into(),
+                expected: format!("{:?}", sel_dims),
+                received: format!("{:?}", weights.dim()),
+            });
+        }
+        if flags.dim() != sel_dims {
+            return Err(IOError::BadArrayShape {
+                argument: "flags".into(),
+                function: "write_vis_marlu".into(),
+                expected: format!("{:?}", sel_dims),
+                received: format!("{:?}", flags.dim()),
+            });
+        }
+
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
@@ -1809,13 +1898,13 @@ impl VisWritable for MeasurementSetWriter {
         // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite).unwrap();
         let num_main_rows = main_table.n_rows();
-        trace!(
-            "num_main_rows={}, self.main_row_idx={}, num_avg_rows (selected)={}",
-            num_main_rows,
-            self.main_row_idx,
-            num_avg_rows
-        );
-        assert!(num_main_rows - self.main_row_idx as u64 >= num_avg_rows as u64);
+        if (num_main_rows - self.main_row_idx as u64) < num_avg_rows as u64 {
+            return Err(IOError::MeasurementSetWriteError(MeasurementSetFull {
+                rows_attempted: num_avg_rows,
+                rows_remaining: num_main_rows as usize - self.main_row_idx,
+                rows_total: num_main_rows as usize,
+            }));
+        }
 
         let mut uvw_tmp = Vec::with_capacity(3);
         let sigma_tmp = vec![1., 1., 1., 1.];
@@ -1838,7 +1927,7 @@ impl VisWritable for MeasurementSetWriter {
                 self.array_pos.latitude_rad,
             );
 
-            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&vis_ctx.tiles_xyz_geod);
+            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
 
             for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk, flag_chunk) in izip!(
                 vis_ctx.sel_baselines.clone().into_iter(),
@@ -1935,6 +2024,7 @@ mod tests {
     use super::*;
 
     use approx::abs_diff_eq;
+    use hifitime::{Duration, Epoch};
     use itertools::izip;
     use lexical::parse;
     use regex::Regex;
@@ -1944,6 +2034,7 @@ mod tests {
     use crate::{
         c64,
         ndarray::{s, Array, Array4},
+        ENH,
     };
 
     cfg_if::cfg_if! {
@@ -1954,7 +2045,9 @@ mod tests {
                     COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
                 },
                 ndarray::array,
+                VisSelection,
             };
+            use itertools::Itertools;
         }
     }
 
@@ -2415,6 +2508,22 @@ mod tests {
                 assert!(main_table_keywords.contains(&table_name.into()));
             }
         }
+    }
+
+    #[cfg(feature = "mwalib")]
+    pub fn get_mwa_avg_context() -> CorrelatorContext {
+        CorrelatorContext::new(
+            &"tests/data/1254670392_avg/1254670392.metafits".into(),
+            &((1..=24)
+                .map(|i| {
+                    format!(
+                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
+                        i
+                    )
+                })
+                .collect::<Vec<_>>()),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -3818,36 +3927,24 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let corr_ctx = CorrelatorContext::new(
-            &String::from("tests/data/1254670392_avg/1254670392.metafits"),
-            &((1..=24)
-                .map(|i| {
-                    format!(
-                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
-                        i
-                    )
-                })
-                .collect::<Vec<_>>()),
-        )
-        .unwrap();
+        let corr_ctx = get_mwa_avg_context();
+
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
-        let mwalib_timestep_range = 0..3;
-        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
-            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
-        // let mwalib_baseline_idxs: Vec<usize> = (0..corr_ctx.metafits_context.num_baselines).collect();
-        let mwalib_baseline_idxs: Vec<usize> = vec![0];
+        vis_sel.timestep_range = 0..3;
+        vis_sel.baseline_idxs = vec![0];
 
         let (avg_time, avg_freq) = (1, 1);
 
         ms_writer
             .initialize_from_mwalib(
                 &corr_ctx,
-                &mwalib_timestep_range,
-                &mwalib_coarse_chan_range,
-                &mwalib_baseline_idxs,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4040,7 +4137,7 @@ mod tests {
 
         assert_eq!(
             main_table.n_rows() as usize,
-            mwalib_timestep_range.len() * mwalib_baseline_idxs.len()
+            vis_sel.timestep_range.len() * vis_sel.baseline_idxs.len()
         );
 
         let mut ant_table = Table::open(&table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
@@ -4484,35 +4581,25 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let corr_ctx = CorrelatorContext::new(
-            &String::from("tests/data/1254670392_avg/1254670392.metafits"),
-            &((1..=24)
-                .map(|i| {
-                    format!(
-                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
-                        i
-                    )
-                })
-                .collect::<Vec<_>>()),
-        )
-        .unwrap();
+        let corr_ctx = get_mwa_avg_context();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
-        let mwalib_timestep_range = 0..2_usize;
-        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
-            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
-        let mwalib_baseline_idxs = vec![1_usize];
+        let vis_sel = VisSelection {
+            timestep_range: 0..2,
+            baseline_idxs: vec![1],
+            ..VisSelection::from_mwalib(&corr_ctx).unwrap()
+        };
 
         let (avg_time, avg_freq) = (1, 1);
 
         ms_writer
             .initialize_from_mwalib(
                 &corr_ctx,
-                &mwalib_timestep_range,
-                &mwalib_coarse_chan_range,
-                &mwalib_baseline_idxs,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4531,9 +4618,9 @@ mod tests {
                 weight_array.view(),
                 flag_array.view(),
                 &corr_ctx,
-                &mwalib_timestep_range,
-                &mwalib_coarse_chan_range,
-                &mwalib_baseline_idxs,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
                 false,
@@ -4567,35 +4654,24 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let corr_ctx = CorrelatorContext::new(
-            &String::from("tests/data/1254670392_avg/1254670392.metafits"),
-            &((1..=24)
-                .map(|i| {
-                    format!(
-                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
-                        i
-                    )
-                })
-                .collect::<Vec<_>>()),
-        )
-        .unwrap();
+        let corr_ctx = get_mwa_avg_context();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
-        let mwalib_timestep_range = 0..2_usize;
-        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
-            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
-        let mwalib_baseline_idxs = vec![1_usize];
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+
+        vis_sel.timestep_range = 0..2;
+        vis_sel.baseline_idxs = vec![1];
 
         let (avg_time, avg_freq) = (2, 2);
 
         ms_writer
             .initialize_from_mwalib(
                 &corr_ctx,
-                &mwalib_timestep_range,
-                &mwalib_coarse_chan_range,
-                &mwalib_baseline_idxs,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4614,9 +4690,9 @@ mod tests {
                 weight_array.view(),
                 flag_array.view(),
                 &corr_ctx,
-                &mwalib_timestep_range,
-                &mwalib_coarse_chan_range,
-                &mwalib_baseline_idxs,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
                 false,
@@ -4646,8 +4722,6 @@ mod tests {
     #[test]
     #[serial]
     fn test_write_vis_from_mwalib_chunks() {
-        use itertools::Itertools;
-
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let array_pos = Some(LatLngHeight {
@@ -4656,35 +4730,24 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let corr_ctx = CorrelatorContext::new(
-            &String::from("tests/data/1254670392_avg/1254670392.metafits"),
-            &((1..=24)
-                .map(|i| {
-                    format!(
-                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
-                        i
-                    )
-                })
-                .collect::<Vec<_>>()),
-        )
-        .unwrap();
+        let corr_ctx = get_mwa_avg_context();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
         let mut ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, array_pos);
 
-        let mwalib_timestep_range = 0..2_usize;
-        let mwalib_coarse_chan_range = *corr_ctx.provided_coarse_chan_indices.first().unwrap()
-            ..(*corr_ctx.provided_coarse_chan_indices.last().unwrap() + 1);
-        let mwalib_baseline_idxs = vec![1_usize];
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+
+        vis_sel.timestep_range = 0..2;
+        vis_sel.baseline_idxs = vec![1];
 
         let (avg_time, avg_freq) = (1, 1);
 
         ms_writer
             .initialize_from_mwalib(
                 &corr_ctx,
-                &mwalib_timestep_range,
-                &mwalib_coarse_chan_range,
-                &mwalib_baseline_idxs,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
             )
@@ -4700,7 +4763,7 @@ mod tests {
         let num_chunk_timesteps = 1;
 
         for (mut timestep_chunk, jones_array_chunk, weight_array_chunk, flag_array_chunk) in izip!(
-            &mwalib_timestep_range.chunks(num_chunk_timesteps),
+            &vis_sel.timestep_range.chunks(num_chunk_timesteps),
             jones_array.axis_chunks_iter(Axis(0), num_chunk_timesteps),
             weight_array.axis_chunks_iter(Axis(0), num_chunk_timesteps),
             flag_array.axis_chunks_iter(Axis(0), num_chunk_timesteps)
@@ -4715,8 +4778,8 @@ mod tests {
                     flag_array_chunk.view(),
                     &corr_ctx,
                     &timestep_range,
-                    &mwalib_coarse_chan_range,
-                    &mwalib_baseline_idxs,
+                    &vis_sel.coarse_chan_range,
+                    &vis_sel.baseline_idxs,
                     avg_time,
                     avg_freq,
                     false,
@@ -4737,5 +4800,194 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[serial]
+    fn test_write_vis_from_marlu_handle_bad_shape() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+
+        let mut vis_sel = VisSelection {
+            timestep_range: 0..2,
+            coarse_chan_range: 0..2,
+            baseline_idxs: vec![1],
+        };
+
+        let fine_chans_per_coarse = 2;
+
+        let vis_ctx = VisContext {
+            num_sel_timesteps: vis_sel.timestep_range.len(),
+            start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            int_time: Duration::from_f64(1., Unit::Second),
+            num_sel_chans: vis_sel.coarse_chan_range.len() * fine_chans_per_coarse,
+            start_freq_hz: 192000000.,
+            freq_resolution_hz: 10000.,
+            sel_baselines: vec![(0, 1)],
+            avg_time: 1,
+            avg_freq: 1,
+            num_vis_pols: 4,
+        };
+
+        let obs_ctx = ObsContext {
+            sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            sched_duration: Duration::from_f64(1., Unit::Second),
+            name: None,
+            field_name: None,
+            project_id: None,
+            observer: None,
+            phase_centre: RADec::default(),
+            pointing_centre: None,
+            array_pos: LatLngHeight::default(),
+            ant_positions_enh: vec![
+                ENH::default(),
+                ENH {
+                    e: 0.,
+                    n: 1.,
+                    h: 0.,
+                },
+            ],
+            ant_names: vec!["ant0".into(), "ant1".into()],
+        };
+
+        let mut ms_writer =
+            MeasurementSetWriter::new(&table_path, obs_ctx.phase_centre, Some(obs_ctx.array_pos));
+        ms_writer.initialize(&vis_ctx, &obs_ctx).unwrap();
+
+        let good_jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
+        let good_flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+        let good_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
+
+        // make sure it works normally first
+        assert!(matches!(
+            ms_writer.write_vis_marlu(
+                good_jones_array.view(),
+                good_weight_array.view(),
+                good_flag_array.view(),
+                &vis_ctx,
+                &obs_ctx.ant_positions_geodetic(),
+                false,
+            ),
+            Ok(..)
+        ));
+
+        // reset main_row_idx
+        ms_writer.main_row_idx = 0;
+
+        // Break things by making vis_sel small
+        vis_sel.timestep_range = 0..1;
+
+        let bad_jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
+        let bad_flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+        let bad_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
+
+        assert!(matches!(
+            ms_writer.write_vis_marlu(
+                bad_jones_array.view(),
+                good_weight_array.view(),
+                good_flag_array.view(),
+                &vis_ctx,
+                &obs_ctx.ant_positions_geodetic(),
+                false,
+            ),
+            Err(IOError::BadArrayShape { .. })
+        ));
+
+        assert!(matches!(
+            ms_writer.write_vis_marlu(
+                good_jones_array.view(),
+                bad_weight_array.view(),
+                good_flag_array.view(),
+                &vis_ctx,
+                &obs_ctx.ant_positions_geodetic(),
+                false,
+            ),
+            Err(IOError::BadArrayShape { .. })
+        ));
+
+        assert!(matches!(
+            ms_writer.write_vis_marlu(
+                good_jones_array.view(),
+                good_weight_array.view(),
+                bad_flag_array.view(),
+                &vis_ctx,
+                &obs_ctx.ant_positions_geodetic(),
+                false,
+            ),
+            Err(IOError::BadArrayShape { .. })
+        ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_write_vis_from_marlu_handle_full() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+
+        let mut vis_sel = VisSelection {
+            timestep_range: 0..2,
+            coarse_chan_range: 0..2,
+            baseline_idxs: vec![1],
+        };
+
+        let fine_chans_per_coarse = 2;
+
+        let mut vis_ctx = VisContext {
+            num_sel_timesteps: vis_sel.timestep_range.len(),
+            start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            int_time: Duration::from_f64(1., Unit::Second),
+            num_sel_chans: vis_sel.coarse_chan_range.len() * fine_chans_per_coarse,
+            start_freq_hz: 192000000.,
+            freq_resolution_hz: 10000.,
+            sel_baselines: vec![(0, 1)],
+            avg_time: 1,
+            avg_freq: 1,
+            num_vis_pols: 4,
+        };
+
+        let obs_ctx = ObsContext {
+            sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            sched_duration: Duration::from_f64(1., Unit::Second),
+            name: None,
+            field_name: None,
+            project_id: None,
+            observer: None,
+            phase_centre: RADec::default(),
+            pointing_centre: None,
+            array_pos: LatLngHeight::default(),
+            ant_positions_enh: vec![
+                ENH::default(),
+                ENH {
+                    e: 0.,
+                    n: 1.,
+                    h: 0.,
+                },
+            ],
+            ant_names: vec!["ant0".into(), "ant1".into()],
+        };
+
+        let mut ms_writer =
+            MeasurementSetWriter::new(&table_path, obs_ctx.phase_centre, Some(obs_ctx.array_pos));
+        ms_writer.initialize(&vis_ctx, &obs_ctx).unwrap();
+
+        // Break things by making vis_sel and vis_ctx too big
+        vis_ctx.num_sel_timesteps += 1;
+        vis_sel.timestep_range = 0..3;
+
+        let jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
+        let flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+        let weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
+
+        assert!(matches!(
+            ms_writer.write_vis_marlu(
+                jones_array.view(),
+                weight_array.view(),
+                flag_array.view(),
+                &vis_ctx,
+                &obs_ctx.ant_positions_geodetic(),
+                false,
+            ),
+            Err(IOError::MeasurementSetWriteError(MeasurementSetFull { .. }))
+        ));
     }
 }

@@ -1,4 +1,4 @@
-use crate::context::VisContext;
+use crate::{context::VisContext, XyzGeodetic};
 
 pub mod error;
 pub mod ms;
@@ -73,6 +73,7 @@ pub trait VisWritable: Sync + Send {
         weights: ArrayView3<f32>,
         flags: ArrayView3<bool>,
         vis_ctx: &VisContext,
+        tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError>;
 
@@ -122,7 +123,7 @@ pub trait VisWritable: Sync + Send {
         jones_array: ArrayView3<Jones<f32>>,
         weight_array: ArrayView4<f32>,
         flag_array: ArrayView4<bool>,
-        context: &CorrelatorContext,
+        corr_ctx: &CorrelatorContext,
         timestep_range: &Range<usize>,
         coarse_chan_range: &Range<usize>,
         baseline_idxs: &[usize],
@@ -132,8 +133,8 @@ pub trait VisWritable: Sync + Send {
     ) -> Result<(), IOError> {
         trace!("write_vis_mwalib");
 
-        let marlu_context = VisContext::from_mwalib(
-            context,
+        let vis_ctx = VisContext::from_mwalib(
+            corr_ctx,
             timestep_range,
             coarse_chan_range,
             baseline_idxs,
@@ -155,7 +156,8 @@ pub trait VisWritable: Sync + Send {
             jones_array,
             weight_array.view(),
             flag_array.view(),
-            &marlu_context,
+            &vis_ctx,
+            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
             draw_progress,
         )
     }
