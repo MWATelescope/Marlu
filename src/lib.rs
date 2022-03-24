@@ -77,15 +77,13 @@ cfg_if::cfg_if! {
     }
 }
 
+// If "io" is enabled, re-export rubbl_casatables here.
 cfg_if::cfg_if! {
-    if #[cfg(feature = "mwalib")] {
-        pub use io::{MeasurementSetWriter, UvfitsWriter, VisWritable};
+    if #[cfg(feature = "io")] {
+        pub use rubbl_casatables;
+        pub use io::{MeasurementSetWriter, UvfitsWriter, VisWritable, UvfitsWriteError};
     }
 }
-
-// If "io" is enabled, re-export rubbl_casatables here.
-#[cfg(feature = "io")]
-pub use rubbl_casatables;
 
 // If "cuda" is enabled, re-export cuda-runtime-sys here.
 #[cfg(feature = "cuda")]

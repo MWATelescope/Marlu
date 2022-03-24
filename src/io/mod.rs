@@ -9,6 +9,7 @@ use itertools::izip;
 pub use ms::MeasurementSetWriter;
 use ndarray::Array3;
 pub use uvfits::UvfitsWriter;
+pub use error::{UvfitsWriteError, MeasurementSetWriteError};
 
 use self::error::BadArrayShape;
 
@@ -66,9 +67,6 @@ pub trait VisWritable: Sync + Send {
     ///
     /// `draw_progress` - whether or not to draw a progress bar.
     ///
-    /// Hyperdrive:
-    /// - shim for baseline
-    /// - shim for timestep indices
     fn write_vis_marlu(
         &mut self,
         vis: ArrayView3<Jones<f32>>,
