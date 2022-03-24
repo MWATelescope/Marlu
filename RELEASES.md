@@ -1,5 +1,12 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.6.0 (2022-03-24)
+
+- implement VisContext, ObsContext, MwaObsContext
+- migrate io::uvfits from Birli
+- better error handling in io
+- bake flags into weights
+
 # Version 0.5.0 (2022-02-11)
 
 - use mwalib v0.13.0
