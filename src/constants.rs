@@ -31,12 +31,12 @@ pub const MWA_HEIGHT_M: f64 = 377.827;
 
 // cotter's constants. Useful for being more precise when converting geocentric
 // XYZ to geodetic XYZ!
-/// cotter's MWA latitude on Earth in radians. Use [MWA_LAT_RAD] unless you know
+/// cotter's MWA latitude on Earth in radians. Use [`MWA_LAT_RAD`] unless you know
 /// what you're doing.
 pub const COTTER_MWA_LATITUDE_RADIANS: f64 = -0.46606083776035967;
-/// cotter's MWA longitude on Earth in radians. Use [MWA_LONG_RAD] unless you
+/// cotter's MWA longitude on Earth in radians. Use [`MWA_LONG_RAD`] unless you
 /// know what you're doing.
 pub const COTTER_MWA_LONGITUDE_RADIANS: f64 = 2.0362897754687257;
-/// cotter's MWA altitude in metres. Use [MWA_HEIGHT_M] unless you know what
+/// cotter's MWA altitude in metres. Use [`MWA_HEIGHT_M`] unless you know what
 /// you're doing.
 pub const COTTER_MWA_HEIGHT_METRES: f64 = 377.0;

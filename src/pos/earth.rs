@@ -36,7 +36,7 @@ pub enum Ellipsoid {
 }
 
 impl LatLngHeight {
-    /// Provide a new [LatLngHeight] at the MWA's position.
+    /// Provide a new [`LatLngHeight`] at the MWA's position.
     pub fn new_mwa() -> LatLngHeight {
         Self {
             longitude_rad: MWA_LONG_RAD,
@@ -45,12 +45,12 @@ impl LatLngHeight {
         }
     }
 
-    /// Convert to [XyzGeocentric] via [`erfa_sys::eraGd2gc`] with the specified
-    /// [Ellipsoid]
+    /// Convert to [`XyzGeocentric`] via [`erfa_sys::eraGd2gc`] with the specified
+    /// [`Ellipsoid`]
     ///
     /// # Errors
     ///
-    /// Can return an [ErfaError] if [`erfa_sys::eraGd2gc`] fails.
+    /// Can return an [`ErfaError`] if [`erfa_sys::eraGd2gc`] fails.
     pub fn to_geocentric(self, ellipsoid: Ellipsoid) -> Result<XyzGeocentric, ErfaError> {
         let mut geocentric_vector: [f64; 3] = [0.0; 3];
         let status = unsafe {
@@ -81,7 +81,7 @@ impl LatLngHeight {
     ///
     /// # Errors
     ///
-    /// Can return an [ErfaError] if [`erfa_sys::eraGd2gc`] fails.
+    /// Can return an [`ErfaError`] if [`erfa_sys::eraGd2gc`] fails.
     pub fn to_geocentric_wgs84(self) -> Result<XyzGeocentric, ErfaError> {
         self.to_geocentric(Ellipsoid::WGS84)
     }
@@ -98,7 +98,6 @@ impl Display for LatLngHeight {
         )
     }
 }
-
 
 #[cfg(test)]
 mod tests {

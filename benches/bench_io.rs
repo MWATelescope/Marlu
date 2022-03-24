@@ -149,6 +149,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
     );
     let (jones_array, weight_array, flag_array) = synthesize_test_data(shape);
 
+    #[allow(deprecated)]
     crt.bench_function(
         "ms_writer::write_vis_mwalib - mwax_half_1247842824",
         |bch| {

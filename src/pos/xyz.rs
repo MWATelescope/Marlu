@@ -5,7 +5,7 @@
 //! Handle (x,y,z) coordinates of an antenna (a.k.a. tile or station), geodetic
 //! or geocentric.
 //!
-//! hyperdrive prefers to keep track of [XyzGeodetic] coordinates, as these are
+//! hyperdrive prefers to keep track of [`XyzGeodetic`] coordinates, as these are
 //! what are needed to calculate [UVW]s.
 //!
 //! This coordinate system is discussed at length in Interferometry and
@@ -19,7 +19,7 @@ use rayon::prelude::*;
 
 use super::ErfaError;
 use crate::{
-    constants::*,
+    constants::MWA_LAT_RAD,
     math::{baseline_to_tiles, cross_correlation_baseline_to_tiles},
     HADec, LatLngHeight, ENH, UVW,
 };
@@ -41,14 +41,14 @@ pub struct XyzGeodetic {
 }
 
 impl XyzGeodetic {
-    /// Convert [XyzGeodetic] coordinates at a latitude to [ENH] coordinates.
+    /// Convert [`XyzGeodetic`] coordinates at a latitude to [ENH] coordinates.
     pub fn to_enh(self, latitude: f64) -> ENH {
         let (s_lat, c_lat) = latitude.sin_cos();
         Self::to_enh_inner(self, s_lat, c_lat)
     }
 
-    /// Convert [XyzGeodetic] coordinates at a latitude to [ENH] coordinates.
-    /// This function is less convenient than [XyzGeodetic::to_enh()], but is
+    /// Convert [`XyzGeodetic`] coordinates at a latitude to [ENH] coordinates.
+    /// This function is less convenient than [`XyzGeodetic::to_enh`()], but is
     /// slightly more efficient because the caller can prevent needless `sin`
     /// and `cos` calculations.
     pub fn to_enh_inner(self, sin_latitude: f64, cos_latitude: f64) -> ENH {
@@ -59,13 +59,13 @@ impl XyzGeodetic {
         }
     }
 
-    /// Convert [XyzGeodetic] coordinates at the MWA's latitude to [ENH]
+    /// Convert [`XyzGeodetic`] coordinates at the MWA's latitude to [ENH]
     /// coordinates.
     pub fn to_enh_mwa(self) -> ENH {
         self.to_enh(MWA_LAT_RAD)
     }
 
-    /// Convert a [XyzGeodetic] coordinate to [XyzGeocentric].
+    /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`].
     pub fn to_geocentric(self, earth_pos: LatLngHeight) -> Result<XyzGeocentric, ErfaError> {
         let (sin_longitude, cos_longitude) = earth_pos.longitude_rad.sin_cos();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos)?;
@@ -77,8 +77,8 @@ impl XyzGeodetic {
         ))
     }
 
-    /// Convert a [XyzGeodetic] coordinate to [XyzGeocentric]. This function is
-    /// less convenient than [XyzGeodetic::to_geocentric], but may be better in
+    /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`]. This function is
+    /// less convenient than [`XyzGeodetic::to_geocentric`], but may be better in
     /// tight loops as the arguments to this function don't need to be uselessly
     /// re-calculated.
     pub fn to_geocentric_inner(
@@ -98,14 +98,14 @@ impl XyzGeodetic {
         }
     }
 
-    /// Convert a [XyzGeodetic] coordinate to [XyzGeocentric], using the MWA's
+    /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`], using the MWA's
     /// location.
     pub fn to_geocentric_mwa(self) -> Result<XyzGeocentric, ErfaError> {
         self.to_geocentric(LatLngHeight::new_mwa())
     }
 
     /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
-    /// [XyzGeodetic] coordinate.
+    /// [`XyzGeodetic`] coordinate.
     ///
     /// Note that the RF inputs are ordered by antenna number, **not** the
     /// "input"; e.g. in the metafits file, Tile104 is often the first tile
@@ -133,7 +133,7 @@ impl XyzGeodetic {
     }
 
     /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
-    /// [XyzGeodetic] coordinate assuming the MWA's latitude.
+    /// [`XyzGeodetic`] coordinate assuming the MWA's latitude.
     ///
     /// Note that the RF inputs are ordered by antenna number, **not** the
     /// "input"; e.g. in the metafits file, Tile104 is often the first tile
@@ -145,8 +145,8 @@ impl XyzGeodetic {
     }
 }
 
-/// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
-/// having to form [XyzGeodetic] baselines first.
+/// Convert [`XyzGeodetic`] tile coordinates to [UVW] baseline coordinates without
+/// having to form [`XyzGeodetic`] baselines first.
 pub fn xyzs_to_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
     let (s_ha, c_ha) = phase_centre.ha.sin_cos();
     let (s_dec, c_dec) = phase_centre.dec.sin_cos();
@@ -167,8 +167,8 @@ pub fn xyzs_to_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
     bl_uvws
 }
 
-/// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
-/// having to form [XyzGeodetic] baselines first. This function performs
+/// Convert [`XyzGeodetic`] tile coordinates to [UVW] baseline coordinates without
+/// having to form [`XyzGeodetic`] baselines first. This function performs
 /// calculations in parallel.
 pub fn xyzs_to_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
     let (s_ha, c_ha) = phase_centre.ha.sin_cos();
@@ -190,8 +190,8 @@ pub fn xyzs_to_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<U
         .collect()
 }
 
-/// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
-/// having to form [XyzGeodetic] baselines first. Cross-correlation baselines
+/// Convert [`XyzGeodetic`] tile coordinates to [UVW] baseline coordinates without
+/// having to form [`XyzGeodetic`] baselines first. Cross-correlation baselines
 /// only.
 pub fn xyzs_to_cross_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
     let (s_ha, c_ha) = phase_centre.ha.sin_cos();
@@ -213,8 +213,8 @@ pub fn xyzs_to_cross_uvws(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW>
     bl_uvws
 }
 
-/// Convert [XyzGeodetic] tile coordinates to [UVW] baseline coordinates without
-/// having to form [XyzGeodetic] baselines first. This function performs
+/// Convert [`XyzGeodetic`] tile coordinates to [UVW] baseline coordinates without
+/// having to form [`XyzGeodetic`] baselines first. This function performs
 /// calculations in parallel. Cross-correlation baselines only.
 pub fn xyzs_to_cross_uvws_parallel(xyzs: &[XyzGeodetic], phase_centre: HADec) -> Vec<UVW> {
     let (s_ha, c_ha) = phase_centre.ha.sin_cos();
@@ -294,13 +294,13 @@ impl XyzGeocentric {
     }
 
     /// Get a geocentric coordinate vector with the MWA's location. This
-    /// function just calls [XyzGeocentric::get_geocentric_vector] with
-    /// [MWA_LONG_RAD], [MWA_LAT_RAD] and [MWA_HEIGHT_M].
+    /// function just calls [`XyzGeocentric::get_geocentric_vector`] with
+    /// [`MWA_LONG_RAD`], [`MWA_LAT_RAD`] and [`MWA_HEIGHT_M`].
     pub fn get_geocentric_vector_mwa() -> Result<XyzGeocentric, ErfaError> {
         Self::get_geocentric_vector(LatLngHeight::new_mwa())
     }
 
-    /// Convert a [XyzGeocentric] coordinate to [XyzGeodetic].
+    /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`].
     pub fn to_geodetic(self, earth_pos: LatLngHeight) -> Result<XyzGeodetic, ErfaError> {
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos)?;
         let (sin_longitude, cos_longitude) = earth_pos.longitude_rad.sin_cos();
@@ -309,8 +309,8 @@ impl XyzGeocentric {
         Ok(geodetic)
     }
 
-    /// Convert a [XyzGeocentric] coordinate to [XyzGeodetic]. This function is
-    /// less convenient than [XyzGeocentric::to_geodetic()], but may be better
+    /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`]. This function is
+    /// less convenient than [`XyzGeocentric::to_geodetic`()], but may be better
     /// in tight loops as the arguments to this function don't need to be
     /// uselessly re-calculated.
     pub fn to_geodetic_inner(
@@ -335,7 +335,7 @@ impl XyzGeocentric {
         }
     }
 
-    /// Convert a [XyzGeocentric] coordinate to [XyzGeodetic], using the MWA's
+    /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`], using the MWA's
     /// location.
     pub fn to_geodetic_mwa(self) -> Result<XyzGeodetic, ErfaError> {
         self.to_geodetic(LatLngHeight::new_mwa())

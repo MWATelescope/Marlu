@@ -18,7 +18,7 @@ pub struct AzEl {
 }
 
 impl AzEl {
-    /// Make a new [AzEl] struct from values in radians.
+    /// Make a new [`AzEl`] struct from values in radians.
     pub fn new(az_rad: f64, el_rad: f64) -> AzEl {
         Self {
             az: az_rad,
@@ -26,7 +26,7 @@ impl AzEl {
         }
     }
 
-    /// Make a new [AzEl] struct from values in degrees.
+    /// Make a new [`AzEl`] struct from values in degrees.
     pub fn new_degrees(az_deg: f64, el_deg: f64) -> AzEl {
         Self::new(az_deg.to_radians(), el_deg.to_radians())
     }

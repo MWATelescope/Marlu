@@ -8,7 +8,7 @@
 //! is not possible to optimise only for 2x2 matrices. Here, we supply the math
 //! for these special cases.
 //!
-//! Parts of the code are derived from Torrance Hodgson's MWAjl:
+//! Parts of the code are derived from Torrance Hodgson's `MWAjl`:
 //! <https://github.com/torrance/MWAjl/blob/master/src/matrix2x2.jl>
 
 use std::ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
@@ -32,7 +32,7 @@ impl<F: Float> Jones<F> {
     }
 
     /// Return a matrix with all real and imaginary parts set to NaN
-    /// [Jones::any_nan()] will return `true` for this Jones matrix.
+    /// [`Jones::any_nan`()] will return `true` for this Jones matrix.
     #[inline]
     pub fn nan() -> Self {
         Self::from([

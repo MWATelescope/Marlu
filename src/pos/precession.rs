@@ -5,10 +5,10 @@
 //! Code to handle precession (including nutation).
 //!
 //! A lot of easy-to-read info is here:
-//! https://en.wikipedia.org/wiki/Astronomical_nutation
+//! <https://en.wikipedia.org/wiki/Astronomical_nutation>
 //!
 //! A harder to read source of info is here:
-//! https://www.aanda.org/articles/aa/pdf/2003/48/aa4068.pdf
+//! <https://www.aanda.org/articles/aa/pdf/2003/48/aa4068.pdf>
 
 use std::f64::consts::TAU;
 
@@ -245,6 +245,8 @@ mod tests {
     }
 
     #[test]
+    // TODO: reduce cognitive complexity
+    #[allow(clippy::cognitive_complexity)]
     fn test_no_precession_at_j2000() {
         // Jack is (pretty) confident that the relatively large errors here are
         // due to nutation, which gets corrected at the same time as precession.
