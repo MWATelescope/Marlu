@@ -14,6 +14,7 @@ cfg_if::cfg_if! {
 }
 
 /// A container for observation metadata common across most file types
+#[derive(Debug)]
 pub struct ObsContext {
     /// Scheduled start time
     pub sched_start_timestamp: Epoch,
@@ -51,6 +52,8 @@ pub struct ObsContext {
     /// The name of each antenna / tile.
     pub ant_names: Vec<String>,
 }
+
+// TODO: impl Default for ObsContext {}
 
 impl ObsContext {
     #[cfg(feature = "mwalib")]
@@ -91,22 +94,18 @@ impl ObsContext {
         }
     }
 
-    pub fn ant_positions_geodetic(&self) -> Vec<XyzGeodetic> {
+    pub fn ant_positions_geodetic(&self) -> impl Iterator<Item = XyzGeodetic> + '_ {
         self.ant_positions_enh
             .iter()
             .map(|enh| enh.to_xyz(self.array_pos.latitude_rad))
-            .collect()
     }
 
-    pub fn ant_positions_geocentric(&self) -> Vec<XyzGeocentric> {
-        self.ant_positions_enh
-            .iter()
-            .map(|enh| {
-                enh.to_xyz(self.array_pos.latitude_rad)
-                    .to_geocentric(self.array_pos)
-                    .unwrap()
-            })
-            .collect()
+    pub fn ant_positions_geocentric(&self) -> impl Iterator<Item = XyzGeocentric> + '_ {
+        self.ant_positions_enh.iter().map(|enh| {
+            enh.to_xyz(self.array_pos.latitude_rad)
+                .to_geocentric(self.array_pos)
+                .unwrap()
+        })
     }
 
     pub fn num_ants(&self) -> usize {
@@ -144,6 +143,8 @@ pub struct MwaObsContext {
     /// Tile pointing delays
     pub delays: Vec<u32>,
 }
+
+// TODO: impl Default for MwaObsContext {}
 
 impl MwaObsContext {
     #[cfg(feature = "mwalib")]
@@ -202,6 +203,7 @@ impl MwaObsContext {
 /// pre-processing settings.
 ///
 /// A `VisContext` is oblivious to mwalib concepts like coarse channels.
+#[derive(Debug)]
 pub struct VisContext {
     /// The number of selected timesteps (Axis 0) in the accompanying visibility and weight ndarrays.
     pub num_sel_timesteps: usize,
@@ -224,6 +226,8 @@ pub struct VisContext {
     /// Number of polarisation combinations in the visibilities e.g. XX,XY,YX,YY == 4
     pub num_vis_pols: usize,
 }
+
+// TODO: impl Default for VisContext {}
 
 impl VisContext {
     #[cfg(feature = "mwalib")]
@@ -348,7 +352,7 @@ impl VisContext {
 
     /// An iterator over averaged frequencies
     ///
-    /// TODO: iterator return type?
+    /// TODO: iterator return type? Doesn't seem to work for chunks
     pub fn avg_frequencies_hz(&self) -> Vec<f64> {
         self.frequencies_hz()
             .chunks(self.avg_freq)

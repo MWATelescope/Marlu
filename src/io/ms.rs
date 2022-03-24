@@ -4698,13 +4698,14 @@ mod tests {
         let good_jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         let good_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
+        let ant_positions_geodetic: Vec<_> = obs_ctx.ant_positions_geodetic().collect();
         // make sure it works normally first
         assert!(matches!(
             ms_writer.write_vis_marlu(
                 good_jones_array.view(),
                 good_weight_array.view(),
                 &vis_ctx,
-                &obs_ctx.ant_positions_geodetic(),
+                &ant_positions_geodetic,
                 false,
             ),
             Ok(..)
@@ -4724,7 +4725,7 @@ mod tests {
                 bad_jones_array.view(),
                 good_weight_array.view(),
                 &vis_ctx,
-                &obs_ctx.ant_positions_geodetic(),
+                &ant_positions_geodetic,
                 false,
             ),
             Err(IOError::BadArrayShape { .. })
@@ -4735,7 +4736,7 @@ mod tests {
                 good_jones_array.view(),
                 bad_weight_array.view(),
                 &vis_ctx,
-                &obs_ctx.ant_positions_geodetic(),
+                &ant_positions_geodetic,
                 false,
             ),
             Err(IOError::BadArrayShape { .. })
@@ -4801,12 +4802,14 @@ mod tests {
         let jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         let weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
+        let ant_positions_geodetic: Vec<_> = obs_ctx.ant_positions_geodetic().collect();
+
         assert!(matches!(
             ms_writer.write_vis_marlu(
                 jones_array.view(),
                 weight_array.view(),
                 &vis_ctx,
-                &obs_ctx.ant_positions_geodetic(),
+                &ant_positions_geodetic,
                 false,
             ),
             Err(IOError::MeasurementSetWriteError(MeasurementSetFull { .. }))

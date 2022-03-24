@@ -6,10 +6,10 @@ pub mod uvfits;
 
 use itertools::izip;
 // re-exports
+pub use error::{MeasurementSetWriteError, UvfitsWriteError};
 pub use ms::MeasurementSetWriter;
 use ndarray::Array3;
 pub use uvfits::UvfitsWriter;
-pub use error::{UvfitsWriteError, MeasurementSetWriteError};
 
 use self::error::BadArrayShape;
 
