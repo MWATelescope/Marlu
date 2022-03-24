@@ -177,7 +177,7 @@ pub fn encode_flags(
     }
     let mut new_weights = weights.to_owned();
     for (weight, &flag) in izip!(new_weights.iter_mut(), flags.iter()) {
-        *weight = if flag { -1. } else { 1. } * weight.abs();
+        *weight = if flag { -(weight.abs()) } else { weight.abs() };
     }
     Ok(new_weights)
 }
