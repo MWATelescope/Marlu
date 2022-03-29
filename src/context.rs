@@ -203,7 +203,7 @@ impl MwaObsContext {
 /// pre-processing settings.
 ///
 /// A `VisContext` is oblivious to mwalib concepts like coarse channels.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VisContext {
     /// The number of selected timesteps (Axis 0) in the accompanying visibility and weight ndarrays.
     pub num_sel_timesteps: usize,
