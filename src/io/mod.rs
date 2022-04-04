@@ -8,7 +8,7 @@ use itertools::izip;
 // re-exports
 pub use error::{MeasurementSetWriteError, UvfitsWriteError};
 pub use ms::MeasurementSetWriter;
-use ndarray::Array3;
+use ndarray::{Array3, ArrayView2};
 pub use uvfits::UvfitsWriter;
 
 use self::error::BadArrayShape;
@@ -75,6 +75,15 @@ pub trait VisWritable: Sync + Send {
         tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError>;
+
+    /// Write a single timestep of visibilities, contextualized by a SparseVisContext
+    // fn write_vis_row_hyperdrive(
+    //     &mut self,
+    //     vis: ArrayView2<Jones<f32>>,
+    //     weights: ArrayView2<f32>,
+    //     sparse_ctx: SparseVisContext,
+    //     tiles_xyz_geod: &[XyzGeodetic],
+    // )
 
     /// Contract the weight and flag arrays along the pol axis, and write using
     /// [`VisWritable::write_vis_marlu`]

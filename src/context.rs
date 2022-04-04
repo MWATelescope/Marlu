@@ -193,6 +193,36 @@ impl MwaObsContext {
     }
 }
 
+// TODO: rename VisContext
+pub trait VisContextTrait {
+    /// The number of visibility timesteps
+    fn num_timesteps(&self) -> usize;
+
+    /// The number of visibility channels
+    fn num_chans(&self) -> usize;
+
+    /// The number of baselines
+    fn num_baselines(&self) -> usize;
+
+    /// The expected dimensions of the visibility and weight ndarray selection.
+    fn dims(&self) -> (usize, usize, usize) {
+        (
+            self.num_timesteps(),
+            self.num_chans(),
+            self.num_baselines(),
+        )
+    }
+
+    /// An iterator of timesteps, where `centroid` determines whether the
+    /// timestamps are at the start or centroid of the integration.
+    fn timeseries(&self, centroid: bool) -> TimeSeries;
+
+    /// An iterator over all selected frequencies
+    ///
+    /// TODO: iterator return type?
+    fn frequencies_hz(&self) -> Vec<f64>;
+}
+
 /// A lightweight container for correlator visibility metadata used in Marlu operations.
 ///
 /// This is intended to describe an accompanying visibility and weight ndarray.
@@ -209,13 +239,13 @@ pub struct VisContext {
     pub num_sel_timesteps: usize,
     /// The timestamp at the start of the first selected pre-averaging timestep
     pub start_timestamp: Epoch,
-    /// Duration between each pre-averaging timestep [milliseconds]
+    /// Duration of each pre-averaging scan
     pub int_time: Duration,
     /// The number of selected channels (Axis 1) in the accompanying visibility and weight ndarrays.
     pub num_sel_chans: usize,
     /// The centre frequency of the first selected pre-averaging channel [Hz]
     pub start_freq_hz: f64,
-    /// The bandwidth between each pre-averaging channel [Hz]
+    /// The bandwidth of each pre-averaging channel [Hz]
     pub freq_resolution_hz: f64,
     /// The tile index pairs for each selected baseline
     pub sel_baselines: Vec<(usize, usize)>,
@@ -223,12 +253,40 @@ pub struct VisContext {
     pub avg_time: usize,
     /// Frequency averaging factor
     pub avg_freq: usize,
-    /// Number of polarisation combinations in the visibilities e.g. XX,XY,YX,YY == 4
-    pub num_vis_pols: usize,
+}
+
+impl VisContextTrait for VisContext {
+    fn num_timesteps(&self) -> usize {
+        self.num_sel_timesteps
+    }
+
+    fn num_chans(&self) -> usize {
+        self.num_sel_chans
+    }
+
+    fn num_baselines(&self) -> usize {
+        self.sel_baselines.len()
+    }
+
+    fn timeseries(&self, centroid: bool) -> TimeSeries {
+        let offset = if centroid { 0.5 } else { 0.0 };
+        let start_timestamp = self.start_timestamp + offset * self.int_time;
+        TimeSeries::inclusive(
+            start_timestamp,
+            start_timestamp + (self.num_sel_timesteps as f64) * self.int_time,
+            self.int_time,
+        )
+    }
+
+    fn frequencies_hz(&self) -> Vec<f64> {
+        (0..self.num_sel_chans)
+            .map(|i| self.start_freq_hz + i as f64 * self.freq_resolution_hz)
+            .collect()
+    }
 }
 
 // TODO: impl Default for VisContext {}
-
+// TODO: rename ContiguousVisContext
 impl VisContext {
     #[cfg(feature = "mwalib")]
     pub fn from_mwalib(
@@ -266,8 +324,6 @@ impl VisContext {
             })
             .collect::<Vec<_>>();
 
-        let num_vis_pols = corr_ctx.metafits_context.num_visibility_pols;
-
         VisContext {
             num_sel_timesteps,
             start_timestamp,
@@ -278,17 +334,7 @@ impl VisContext {
             sel_baselines,
             avg_time,
             avg_freq,
-            num_vis_pols,
         }
-    }
-
-    /// The expected dimensions of the visibility and weight ndarray selection.
-    pub fn sel_dims(&self) -> (usize, usize, usize) {
-        (
-            self.num_sel_timesteps,
-            self.num_sel_chans,
-            self.sel_baselines.len(),
-        )
     }
 
     /// The expected dimensions of the visibility and weight ndarray selection.
@@ -316,12 +362,11 @@ impl VisContext {
         self.int_time * (self.avg_time as i64)
     }
 
-    pub fn timeseries(&self, averaging: bool, centroid: bool) -> TimeSeries {
-        let (num_timesteps, int_time) = if averaging {
-            (self.num_avg_timesteps(), self.avg_int_time())
-        } else {
-            (self.num_sel_timesteps, self.int_time)
-        };
+    /// An iterator of timesteps, where `centroid` determines whether the
+    /// timestamps are at the start or centroid of the integration.
+    pub fn avg_timeseries(&self, centroid: bool) -> TimeSeries {
+        let num_timesteps = self.num_avg_timesteps();
+        let int_time = self.avg_int_time();
         let offset = if centroid { 0.5 } else { 0.0 };
         let start_timestamp = self.start_timestamp + offset * int_time;
         TimeSeries::inclusive(
@@ -339,15 +384,6 @@ impl VisContext {
     /// The frequency resolution after averaging
     pub fn avg_freq_resolution_hz(&self) -> f64 {
         self.freq_resolution_hz * self.avg_freq as f64
-    }
-
-    /// An iterator over all selected frequencies
-    ///
-    /// TODO: iterator return type?
-    pub fn frequencies_hz(&self) -> Vec<f64> {
-        (0..self.num_sel_chans)
-            .map(|i| self.start_freq_hz + i as f64 * self.freq_resolution_hz)
-            .collect()
     }
 
     /// An iterator over averaged frequencies
@@ -369,4 +405,27 @@ impl VisContext {
     pub fn weight_factor(&self) -> f64 {
         self.freq_resolution_hz * self.int_time.in_seconds() / 10000.0
     }
+}
+
+
+pub struct SparseVisContext {
+    /// The timestamps at the start of each scan
+    pub start_timestamps: Vec<Epoch>,
+    /// Integration time of each scan.
+    /// (not necessarily the distance between each timestamp)
+    pub int_time: Duration,
+    /// The centre frequency of each channel [Hz]
+    pub freqs_hz: Vec<f64>,
+    /// The bandwidth of each channel [Hz]
+    pub freq_resolution_hz: f64,
+    /// The tile index pairs for each selected baseline
+    pub sel_baselines: Vec<(usize, usize)>,
+}
+
+impl SparseVisContext {
+    pub fn weight_factor(&self) -> f64 {
+        self.freq_resolution_hz * self.int_time.in_seconds() / 10000.0
+    }
+
+
 }

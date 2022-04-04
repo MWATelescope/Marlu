@@ -26,7 +26,7 @@ use crate::{
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
-    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
+    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW, context::VisContextTrait,
 };
 use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::izip;
@@ -796,71 +796,6 @@ impl UvfitsWriter {
         self.current_num_rows += 1;
         Ok(())
     }
-
-    // / Write visibilty and weight rows into the uvfits file from the provided
-    // / [`marlu::mwalib::CorrelatorContext`].
-    // /
-    // / # Details
-    // /
-    // / `uvfits` must have been opened in write mode and currently have HDU 0
-    // / open. The [`FitsFile`] must be supplied to this function to force the
-    // / caller to think about calling this function efficiently; opening the
-    // / file for every call would be a problem, and keeping the file open in
-    // / [`UvfitsWriter`] would mean the struct is not thread safe.
-    // /
-    // / `baseline_idxs` the baseline indices (according to mwalib)
-    // / which should be written to the file
-    // /
-    // / `jones_array` a [`ndarray::Array3`] of [`Jones`] visibilities with dimensions
-    // / [timestep][channel][baselines]
-    // /
-    // / `flag_array` a [`ndarray::Array3`] of boolean flags with dimensions
-    // / identical dimensions to `jones_array`
-    // /
-    // / `timestep_range` the range of timestep indices (according to mwalib)
-    // / which are used in the visibility and flag arrays
-    // /
-    // / `coarse_chan_range` the range of coarse channel indices (according to mwalib)
-    // / which are used in the visibility and flag arrays
-    // /
-    // / `baseline_idxs` the baseline indices (according to mwalib) used
-    // / in the visibility and flag arrays
-    // /
-    // / # Errors
-    // /
-    // / Will return an [`UvfitsWriteError`] if a fits operation fails.
-    // /
-    // / TODO: reduce number of arguments.
-    // #[allow(clippy::too_many_arguments)]
-    // pub fn write_jones_flags(
-    //     &mut self,
-    //     context: &CorrelatorContext,
-    //     jones_array: &Array3<Jones<f32>>,
-    //     flag_array: &Array3<bool>,
-    //     timestep_range: &Range<usize>,
-    //     coarse_chan_range: &Range<usize>,
-    //     baseline_idxs: &[usize],
-    //     avg_time: usize,
-    //     avg_freq: usize,
-    //     draw_progress: bool,
-    // ) -> Result<(), IOError> {
-    //     let num_pols = context.metafits_context.num_visibility_pols;
-    //     let expanded_flag_array = add_dimension(flag_array.view(), num_pols);
-    //     let weight_factor = get_weight_factor(context);
-    //     let weight_array = flag_to_weight_array(&expanded_flag_array.view(), weight_factor);
-    //     self.write_vis_mwalib(
-    //         jones_array.view(),
-    //         weight_array.view(),
-    //         expanded_flag_array.view(),
-    //         context,
-    //         timestep_range,
-    //         coarse_chan_range,
-    //         baseline_idxs,
-    //         avg_time,
-    //         avg_freq,
-    //         draw_progress,
-    //     )
-    // }
 }
 
 impl VisWritable for UvfitsWriter {
@@ -873,7 +808,7 @@ impl VisWritable for UvfitsWriter {
         tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError> {
-        let sel_dims = vis_ctx.sel_dims();
+        let sel_dims = vis_ctx.dims();
         if vis.dim() != sel_dims {
             return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "vis".into(),
@@ -893,7 +828,7 @@ impl VisWritable for UvfitsWriter {
 
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
         let num_avg_chans = vis_ctx.num_avg_chans();
-        let num_vis_pols = vis_ctx.num_vis_pols;
+        let num_vis_pols = 4;
         let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
 
         // Progress bars
@@ -938,7 +873,7 @@ impl VisWritable for UvfitsWriter {
         let mut avg_jones: Jones<f32>;
 
         for (avg_centroid_timestamp, jones_chunk, weight_chunk) in izip!(
-            vis_ctx.timeseries(true, true),
+            vis_ctx.avg_timeseries(true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {

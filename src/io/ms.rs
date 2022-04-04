@@ -1,5 +1,6 @@
 use crate::{
     average_chunk_f64, c32,
+    context::VisContextTrait,
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
@@ -1687,7 +1688,7 @@ impl VisWritable for MeasurementSetWriter {
         tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError> {
-        let sel_dims = vis_ctx.sel_dims();
+        let sel_dims = vis_ctx.dims();
         if vis.dim() != sel_dims {
             return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "vis".into(),
@@ -1707,7 +1708,7 @@ impl VisWritable for MeasurementSetWriter {
 
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
         let num_avg_chans = vis_ctx.num_avg_chans();
-        let num_vis_pols = vis_ctx.num_vis_pols;
+        let num_vis_pols = 4;
         let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
 
         // Progress bars
@@ -1747,7 +1748,7 @@ impl VisWritable for MeasurementSetWriter {
         let mut avg_flag: bool;
 
         for (avg_centroid_timestamp, vis_chunk, weight_chunk) in izip!(
-            vis_ctx.timeseries(true, true),
+            vis_ctx.avg_timeseries(true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
@@ -4667,7 +4668,6 @@ mod tests {
             sel_baselines: vec![(0, 1)],
             avg_time: 1,
             avg_freq: 1,
-            num_vis_pols: 4,
         };
 
         let obs_ctx = ObsContext {
@@ -4767,7 +4767,6 @@ mod tests {
             sel_baselines: vec![(0, 1)],
             avg_time: 1,
             avg_freq: 1,
-            num_vis_pols: 4,
         };
 
         let obs_ctx = ObsContext {
