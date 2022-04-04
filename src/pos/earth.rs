@@ -14,7 +14,7 @@ use crate::{
     XyzGeocentric,
 };
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 /// An earth position: Latitude, Longitude and Height [radians, meters]
 pub struct LatLngHeight {
     /// Longitude \[radians\]
@@ -100,7 +100,29 @@ impl Display for LatLngHeight {
 }
 
 #[cfg(test)]
+use approx::AbsDiffEq;
+
+#[cfg(test)]
+impl AbsDiffEq for LatLngHeight {
+    type Epsilon = f64;
+
+    fn default_epsilon() -> f64 {
+        f64::EPSILON
+    }
+
+    fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
+        f64::abs_diff_eq(&self.longitude_rad, &other.longitude_rad, epsilon)
+            && f64::abs_diff_eq(&self.latitude_rad, &other.latitude_rad, epsilon)
+            && f64::abs_diff_eq(&self.height_metres, &other.height_metres, epsilon)
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    use approx::assert_abs_diff_eq;
+
+    use crate::constants::{MWA_HEIGHT_M, MWA_LAT_RAD, MWA_LONG_RAD};
+
     use super::*;
 
     #[test]
@@ -112,5 +134,16 @@ mod tests {
         };
         let result = format!("{}", latlngheight);
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_abs_diff_eq() {
+        let latlngheight = LatLngHeight {
+            longitude_rad: MWA_LONG_RAD * 0.9999999999,
+            latitude_rad: MWA_LAT_RAD * 0.9999999999,
+            height_metres: MWA_HEIGHT_M * 0.9999999999,
+        };
+
+        assert_abs_diff_eq!(latlngheight, LatLngHeight::new_mwa(), epsilon = 1e-7);
     }
 }
