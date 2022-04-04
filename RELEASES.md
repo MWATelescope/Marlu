@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.6.1 (2022-03-24)
+
+- impl Clone for VisContext
+- impl PartialEq for LatLngHeight
+
 # Version 0.6.0 (2022-03-24)
 
 - implement VisContext, ObsContext, MwaObsContext
