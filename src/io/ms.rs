@@ -6,10 +6,7 @@ use crate::{
     LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
 };
 
-use std::{
-    fs::create_dir_all,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 use hifitime::Unit;
@@ -92,25 +89,36 @@ impl MeasurementSetWriter {
         }
     }
 
+    pub fn validate_path(&self, path: &Path) -> Result<(), MeasurementSetWriteError> {
+        for entry in path.ancestors() {
+            trace!("testing {:?}", entry);
+            if entry.exists() {
+                if !entry.is_dir() {
+                    return Err(MeasurementSetWriteError::NotADirectory {
+                        path: format!("{:?}", entry),
+                    });
+                };
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Create the default measurement set tables from a compressed archive
-    pub fn decompress_default_tables(&self) -> Result<(), std::io::Error> {
+    pub fn decompress_default_tables(&self) -> Result<(), MeasurementSetWriteError> {
+        self.validate_path(&self.path)?;
         let tar = GzDecoder::new(&DEFAULT_TABLES_GZ[..]);
         let mut archive = Archive::new(tar);
-        if !(self.path.exists() && self.path.is_dir()) {
-            create_dir_all(&self.path)?;
-        }
         archive.unpack(&self.path)?;
         Ok(())
     }
 
     /// Create the SOURCE table, as described in `casacore::MSSource`
-    pub fn decompress_source_table(&self) -> Result<(), std::io::Error> {
+    pub fn decompress_source_table(&self) -> Result<(), MeasurementSetWriteError> {
+        self.validate_path(&self.path)?;
         let tar = GzDecoder::new(&SOURCE_TABLE_GZ[..]);
         let mut archive = Archive::new(tar);
         let source_table_path = self.path.join("SOURCE");
-        if !(source_table_path.exists() && source_table_path.is_dir()) {
-            create_dir_all(&source_table_path)?;
-        }
         archive.unpack(&source_table_path)?;
         Ok(())
     }
@@ -1304,7 +1312,7 @@ impl MeasurementSetWriter {
         vis_ctx: &VisContext,
         obs_ctx: &ObsContext,
     ) -> Result<(), MeasurementSetWriteError> {
-        trace!("initialize_from_mwalib");
+        trace!("initialize");
 
         // times
         let sched_start_centroid = obs_ctx.sched_start_timestamp + vis_ctx.int_time / 2.;
@@ -1887,6 +1895,60 @@ mod tests {
             "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms".into();
         static ref PATH_1254670392_AVG_4S_80KHZ: PathBuf =
             "tests/data/1254670392_avg/1254670392.cotter.none.avg_4s_80khz.trunc.ms".into();
+    }
+
+    #[test]
+    #[serial]
+    fn test_decompress_in_subfolder() {
+        let temp_dir = tempdir().unwrap();
+        // the subfolder doesn't exist
+        let table_path = temp_dir.path().join("subfolder").join("test.ms");
+        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
+        ms_writer.decompress_default_tables().unwrap();
+        drop(ms_writer);
+
+        Table::open(&table_path, TableOpenMode::Read).unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn test_decompress_onto_file() {
+        let temp_dir = tempdir().unwrap();
+        // where we want to decompress the tables is actually a file
+        let naughty_file = temp_dir.path().join("test.ms");
+        std::fs::File::create(&naughty_file).unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
+        let result = ms_writer.decompress_default_tables();
+        assert!(result.is_err());
+        match result {
+            Err(MeasurementSetWriteError::NotADirectory { path }) => {
+                assert_eq!(path, format!("{:?}", naughty_file));
+            }
+            _ => panic!("expected MeasurementSetWriteError::NotADirectory"),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_decompress_onto_sub_file() {
+        let temp_dir = tempdir().unwrap();
+        // what we think is a subfolder is actually a file
+        let naughty_file = temp_dir.path().join("subfolder");
+        std::fs::File::create(&naughty_file).unwrap();
+        let table_path = temp_dir.path().join("subfolder").join("test.ms");
+        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let ms_writer = MeasurementSetWriter::new(&table_path, phase_centre, None);
+        let result = ms_writer.decompress_default_tables();
+        assert!(result.is_err());
+        match result {
+            Err(MeasurementSetWriteError::NotADirectory { path }) => {
+                assert_eq!(path, format!("{:?}", naughty_file));
+            }
+            _ => panic!("expected MeasurementSetWriteError::NotADirectory"),
+        }
     }
 
     macro_rules! assert_table_column_names_match {

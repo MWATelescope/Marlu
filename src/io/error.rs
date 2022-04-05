@@ -33,6 +33,10 @@ pub enum MeasurementSetWriteError {
     #[error("Rubbl error {inner:?}")]
     RubblError { inner: failure::Error },
 
+    /// Tried to create a directory where a file already exists
+    #[error("cannot create directory, path={path} already exists and is not a directory")]
+    NotADirectory { path: String },
+
     #[error(transparent)]
     BadArrayShape(#[from] BadArrayShape),
 
