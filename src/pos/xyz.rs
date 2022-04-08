@@ -271,7 +271,7 @@ impl XyzGeocentric {
         let mut geocentric_vector: [f64; 3] = [0.0; 3];
         let status = unsafe {
             erfa_sys::eraGd2gc(
-                erfa_sys::ERFA_WGS84 as i32,    // ellipsoid identifier (Note 1)
+                erfa_sys::ERFA_WGS84,           // ellipsoid identifier (Note 1)
                 earth_pos.longitude_rad,        // longitude (radians, east +ve)
                 earth_pos.latitude_rad,         // latitude (geodetic, radians, Note 3)
                 earth_pos.height_metres,        // height above ellipsoid (geodetic, Notes 2,3)

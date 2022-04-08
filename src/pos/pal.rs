@@ -14,12 +14,9 @@
 
 use erfa_sys::{
     eraAnp, eraC2s, eraEpj, eraEpj2jd, eraEpv00, eraGmst06, eraIr, eraP06e, eraPdp, eraPmat06,
-    eraPn, eraPnm06a, eraRx, eraRxp, eraRxpv, eraRxr, eraRz, eraS2c, ERFA_CMPS, ERFA_DAU,
-    ERFA_DAYSEC, ERFA_DJM0,
+    eraPn, eraPnm06a, eraRx, eraRxp, eraRxpv, eraRxr, eraRz, eraS2c, ERFA_AULT, ERFA_DAYSEC,
+    ERFA_DJM0,
 };
-
-// TODO: ERFA_AULT isn't showing up in erfa_sys for some reason.
-const ERFA_AULT: f64 = ERFA_DAU / ERFA_CMPS;
 
 /// Greenwich mean sidereal time (consistent with IAU 2006 precession)
 ///
