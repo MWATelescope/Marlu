@@ -105,27 +105,19 @@ impl XyzGeodetic {
     }
 
     /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
-    /// [`XyzGeodetic`] coordinate.
-    ///
-    /// Note that the RF inputs are ordered by antenna number, **not** the
-    /// "input"; e.g. in the metafits file, Tile104 is often the first tile
-    /// listed ("input" 0), Tile103 second ("input" 2), so the first baseline
-    /// would naively be between Tile104 and Tile103.
+    /// [`XyzGeodetic`] coordinate. The tile coordinates are in the same order
+    /// as the metafits' antennas.
     #[cfg(feature = "mwalib")]
     pub fn get_tiles(context: &mwalib::MetafitsContext, latitude_rad: f64) -> Vec<XyzGeodetic> {
         let (sin_lat, cos_lat) = latitude_rad.sin_cos();
         context
-            .rf_inputs
+            .antennas
             .iter()
-            // There is an RF input for both tile polarisations. The ENH
-            // coordinates are the same for both polarisations of a tile; ignore
-            // the RF input if it's associated with Y.
-            .filter(|rf| matches!(rf.pol, mwalib::Pol::Y))
-            .map(|rf| {
+            .map(|ant| {
                 ENH {
-                    e: rf.east_m,
-                    n: rf.north_m,
-                    h: rf.height_m,
+                    e: ant.east_m,
+                    n: ant.north_m,
+                    h: ant.height_m,
                 }
                 .to_xyz_inner(sin_lat, cos_lat)
             })
@@ -133,12 +125,8 @@ impl XyzGeodetic {
     }
 
     /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
-    /// [`XyzGeodetic`] coordinate assuming the MWA's latitude.
-    ///
-    /// Note that the RF inputs are ordered by antenna number, **not** the
-    /// "input"; e.g. in the metafits file, Tile104 is often the first tile
-    /// listed ("input" 0), Tile103 second ("input" 2), so the first baseline
-    /// would naively be between Tile104 and Tile103.
+    /// [`XyzGeodetic`] coordinate assuming the MWA's latitude. The tile
+    /// coordinates are in the same order as the metafits' antennas.
     #[cfg(feature = "mwalib")]
     pub fn get_tiles_mwa(context: &mwalib::MetafitsContext) -> Vec<XyzGeodetic> {
         Self::get_tiles(context, MWA_LAT_RAD)
@@ -572,5 +560,37 @@ mod tests {
         let parallel_result: Vec<UVW> = xyzs_to_cross_uvws_parallel(&xyzs, phase);
         assert_eq!(serial_result.len(), 10);
         assert_abs_diff_eq!(Array1::from(serial_result), Array1::from(parallel_result));
+    }
+
+    #[test]
+    #[cfg(feature = "mwalib")]
+    fn test_get_tiles_mwa() {
+        let context =
+            mwalib::MetafitsContext::new(&"tests/data/1254670392_avg/1254670392.metafits", None)
+                .unwrap();
+        let tiles = XyzGeodetic::get_tiles_mwa(&context);
+        assert_eq!(tiles.len(), 128);
+
+        assert_abs_diff_eq!(
+            tiles[123],
+            ENH {
+                e: 39.021,
+                n: 97.82,
+                h: 375.9,
+            }
+            .to_xyz(MWA_LAT_RAD),
+            epsilon = 1e-5
+        );
+
+        assert_abs_diff_eq!(
+            tiles[116],
+            ENH {
+                e: 18.025,
+                n: 109.959,
+                h: 376.07,
+            }
+            .to_xyz(MWA_LAT_RAD),
+            epsilon = 1e-5
+        );
     }
 }
