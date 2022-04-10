@@ -2,7 +2,7 @@
 name: Cross-platform tests
 
 # Do this on every push, but don't double up on tags
-on: 
+on:
   push:
     tags-ignore:
       - '**'
@@ -12,6 +12,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
   test:
@@ -35,18 +36,24 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa-2.0.0.tar.gz
-        tar -xf erfa-2.0.0.tar.gz
-        rm erfa-2.0.0.tar.gz
-        cd erfa-2.0.0
+        # The automake included with MacOS is seemingly old. Updating it fixes
+        # some issues.
+        if [[ "$OSTYPE" != "linux-gnu"* ]]; then
+          brew install automake
+        fi
+
+        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa.tar.gz
+        tar -xf erfa.tar.gz
+        rm erfa.tar.gz
+        cd erfa-*
         ./configure --prefix=/usr/local
         sudo make install
         cd ..
 
-        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-3.49.tar.gz" -o cfitsio.tar.gz
+        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-4.1.0.tar.gz" -o cfitsio.tar.gz
         tar -xf cfitsio.tar.gz
         rm cfitsio.tar.gz
-        cd cfitsio-3.49
+        cd cfitsio-*
         ./configure --prefix=/usr/local --enable-reentrant --disable-curl
         sudo make shared
         sudo make install
@@ -58,6 +65,10 @@ jobs:
 
     - name: Run tests
       run: cargo test
+
+    # Can't test CUDA here, so can't use --all-features
+    - name: Run tests, all-static feature
+      run: cargo test --features=all-static
 
     - name: Run tests, no default features
       run: cargo test --no-default-features
@@ -71,11 +82,8 @@ jobs:
         cargo +${MIN_RUST} test --features=all-static
 
   test_with_cuda:
-    name: Test ${{ matrix.os }} with CUDA
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
+    name: Test with CUDA
+    runs-on: ubuntu-latest
     needs: test
     steps:
     - name: Checkout sources
@@ -92,18 +100,18 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa-2.0.0.tar.gz
-        tar -xf erfa-2.0.0.tar.gz
-        rm erfa-2.0.0.tar.gz
-        cd erfa-2.0.0
+        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa.tar.gz
+        tar -xf erfa.tar.gz
+        rm erfa.tar.gz
+        cd erfa-*
         ./configure --prefix=/usr/local
         sudo make install
         cd ..
 
-        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-3.49.tar.gz" -o cfitsio.tar.gz
+        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-4.1.0.tar.gz" -o cfitsio.tar.gz
         tar -xf cfitsio.tar.gz
         rm cfitsio.tar.gz
-        cd cfitsio-3.49
+        cd cfitsio-*
         ./configure --prefix=/usr/local --enable-reentrant --disable-curl
         sudo make shared
         sudo make install
