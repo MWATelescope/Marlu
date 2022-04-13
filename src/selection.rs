@@ -596,6 +596,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unnecessary_cast)]
     /// We expect coarse channel 0 ( fine channels 0,1 ) to be the same as in `get_mwa_ord_context`,
     /// but coarse channel 0 (fine channels 2, 3 ) should be shifted.
     fn test_read_mwalib_mwax_flags_missing_hdus() {
@@ -785,6 +786,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unnecessary_cast)]
     fn test_read_mwalib_mwa_legacy() {
         let corr_ctx = get_mwa_legacy_context();
         let vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();

@@ -30,8 +30,8 @@ pub struct LMN {
 impl LMN {
     /// Subtract 1 from `n` and multiply each of (`l`,`m`,`n`) by 2pi. This is
     /// convenient for application with the radio interferometer measurement
-    /// equation (RIME), as performing some multiplys and subtracts ahead of
-    /// time results in many fewer FLOPs.
+    /// equation (RIME), as performing some multiplies and subtracts ahead of
+    /// time could result in many fewer FLOPs.
     pub fn prepare_for_rime(self) -> LMN {
         Self {
             l: TAU * self.l,

@@ -9,7 +9,6 @@
 
 use std::ffi::{c_void, CStr, CString};
 
-use cuda_runtime_sys::*;
 use thiserror::Error;
 
 /// The length of the error strings used to get error messages from CUDA
@@ -17,7 +16,7 @@ use thiserror::Error;
 pub const ERROR_STR_LENGTH: usize = 1024;
 
 /// A Rust-managed pointer to CUDA device memory. When this is dropped,
-/// [cudaFree] is called on the pointer.
+/// [`cuda_runtime_sys::cudaFree`] is called on the pointer.
 #[derive(Debug)]
 pub struct DevicePointer<T> {
     ptr: *mut T,
@@ -37,7 +36,7 @@ impl<T> DevicePointer<T> {
     /// to catch problems but there are no guarantees.
     pub unsafe fn malloc(size: usize) -> Result<DevicePointer<T>, CudaError> {
         let mut d_ptr = std::ptr::null_mut();
-        cudaMalloc(&mut d_ptr, size);
+        cuda_runtime_sys::cudaMalloc(&mut d_ptr, size);
         peek_and_sync(CudaCall::Malloc)?;
         Ok(Self {
             ptr: d_ptr.cast(),
@@ -62,11 +61,11 @@ impl<T> DevicePointer<T> {
     pub unsafe fn copy_to_device(v: &[T]) -> Result<DevicePointer<T>, CudaError> {
         let size = v.len() * std::mem::size_of::<T>();
         let d_ptr = Self::malloc(size)?;
-        cudaMemcpy(
+        cuda_runtime_sys::cudaMemcpy(
             d_ptr.get_mut() as *mut c_void,
             v.as_ptr().cast(),
             size,
-            cudaMemcpyKind::cudaMemcpyHostToDevice,
+            cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyHostToDevice,
         );
         peek_and_sync(CudaCall::CopyToDevice)?;
         Ok(d_ptr)
@@ -82,18 +81,18 @@ impl<T> DevicePointer<T> {
     /// to catch problems but there are no guarantees.
     pub unsafe fn copy_from_device(&self, v: &mut [T]) -> Result<(), CudaError> {
         let size = v.len() * std::mem::size_of::<T>();
-        cudaMemcpy(
+        cuda_runtime_sys::cudaMemcpy(
             v.as_mut_ptr().cast(),
             self.ptr.cast(),
             size,
-            cudaMemcpyKind::cudaMemcpyDeviceToHost,
+            cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyDeviceToHost,
         );
         peek_and_sync(CudaCall::CopyFromDevice)
     }
 
-    /// Overwrite the device memory allocated against this [DevicePointer] with
-    /// new memory. The amount of memory `v` must match what is allocated on
-    /// against this [DevicePointer].
+    /// Overwrite the device memory allocated against this [`DevicePointer`]
+    /// with new memory. The amount of memory `v` must match what is allocated
+    /// on against this [`DevicePointer`].
     ///
     /// # Safety
     ///
@@ -104,11 +103,11 @@ impl<T> DevicePointer<T> {
             return Err(CudaError::SizeMismatch);
         }
         let size = v.len() * std::mem::size_of::<T>();
-        cudaMemcpy(
+        cuda_runtime_sys::cudaMemcpy(
             self.get_mut() as *mut c_void,
             v.as_ptr().cast(),
             size,
-            cudaMemcpyKind::cudaMemcpyHostToDevice,
+            cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyHostToDevice,
         );
         peek_and_sync(CudaCall::CopyToDevice)
     }
@@ -127,7 +126,7 @@ impl<T> DevicePointer<T> {
 impl<T> Drop for DevicePointer<T> {
     fn drop(&mut self) {
         unsafe {
-            cudaFree(self.ptr.cast());
+            cuda_runtime_sys::cudaFree(self.ptr.cast());
         }
     }
 }
@@ -151,7 +150,7 @@ pub enum CudaError {
 }
 
 /// Turn a non-zero exit code and an error string pointer (which was originally
-/// allocated by Rust as a [CString]) into a Result. The error can only be the
+/// allocated by Rust as a [`CString`]) into a Result. The error can only be the
 /// `CudaError::Kernel` variant. The memory associated with the `error_str`
 /// pointer is consumed by this function.
 ///
@@ -169,10 +168,10 @@ pub unsafe fn cuda_status_to_error(
         .into_string()
         // This assumes that the foreign code doesn't corrupt the string.
         .unwrap();
-    if exit_code != 0 {
-        Err(CudaError::Kernel(error_str))
-    } else {
+    if exit_code == 0 {
         Ok(())
+    } else {
+        Err(CudaError::Kernel(error_str))
     }
 }
 
@@ -183,19 +182,20 @@ pub enum CudaCall {
     CopyFromDevice,
 }
 
-/// Run [cudaPeekAtLastError] and [cudaDeviceSynchronize]. If either of these
-/// calls return an error, it is converted to a Rust error and returned from
-/// this function. The single argument describes what the just-performed
-/// operation was and makes the returned error a helpful one.
+/// Run [`cuda_runtime_sys::cudaPeekAtLastError`] and
+/// [`cuda_runtime_sys::cudaDeviceSynchronize`]. If either of these calls return
+/// an error, it is converted to a Rust error and returned from this function.
+/// The single argument describes what the just-performed operation was and
+/// makes the returned error a helpful one.
 ///
 /// # Safety
 ///
-/// This function interfaces directly with the CUDA API. Rust errors attempt
-/// to catch problems but there are no guarantees.
+/// This function interfaces directly with the CUDA API. Rust errors attempt to
+/// catch problems but there are no guarantees.
 pub unsafe fn peek_and_sync(cuda_call: CudaCall) -> Result<(), CudaError> {
-    let code = cudaPeekAtLastError();
-    if code != cudaError::cudaSuccess {
-        let c_str = CStr::from_ptr(cudaGetErrorString(code));
+    let code = cuda_runtime_sys::cudaPeekAtLastError();
+    if code != cuda_runtime_sys::cudaError::cudaSuccess {
+        let c_str = CStr::from_ptr(cuda_runtime_sys::cudaGetErrorString(code));
         let s = c_str.to_str().unwrap().to_string();
         return Err(match cuda_call {
             CudaCall::Malloc => CudaError::Malloc(s),
@@ -204,9 +204,9 @@ pub unsafe fn peek_and_sync(cuda_call: CudaCall) -> Result<(), CudaError> {
         });
     }
 
-    let code = cudaDeviceSynchronize();
-    if code != cudaError::cudaSuccess {
-        let c_str = CStr::from_ptr(cudaGetErrorString(code));
+    let code = cuda_runtime_sys::cudaDeviceSynchronize();
+    if code != cuda_runtime_sys::cudaError::cudaSuccess {
+        let c_str = CStr::from_ptr(cuda_runtime_sys::cudaGetErrorString(code));
         let s = c_str.to_str().unwrap().to_string();
         return Err(match cuda_call {
             CudaCall::Malloc => CudaError::Malloc(s),
