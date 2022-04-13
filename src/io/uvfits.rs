@@ -37,7 +37,7 @@ use super::{
     VisWritable,
 };
 
-/// From a `hifitime` [Epoch], get a formatted date string with the hours,
+/// From a `hifitime` [`Epoch`], get a formatted date string with the hours,
 /// minutes and seconds set to 0.
 fn get_truncated_date_string(epoch: Epoch) -> String {
     let (year, month, day, _, _, _, _) = epoch.as_gregorian_utc();
@@ -92,10 +92,8 @@ pub const fn decode_uvfits_baseline(bl: usize) -> (usize, usize) {
 /// A helper struct to write out a uvfits file.
 ///
 /// Note: only a single contiguous spectral window is supported.
-///
-/// TODO: make writer and reader a single class?
 pub struct UvfitsWriter {
-    /// The path to the uvifts file.
+    /// The path to the uvfits file.
     path: PathBuf,
 
     /// The number of uvfits rows. This is equal to `num_timesteps` *
@@ -113,11 +111,11 @@ pub struct UvfitsWriter {
     /// visibility hdu.
     centre_freq: f64,
 
-    /// A `hifitime` [Epoch] struct associated with the first timestep of the
+    /// A `hifitime` [`Epoch`] struct associated with the first timestep of the
     /// data.
     start_epoch: Epoch,
 
-    /// The RA/Dec where this observation is phased to
+    /// The [`RADec`] where this observation is phased to
     phase_centre: RADec,
 
     /// Array Position [Latitude (radians), Longitude (radians), Height (m)]
@@ -1493,9 +1491,9 @@ mod tests {
 
         let column_info = assert_table_column_descriptions_match!(
             left_fptr,
-            &left_ant_hdu,
+            left_ant_hdu,
             right_fptr,
-            &right_ant_hdu
+            right_ant_hdu
         );
 
         let first_col_name = &column_info[0];

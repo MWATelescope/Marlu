@@ -137,9 +137,9 @@ impl RADec {
         unsafe { erfa_sys::eraSeps(self.ra, self.dec, b.ra, b.dec) }
     }
 
-    /// Given an [`mwalib::MetafitsContext`], make an [Option<RADec>] from the
+    /// Given an [`mwalib::MetafitsContext`], make an [`Option<RADec>`] from the
     /// `(ra|dec)_phase_center_degrees` if these are available, otherwise
-    /// [None].
+    /// [`None`].
     #[cfg(feature = "mwalib")]
     pub fn from_mwalib_phase_center(context: &mwalib::MetafitsContext) -> Option<RADec> {
         match (
