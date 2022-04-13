@@ -1541,7 +1541,7 @@ mod tests {
 
     pub fn get_mwa_legacy_context() -> CorrelatorContext {
         CorrelatorContext::new(
-            &"tests/data/1196175296_mwa_ord/1196175296.metafits",
+            "tests/data/1196175296_mwa_ord/1196175296.metafits",
             &[
                 "tests/data/1196175296_mwa_ord/1196175296_20171201145440_gpubox01_00.fits",
                 "tests/data/1196175296_mwa_ord/1196175296_20171201145440_gpubox02_00.fits",

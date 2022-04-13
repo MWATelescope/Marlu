@@ -2406,7 +2406,7 @@ mod tests {
     #[cfg(feature = "mwalib")]
     pub fn get_mwa_avg_context() -> CorrelatorContext {
         CorrelatorContext::new(
-            &"tests/data/1254670392_avg/1254670392.metafits".into(),
+            "tests/data/1254670392_avg/1254670392.metafits",
             &((1..=24)
                 .map(|i| {
                     format!(
