@@ -143,7 +143,7 @@ impl VisSelection {
     ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_001.fits",
     /// ];
     ///
-    /// let corr_ctx = CorrelatorContext::new(&metafits_path, &gpufits_paths).unwrap();
+    /// let corr_ctx = CorrelatorContext::new(metafits_path, &gpufits_paths).unwrap();
     /// let vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
     ///
     /// assert_eq!(vis_sel.timestep_range.len(), 4);
@@ -321,7 +321,7 @@ impl VisSelection {
     /// ];
     ///
     /// // Create an mwalib::CorrelatorContext for accessing visibilities.
-    /// let corr_ctx = CorrelatorContext::new(&metafits_path, &gpufits_paths).unwrap();
+    /// let corr_ctx = CorrelatorContext::new(metafits_path, &gpufits_paths).unwrap();
     ///
     /// // Determine which timesteps and coarse channels we want to use
     /// let img_timestep_idxs = &corr_ctx.common_timestep_indices;
@@ -550,7 +550,7 @@ mod tests {
 
     pub fn get_mwax_context() -> CorrelatorContext {
         CorrelatorContext::new(
-            &"tests/data/1297526432_mwax/1297526432.metafits",
+            "tests/data/1297526432_mwax/1297526432.metafits",
             &[
                 "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_000.fits",
                 "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_001.fits",
@@ -563,7 +563,7 @@ mod tests {
 
     pub fn get_mwa_legacy_context() -> CorrelatorContext {
         CorrelatorContext::new(
-            &"tests/data/1196175296_mwa_ord/1196175296.metafits",
+            "tests/data/1196175296_mwa_ord/1196175296.metafits",
             &[
                 "tests/data/1196175296_mwa_ord/1196175296_20171201145440_gpubox01_00.fits",
                 "tests/data/1196175296_mwa_ord/1196175296_20171201145440_gpubox02_00.fits",
@@ -585,7 +585,7 @@ mod tests {
     /// | 01                | .      | (0, 0) | (0, 1) | (1, 0) | (1, 1) |
     pub fn get_mwa_dodgy_context() -> CorrelatorContext {
         CorrelatorContext::new(
-            &"tests/data/1196175296_mwa_ord/1196175296.metafits",
+            "tests/data/1196175296_mwa_ord/1196175296.metafits",
             &[
                 "tests/data/1196175296_mwa_ord/adjusted_-1/1196175296_20171201145440_gpubox01_00.fits",
                 "tests/data/1196175296_mwa_ord/limited_1/1196175296_20171201145540_gpubox01_01.fits",
