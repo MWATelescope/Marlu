@@ -8,10 +8,11 @@ use criterion::*;
 use glob::glob;
 use marlu::{
     io::{ms::MeasurementSetWriter, UvfitsWriter, VisWritable},
-    mwalib::CorrelatorContext,
+    mwalib,
     ndarray::Array3,
     Complex, Jones, MwaObsContext, ObsContext, VisContext, VisSelection,
 };
+use mwalib::CorrelatorContext;
 use std::env;
 use std::{cmp::min, path::Path};
 use tempfile::tempdir;
@@ -89,6 +90,11 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
     );
 }
 
+// This benchmark is a little misleading - "initialising" a uvfits takes almost
+// no time, because very little is written (if anything) until visibilities are
+// written. This benchmark closes the writer before any visibilities are
+// written, so the amount of time to write an empty uvfits file (of the right
+// size) is what is benchmarked.
 fn bench_uvfits_init_mwax_half_1247842824(crt: &mut Criterion) {
     let corr_ctx = get_context_mwax_half_1247842824();
 
@@ -116,14 +122,15 @@ fn bench_uvfits_init_mwax_half_1247842824(crt: &mut Criterion) {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
                 let uvfits_path = tmp_dir.path().join("1254670392.none.uvfits");
-                UvfitsWriter::from_marlu(
+                let u = UvfitsWriter::from_marlu(
                     uvfits_path,
                     &vis_ctx,
                     Some(obs_ctx.array_pos),
                     obs_ctx.phase_centre,
-                    obs_ctx.name.clone(),
+                    obs_ctx.name.as_deref(),
                 )
                 .unwrap();
+                u.close().unwrap();
             })
         },
     );
@@ -184,7 +191,10 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
 
     #[allow(deprecated)]
     crt.bench_function(
-        &format!("MeasurementSetWriter::write_vis_marlu - mwax_half_1247842824 {:?}", shape),
+        &format!(
+            "MeasurementSetWriter::write_vis_marlu - mwax_half_1247842824 {:?}",
+            shape
+        ),
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
@@ -240,7 +250,10 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
 
     #[allow(deprecated)]
     crt.bench_function(
-        &format!("UvfitsWriter::write_vis_marlu - mwax_half_1247842824 {:?}", shape),
+        &format!(
+            "UvfitsWriter::write_vis_marlu - mwax_half_1247842824 {:?}",
+            shape
+        ),
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
@@ -250,7 +263,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
                     &vis_ctx,
                     Some(obs_ctx.array_pos),
                     obs_ctx.phase_centre,
-                    obs_ctx.name.clone(),
+                    obs_ctx.name.as_deref(),
                 )
                 .unwrap();
                 uvfits_writer
@@ -262,6 +275,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
                         false,
                     )
                     .unwrap();
+                uvfits_writer.close().unwrap();
             })
         },
     );

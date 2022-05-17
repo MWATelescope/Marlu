@@ -97,6 +97,15 @@ pub enum UvfitsWriteError {
     StdIo(#[from] std::io::Error),
 }
 
+impl From<crate::io::uvfits::FitsioOrCStringError> for UvfitsWriteError {
+    fn from(e: crate::io::uvfits::FitsioOrCStringError) -> Self {
+        match e {
+            super::uvfits::FitsioOrCStringError::Fitsio(e) => Self::Fitsio(e),
+            super::uvfits::FitsioOrCStringError::Nul(e) => Self::BadString(e),
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 #[allow(clippy::upper_case_acronyms)]
 /// All the errors that can occur in file io operations
