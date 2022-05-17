@@ -2,8 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-//! Module for uvfits file format reading and writing
-//! Most of this was blatently stolen (with permission) from [Chris Jordan](https://github.com/cjordan)
+//! Module for writing the uvfits file format.
 
 use std::{
     ffi::CString,
@@ -14,22 +13,19 @@ use std::{
 use crate::{
     average_chunk_f64,
     constants::VEL_C,
-    erfa_sys,
-    erfa_sys::ERFA_DJM0,
-    fitsio, fitsio_sys,
+    erfa_sys::{eraGst06a, ERFA_DJM0},
+    fitsio::errors::check_status as fits_check_status,
+    fitsio_sys,
     hifitime::Epoch,
     io::error::BadArrayShape,
-    mwalib::{
-        fitsio::{errors::check_status as fits_check_status, FitsFile},
-        CorrelatorContext, MetafitsContext,
-    },
+    mwalib::{fitsio, CorrelatorContext, MetafitsContext},
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
     Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
 };
 use indicatif::{ProgressDrawTarget, ProgressStyle};
-use itertools::izip;
+use itertools::{izip, Itertools};
 use log::{trace, warn};
 
 use super::{
@@ -60,6 +56,14 @@ fn rust_strings_to_c_strings<T: AsRef<str>>(
         c_strings.push(c_str.into_raw());
     }
     Ok(c_strings)
+}
+
+fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut i8>) {
+    unsafe {
+        for ptr in c_string_ptrs {
+            drop(CString::from_raw(ptr));
+        }
+    }
 }
 
 /// Encode a baseline into the uvfits format. Use the miriad convention to
@@ -96,6 +100,17 @@ pub struct UvfitsWriter {
     /// The path to the uvfits file.
     path: PathBuf,
 
+    /// The FITS file pointer.
+    fptr: *mut fitsio_sys::fitsfile,
+
+    /// A buffer for writing visibilities. Make sure it's private and only one
+    /// thread can use it at a time (which should be the case as Rust won't let
+    /// you mutably borrow more than once). By keeping this buffer tied to the
+    /// struct, we avoid allocating every time we want to write out
+    /// visibilities, and we only need to grow the buffer when it needs to be
+    /// grown (hopefully only once).
+    buffer: Vec<f32>,
+
     /// The number of uvfits rows. This is equal to `num_timesteps` *
     /// `num_baselines`.
     total_num_rows: usize,
@@ -127,7 +142,7 @@ impl UvfitsWriter {
     ///
     /// This will destroy any existing uvfits file at that path.
     ///
-    /// If you have a [`marlu::mwalib::CorrelatorContext`], then it would be more
+    /// If you have a [`mwalib::CorrelatorContext`], then it would be more
     /// convenient to use the `from_mwalib` method.
     ///
     /// `num_timesteps`, `num_baselines` and `num_chans` are the number of
@@ -175,28 +190,27 @@ impl UvfitsWriter {
         centre_freq_hz: f64,
         centre_freq_chan: usize,
         phase_centre: RADec,
-        obs_name: Option<String>,
+        obs_name: Option<&str>,
         array_pos: LatLngHeight,
-    ) -> Result<Self, UvfitsWriteError> {
+    ) -> Result<UvfitsWriter, UvfitsWriteError> {
+        let path = path.as_ref();
         // Delete any file that already exists.
-        if path.as_ref().exists() {
-            trace!("file {:?} exists, deleting", &path.as_ref());
+        if path.exists() {
+            trace!("file {:?} exists, deleting", &path);
             std::fs::remove_file(&path)?;
         }
 
         // Create a new fits file.
         let mut status = 0;
-        let c_path = CString::new(path.as_ref().to_str().unwrap())?;
+        let c_path = CString::new(path.to_str().unwrap())?;
         let mut fptr = std::ptr::null_mut();
-        trace!(
-            "initialising fits file with fitsio_sys ({:?})",
-            &path.as_ref()
-        );
+        trace!("initialising fits file with fitsio_sys ({:?})", &path);
         unsafe {
+            // ffinit = fits_create_file
             fitsio_sys::ffinit(
-                &mut fptr as *mut *mut _, /* O - FITS file pointer                   */
-                c_path.as_ptr(),          /* I - name of file to create              */
-                &mut status,              /* IO - error status                       */
+                &mut fptr,       /* O - FITS file pointer                   */
+                c_path.as_ptr(), /* I - name of file to create              */
+                &mut status,     /* IO - error status                       */
             );
         }
         fits_check_status(status)?;
@@ -209,8 +223,9 @@ impl UvfitsWriter {
             total_num_rows > 0,
             "num_timesteps * num_baselines must be > 0"
         );
-        trace!("setting group params in fits file ({:?})", &path.as_ref());
+        trace!("setting group params in fits file ({:?})", &path);
         unsafe {
+            // ffphpr = fits_write_grphdr
             fitsio_sys::ffphpr(
                 fptr,                  /* I - FITS file pointer                        */
                 1,                     /* I - does file conform to FITS standard? 1/0  */
@@ -225,115 +240,92 @@ impl UvfitsWriter {
         }
         fits_check_status(status)?;
 
-        // Finally close the file.
-        trace!("closing initialized fits file ({:?})", &path.as_ref());
-        unsafe {
-            fitsio_sys::ffclos(fptr, &mut status);
-        }
-        fits_check_status(status)?;
-
-        // Open the fits file with rust-fitsio.
-        trace!(
-            "re-opening with rust-fitsio to set keys ({:?})",
-            &path.as_ref()
-        );
-        let mut u = FitsFile::edit(&path)?;
-        let hdu = u.hdu(0)?;
-        hdu.write_key(&mut u, "BSCALE", 1.0)?;
+        fits_write_double(fptr, "BSCALE", 1.0, None)?;
 
         // Set header names and scales.
         for (i, &param) in ["UU", "VV", "WW", "BASELINE", "DATE"].iter().enumerate() {
             let ii = i + 1;
-            hdu.write_key(&mut u, &format!("PTYPE{}", ii), param)?;
-            hdu.write_key(&mut u, &format!("PSCAL{}", ii), 1.0)?;
+            fits_write_string(fptr, &format!("PTYPE{}", ii), param, None)?;
+            fits_write_double(fptr, &format!("PSCAL{}", ii), 1.0, None)?;
             if param == "DATE" {
                 // Set the zero level for the DATE column.
-                hdu.write_key(
-                    &mut u,
+                fits_write_double(
+                    fptr,
                     &format!("PZERO{}", ii),
                     start_epoch.as_jde_utc_days().floor() + 0.5,
+                    None,
                 )?;
             } else {
-                hdu.write_key(&mut u, &format!("PZERO{}", ii), 0.0)?;
+                fits_write_double(fptr, &format!("PZERO{}", ii), 0.0, None)?;
             }
         }
-        hdu.write_key(&mut u, "DATE-OBS", get_truncated_date_string(start_epoch))?;
+        fits_write_string(
+            fptr,
+            "DATE-OBS",
+            &get_truncated_date_string(start_epoch),
+            None,
+        )?;
 
         // Dimensions.
-        hdu.write_key(&mut u, "CTYPE2", "COMPLEX")?;
-        hdu.write_key(&mut u, "CRVAL2", 1.0)?;
-        hdu.write_key(&mut u, "CRPIX2", 1.0)?;
-        hdu.write_key(&mut u, "CDELT2", 1.0)?;
+        fits_write_string(fptr, "CTYPE2", "COMPLEX", None)?;
+        fits_write_double(fptr, "CRVAL2", 1.0, None)?;
+        fits_write_double(fptr, "CRPIX2", 1.0, None)?;
+        fits_write_double(fptr, "CDELT2", 1.0, None)?;
 
         // Linearly polarised.
-        hdu.write_key(&mut u, "CTYPE3", "STOKES")?;
-        hdu.write_key(&mut u, "CRVAL3", -5)?;
-        hdu.write_key(&mut u, "CDELT3", -1)?;
-        hdu.write_key(&mut u, "CRPIX3", 1.0)?;
+        fits_write_string(fptr, "CTYPE3", "STOKES", None)?;
+        fits_write_int(fptr, "CRVAL3", -5, None)?;
+        fits_write_int(fptr, "CDELT3", -1, None)?;
+        fits_write_double(fptr, "CRPIX3", 1.0, None)?;
 
-        hdu.write_key(&mut u, "CTYPE4", "FREQ")?;
-        hdu.write_key(&mut u, "CRVAL4", centre_freq_hz)?;
-        hdu.write_key(&mut u, "CDELT4", fine_chan_width_hz)?;
-        hdu.write_key(&mut u, "CRPIX4", centre_freq_chan as u64 + 1)?;
+        fits_write_string(fptr, "CTYPE4", "FREQ", None)?;
+        fits_write_double(fptr, "CRVAL4", centre_freq_hz, None)?;
+        fits_write_double(fptr, "CDELT4", fine_chan_width_hz, None)?;
+        fits_write_int(fptr, "CRPIX4", centre_freq_chan as i64 + 1, None)?;
 
-        hdu.write_key(&mut u, "CTYPE5", "RA")?;
-        hdu.write_key(&mut u, "CRVAL5", phase_centre.ra.to_degrees())?;
-        hdu.write_key(&mut u, "CDELT5", 1)?;
-        hdu.write_key(&mut u, "CRPIX5", 1)?;
+        fits_write_string(fptr, "CTYPE5", "RA", None)?;
+        fits_write_double(fptr, "CRVAL5", phase_centre.ra.to_degrees(), None)?;
+        fits_write_int(fptr, "CDELT5", 1, None)?;
+        fits_write_int(fptr, "CRPIX5", 1, None)?;
 
-        hdu.write_key(&mut u, "CTYPE6", "DEC")?;
-        hdu.write_key(&mut u, "CRVAL6", phase_centre.dec.to_degrees())?;
-        hdu.write_key(&mut u, "CDELT6", 1)?;
-        hdu.write_key(&mut u, "CRPIX6", 1)?;
+        fits_write_string(fptr, "CTYPE6", "DEC", None)?;
+        fits_write_double(fptr, "CRVAL6", phase_centre.dec.to_degrees(), None)?;
+        fits_write_int(fptr, "CDELT6", 1, None)?;
+        fits_write_int(fptr, "CRPIX6", 1, None)?;
 
-        hdu.write_key(&mut u, "OBSRA", phase_centre.ra.to_degrees())?;
-        hdu.write_key(&mut u, "OBSDEC", phase_centre.dec.to_degrees())?;
-        hdu.write_key(&mut u, "EPOCH", 2000.0)?;
+        fits_write_double(fptr, "OBSRA", phase_centre.ra.to_degrees(), None)?;
+        fits_write_double(fptr, "OBSDEC", phase_centre.dec.to_degrees(), None)?;
+        fits_write_double(fptr, "EPOCH", 2000.0, None)?;
 
-        hdu.write_key(
-            &mut u,
-            "OBJECT",
-            obs_name.unwrap_or_else(|| "Undefined".into()),
-        )?;
-        hdu.write_key(&mut u, "TELESCOP", "MWA")?;
-        hdu.write_key(&mut u, "INSTRUME", "MWA")?;
+        fits_write_string(fptr, "OBJECT", obs_name.unwrap_or("Undefined"), None)?;
+        fits_write_string(fptr, "TELESCOP", "MWA", None)?;
+        fits_write_string(fptr, "INSTRUME", "MWA", None)?;
 
         // This is apparently required...
-        let history = CString::new("AIPS WTSCAL =  1.0").unwrap();
-        unsafe {
-            fitsio_sys::ffphis(
-                u.as_raw(),       /* I - FITS file pointer  */
-                history.as_ptr(), /* I - history string     */
-                &mut status,      /* IO - error status      */
-            );
-        }
-        fits_check_status(status)?;
+        fits_write_history(fptr, "AIPS WTSCAL =  1.0")?;
 
         // Add in version information
-        let comment = CString::new(format!(
-            "Created by {} v{}",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION")
-        ))
-        .unwrap();
-        unsafe {
-            fitsio_sys::ffpcom(
-                u.as_raw(),       /* I - FITS file pointer   */
-                comment.as_ptr(), /* I - comment string      */
-                &mut status,      /* IO - error status       */
-            );
-        }
-        fits_check_status(status)?;
-
-        hdu.write_key(&mut u, "SOFTWARE", env!("CARGO_PKG_NAME"))?;
-        hdu.write_key(
-            &mut u,
-            "GITLABEL",
-            format!("v{}", env!("CARGO_PKG_VERSION")),
+        fits_write_comment(
+            fptr,
+            &format!(
+                "Created by {} v{}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION")
+            ),
         )?;
 
-        Ok(Self {
-            path: path.as_ref().to_path_buf(),
+        fits_write_string(fptr, "SOFTWARE", env!("CARGO_PKG_NAME"), None)?;
+        fits_write_string(
+            fptr,
+            "GITLABEL",
+            &format!("v{}", env!("CARGO_PKG_VERSION")),
+            None,
+        )?;
+
+        Ok(UvfitsWriter {
+            path: path.to_path_buf(),
+            fptr,
+            buffer: vec![],
             total_num_rows,
             current_num_rows: 0,
             centre_freq: centre_freq_hz,
@@ -343,12 +335,13 @@ impl UvfitsWriter {
         })
     }
 
-    /// Create a new uvfits file at the specified path using an [`marlu::mwalib::CorrelatorContext`]
+    /// Create a new uvfits file at the specified path using an
+    /// [`mwalib::CorrelatorContext`]
     ///
     /// # Details
     ///
-    /// start epoch is determined by `timestep_range.start` which may not necessarily match
-    /// the obsid.
+    /// start epoch is determined by `timestep_range.start` which may not
+    /// necessarily match the obsid.
     ///
     /// # Errors
     ///
@@ -366,14 +359,14 @@ impl UvfitsWriter {
         phase_centre: Option<RADec>,
         avg_time: usize,
         avg_freq: usize,
-    ) -> Result<Self, UvfitsWriteError> {
+    ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let phase_centre = phase_centre
             .unwrap_or_else(|| RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context));
 
-        let obs_name = corr_ctx.metafits_context.obs_name.clone();
+        let obs_name = &corr_ctx.metafits_context.obs_name;
         let field_name = match obs_name.rsplit_once('_') {
             Some((field_name, _)) => field_name.to_string(),
-            None => obs_name,
+            None => obs_name.to_owned(),
         };
 
         let vis_ctx = VisContext::from_mwalib(
@@ -385,7 +378,7 @@ impl UvfitsWriter {
             avg_freq,
         );
 
-        Self::from_marlu(path, &vis_ctx, array_pos, phase_centre, Some(field_name))
+        Self::from_marlu(path, &vis_ctx, array_pos, phase_centre, Some(&field_name))
     }
 
     pub fn from_marlu<T: AsRef<Path>>(
@@ -393,8 +386,8 @@ impl UvfitsWriter {
         vis_ctx: &VisContext,
         array_pos: Option<LatLngHeight>,
         phase_centre: RADec,
-        obs_name: Option<String>,
-    ) -> Result<Self, UvfitsWriteError> {
+        obs_name: Option<&str>,
+    ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let avg_freqs_hz: Vec<f64> = vis_ctx.avg_frequencies_hz();
         let avg_centre_chan = avg_freqs_hz.len() / 2;
         let avg_centre_freq_hz = avg_freqs_hz[avg_centre_chan];
@@ -426,22 +419,6 @@ impl UvfitsWriter {
         )
     }
 
-    /// Opens the associated uvfits file in edit mode, returning the [`FitsFile`]
-    /// struct.
-    ///
-    /// Closing the file can be achieved by `drop`ing all references to the
-    /// [`FitsFile`]
-    ///
-    /// # Errors
-    ///
-    /// Will return an [`fitsio::errors::Error`] if the file can't be edited.
-    pub fn open(&self) -> Result<FitsFile, fitsio::errors::Error> {
-        let mut f = FitsFile::edit(&self.path)?;
-        // Ensure HDU 0 is opened.
-        f.hdu(0)?;
-        Ok(f)
-    }
-
     /// Write the antenna table to a uvfits file. Assumes that the array
     /// location is MWA.
     ///
@@ -469,10 +446,6 @@ impl UvfitsWriter {
             });
         }
 
-        trace!("opening uvfits file to write antenna table");
-
-        let mut uvfits = self.open()?;
-
         // Stuff that a uvfits file always expects?
         let col_names = [
             "ANNAME", "STABXYZ", "NOSTA", "MNTSTA", "STAXOF", "POLTYA", "POLAA", "POLCALA",
@@ -487,15 +460,15 @@ impl UvfitsWriter {
         let mut c_col_names = rust_strings_to_c_strings(&col_names)?;
         let mut c_col_formats = rust_strings_to_c_strings(&col_formats)?;
         let mut c_col_units = rust_strings_to_c_strings(&col_units)?;
-        let extname = CString::new("AIPS AN").unwrap();
+        let extname = CString::new("AIPS AN")?;
 
         // ffcrtb creates a new binary table in a new HDU. This should be the second
         // HDU, so there should only be one HDU before this function is called.
         let mut status = 0;
         unsafe {
-            // BINARY_TBL is 2.
+            // ffcrtb = fits_create_tbl. BINARY_TBL is 2.
             fitsio_sys::ffcrtb(
-                uvfits.as_raw(),            /* I - FITS file pointer                        */
+                self.fptr,                  /* I - FITS file pointer                        */
                 2,                          /* I - type of table to create                  */
                 0,                          /* I - number of rows in the table              */
                 11,                         /* I - number of columns in the table           */
@@ -507,44 +480,55 @@ impl UvfitsWriter {
             );
         }
         fits_check_status(status)?;
+        deallocate_rust_c_strings(c_col_names);
+        deallocate_rust_c_strings(c_col_formats);
+        deallocate_rust_c_strings(c_col_units);
 
         // Open the newly-created HDU.
-        let hdu = uvfits.hdu(1)?;
+        unsafe {
+            // ffmahd = fits_movabs_hdu
+            fitsio_sys::ffmahd(
+                self.fptr,            /* I - FITS file pointer             */
+                2,                    /* I - number of the HDU to move to  */
+                std::ptr::null_mut(), /* O - type of extension, 0, 1, or 2 */
+                &mut status,          /* IO - error status                 */
+            );
+        }
+        fits_check_status(status)?;
 
         let array_xyz = self.array_pos.to_geocentric_wgs84()?;
 
-        hdu.write_key(&mut uvfits, "ARRAYX", array_xyz.x)?;
-        hdu.write_key(&mut uvfits, "ARRAYY", array_xyz.y)?;
-        hdu.write_key(&mut uvfits, "ARRAYZ", array_xyz.z)?;
+        fits_write_double(self.fptr, "ARRAYX", array_xyz.x, None)?;
+        fits_write_double(self.fptr, "ARRAYY", array_xyz.y, None)?;
+        fits_write_double(self.fptr, "ARRAYZ", array_xyz.z, None)?;
 
-        hdu.write_key(&mut uvfits, "FREQ", self.centre_freq)?;
+        fits_write_double(self.fptr, "FREQ", self.centre_freq, None)?;
 
         // Antenna position reference frame
-        hdu.write_key(&mut uvfits, "FRAME", "ITRF")?;
+        fits_write_string(self.fptr, "FRAME", "ITRF", None)?;
 
         // Get the Greenwich apparent sidereal time from ERFA.
         let mjd = self.start_epoch.as_mjd_utc_days();
-        let gst = unsafe { erfa_sys::eraGst06a(ERFA_DJM0, mjd.floor(), ERFA_DJM0, mjd.floor()) }
-            .to_degrees();
-        hdu.write_key(&mut uvfits, "GSTIA0", gst)?;
-        hdu.write_key(&mut uvfits, "DEGPDY", 3.60985e2)?; // Earth's rotation rate
+        let gst = unsafe { eraGst06a(ERFA_DJM0, mjd.floor(), ERFA_DJM0, mjd.floor()) }.to_degrees();
+        fits_write_double(self.fptr, "GSTIA0", gst, None)?;
+        fits_write_double(self.fptr, "DEGPDY", 3.60985e2, None)?; // Earth's rotation rate
 
         let date_truncated = get_truncated_date_string(self.start_epoch);
-        hdu.write_key(&mut uvfits, "RDATE", date_truncated)?;
+        fits_write_string(self.fptr, "RDATE", &date_truncated, None)?;
 
-        hdu.write_key(&mut uvfits, "POLARX", 0.0)?;
-        hdu.write_key(&mut uvfits, "POLARY", 0.0)?;
-        hdu.write_key(&mut uvfits, "UT1UTC", 0.0)?;
-        hdu.write_key(&mut uvfits, "DATUTC", 0.0)?;
+        fits_write_double(self.fptr, "POLARX", 0.0, None)?;
+        fits_write_double(self.fptr, "POLARY", 0.0, None)?;
+        fits_write_double(self.fptr, "UT1UTC", 0.0, None)?;
+        fits_write_double(self.fptr, "DATUTC", 0.0, None)?;
 
         // AIPS 117 calls this TIMESYS, but Cotter calls in TIMSYS, so we do both.
-        hdu.write_key(&mut uvfits, "TIMSYS", "UTC")?;
-        hdu.write_key(&mut uvfits, "TIMESYS", "UTC")?;
-        hdu.write_key(&mut uvfits, "ARRNAM", "MWA")?;
-        hdu.write_key(&mut uvfits, "NUMORB", 0)?; // number of orbital parameters in table
-        hdu.write_key(&mut uvfits, "NOPCAL", 3)?; // Nr pol calibration values / IF(N_pcal)
-        hdu.write_key(&mut uvfits, "FREQID", -1)?; // Frequency setup number
-        hdu.write_key(&mut uvfits, "IATUTC", 33.0)?;
+        fits_write_string(self.fptr, "TIMSYS", "UTC", None)?;
+        fits_write_string(self.fptr, "TIMESYS", "UTC", None)?;
+        fits_write_string(self.fptr, "ARRNAM", "MWA", None)?;
+        fits_write_int(self.fptr, "NUMORB", 0, None)?; // number of orbital parameters in table
+        fits_write_int(self.fptr, "NOPCAL", 3, None)?; // Nr pol calibration values / IF(N_pcal)
+        fits_write_int(self.fptr, "FREQID", -1, None)?; // Frequency setup number
+        fits_write_double(self.fptr, "IATUTC", 33.0, None)?;
 
         // -> EXTVER
         // ---> in AIPS117:
@@ -555,7 +539,7 @@ impl UvfitsWriter {
         // ---> @derwentx: I'm pretty sure the wrong description was pasted into
         // EXTVER, and it's incorrectly being used as subarray number, when it
         // should just be the version number of the table.
-        hdu.write_key(&mut uvfits, "EXTVER", 1)?;
+        fits_write_int(self.fptr, "EXTVER", 1, None)?;
 
         // -> NO_IF - Number IFs (nIF)
         // ---> in AIPS117: The value of the NO IF keyword shall specify the number of spectral
@@ -565,33 +549,35 @@ impl UvfitsWriter {
         // ---> since we can only deal with one spectral window at the moment,
         //  this is fixed at 1, but this would change in
         //  https://github.com/MWATelescope/Birli/issues/13
-        hdu.write_key(&mut uvfits, "NO_IF", 1)?;
+        fits_write_int(self.fptr, "NO_IF", 1, None)?;
 
         // Assume the station coordinates are "right handed".
-        hdu.write_key(&mut uvfits, "XYZHAND", "RIGHT")?;
-
-        let c_antenna_names = rust_strings_to_c_strings(antenna_names)?;
+        fits_write_string(self.fptr, "XYZHAND", "RIGHT", None)?;
 
         // Write to the table row by row.
-        for (i, pos) in positions.iter().enumerate() {
+        let mut x_c_str = CString::new("X")?.into_raw();
+        let mut y_c_str = CString::new("Y")?.into_raw();
+        for (i, (pos, name)) in positions.iter().zip_eq(antenna_names).enumerate() {
             let row = i as i64 + 1;
             unsafe {
                 // ANNAME. ffpcls = fits_write_col_str
+                let mut c_antenna_name = CString::new(name.as_ref())?.into_raw();
                 fitsio_sys::ffpcls(
-                    uvfits.as_raw(),                   /* I - FITS file pointer                       */
-                    1,   /* I - number of column to write (1 = 1st col) */
-                    row, /* I - first row to write (1 = 1st row)        */
-                    1,   /* I - first vector element to write (1 = 1st) */
-                    1,   /* I - number of strings to write              */
-                    [c_antenna_names[i]].as_mut_ptr(), /* I - array of pointers to strings            */
-                    &mut status, /* IO - error status                           */
+                    self.fptr,           /* I - FITS file pointer                       */
+                    1,                   /* I - number of column to write (1 = 1st col) */
+                    row,                 /* I - first row to write (1 = 1st row)        */
+                    1,                   /* I - first vector element to write (1 = 1st) */
+                    1,                   /* I - number of strings to write              */
+                    &mut c_antenna_name, /* I - array of pointers to strings            */
+                    &mut status,         /* IO - error status                           */
                 );
                 fits_check_status(status)?;
+                drop(CString::from_raw(c_antenna_name));
 
                 let mut c_xyz = [pos.x, pos.y, pos.z];
                 // STABXYZ. ffpcld = fits_write_col_dbl
                 fitsio_sys::ffpcld(
-                    uvfits.as_raw(),    /* I - FITS file pointer                       */
+                    self.fptr,          /* I - FITS file pointer                       */
                     2,                  /* I - number of column to write (1 = 1st col) */
                     row,                /* I - first row to write (1 = 1st row)        */
                     1,                  /* I - first vector element to write (1 = 1st) */
@@ -603,108 +589,117 @@ impl UvfitsWriter {
 
                 // NOSTA. ffpclk = fits_write_col_int
                 fitsio_sys::ffpclk(
-                    uvfits.as_raw(),           /* I - FITS file pointer                       */
-                    3,                         /* I - number of column to write (1 = 1st col) */
-                    row,                       /* I - first row to write (1 = 1st row)        */
-                    1,                         /* I - first vector element to write (1 = 1st) */
-                    1,                         /* I - number of values to write               */
-                    [row as i32].as_mut_ptr(), /* I - array of values to write                */
-                    &mut status,               /* IO - error status                           */
+                    self.fptr,         /* I - FITS file pointer                       */
+                    3,                 /* I - number of column to write (1 = 1st col) */
+                    row,               /* I - first row to write (1 = 1st row)        */
+                    1,                 /* I - first vector element to write (1 = 1st) */
+                    1,                 /* I - number of values to write               */
+                    &mut (row as i32), /* I - array of values to write                */
+                    &mut status,       /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // MNTSTA
                 fitsio_sys::ffpclk(
-                    uvfits.as_raw(),  /* I - FITS file pointer                       */
-                    4,                /* I - number of column to write (1 = 1st col) */
-                    row,              /* I - first row to write (1 = 1st row)        */
-                    1,                /* I - first vector element to write (1 = 1st) */
-                    1,                /* I - number of values to write               */
-                    [0].as_mut_ptr(), /* I - array of values to write                */
-                    &mut status,      /* IO - error status                           */
+                    self.fptr,   /* I - FITS file pointer                       */
+                    4,           /* I - number of column to write (1 = 1st col) */
+                    row,         /* I - first row to write (1 = 1st row)        */
+                    1,           /* I - first vector element to write (1 = 1st) */
+                    1,           /* I - number of values to write               */
+                    &mut 0,      /* I - array of values to write                */
+                    &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // No row 5?
                 // POLTYA
                 fitsio_sys::ffpcls(
-                    uvfits.as_raw(), /* I - FITS file pointer                       */
-                    6,               /* I - number of column to write (1 = 1st col) */
-                    row,             /* I - first row to write (1 = 1st row)        */
-                    1,               /* I - first vector element to write (1 = 1st) */
-                    1,               /* I - number of strings to write              */
-                    [CString::new("X").unwrap().into_raw()].as_mut_ptr(), /* I - array of pointers to strings            */
-                    &mut status, /* IO - error status                           */
+                    self.fptr,    /* I - FITS file pointer                       */
+                    6,            /* I - number of column to write (1 = 1st col) */
+                    row,          /* I - first row to write (1 = 1st row)        */
+                    1,            /* I - first vector element to write (1 = 1st) */
+                    1,            /* I - number of strings to write              */
+                    &mut x_c_str, /* I - array of pointers to strings            */
+                    &mut status,  /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // POLAA. ffpcle = fits_write_col_flt
                 fitsio_sys::ffpcle(
-                    uvfits.as_raw(),    /* I - FITS file pointer                       */
-                    7,                  /* I - number of column to write (1 = 1st col) */
-                    row,                /* I - first row to write (1 = 1st row)        */
-                    1,                  /* I - first vector element to write (1 = 1st) */
-                    1,                  /* I - number of values to write               */
-                    [0.0].as_mut_ptr(), /* I - array of values to write                */
-                    &mut status,        /* IO - error status                           */
+                    self.fptr,   /* I - FITS file pointer                       */
+                    7,           /* I - number of column to write (1 = 1st col) */
+                    row,         /* I - first row to write (1 = 1st row)        */
+                    1,           /* I - first vector element to write (1 = 1st) */
+                    1,           /* I - number of values to write               */
+                    &mut 0.0,    /* I - array of values to write                */
+                    &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // POL calA
                 fitsio_sys::ffpcle(
-                    uvfits.as_raw(),    /* I - FITS file pointer                       */
-                    8,                  /* I - number of column to write (1 = 1st col) */
-                    row,                /* I - first row to write (1 = 1st row)        */
-                    1,                  /* I - first vector element to write (1 = 1st) */
-                    1,                  /* I - number of values to write               */
-                    [0.0].as_mut_ptr(), /* I - array of values to write                */
-                    &mut status,        /* IO - error status                           */
+                    self.fptr,   /* I - FITS file pointer                       */
+                    8,           /* I - number of column to write (1 = 1st col) */
+                    row,         /* I - first row to write (1 = 1st row)        */
+                    1,           /* I - first vector element to write (1 = 1st) */
+                    1,           /* I - number of values to write               */
+                    &mut 0.0,    /* I - array of values to write                */
+                    &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // POLTYB
                 fitsio_sys::ffpcls(
-                    uvfits.as_raw(), /* I - FITS file pointer                       */
-                    9,               /* I - number of column to write (1 = 1st col) */
-                    row,             /* I - first row to write (1 = 1st row)        */
-                    1,               /* I - first vector element to write (1 = 1st) */
-                    1,               /* I - number of strings to write              */
-                    [CString::new("Y").unwrap().into_raw()].as_mut_ptr(), /* I - array of pointers to strings            */
-                    &mut status, /* IO - error status                           */
+                    self.fptr,    /* I - FITS file pointer                       */
+                    9,            /* I - number of column to write (1 = 1st col) */
+                    row,          /* I - first row to write (1 = 1st row)        */
+                    1,            /* I - first vector element to write (1 = 1st) */
+                    1,            /* I - number of strings to write              */
+                    &mut y_c_str, /* I - array of pointers to strings            */
+                    &mut status,  /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // POLAB.
                 fitsio_sys::ffpcle(
-                    uvfits.as_raw(),     /* I - FITS file pointer                       */
-                    10,                  /* I - number of column to write (1 = 1st col) */
-                    row,                 /* I - first row to write (1 = 1st row)        */
-                    1,                   /* I - first vector element to write (1 = 1st) */
-                    1,                   /* I - number of values to write               */
-                    [90.0].as_mut_ptr(), /* I - array of values to write                */
-                    &mut status,         /* IO - error status                           */
+                    self.fptr,   /* I - FITS file pointer                       */
+                    10,          /* I - number of column to write (1 = 1st col) */
+                    row,         /* I - first row to write (1 = 1st row)        */
+                    1,           /* I - first vector element to write (1 = 1st) */
+                    1,           /* I - number of values to write               */
+                    &mut 90.0,   /* I - array of values to write                */
+                    &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status)?;
 
                 // POL calB
                 fitsio_sys::ffpcle(
-                    uvfits.as_raw(),    /* I - FITS file pointer                       */
-                    11,                 /* I - number of column to write (1 = 1st col) */
-                    row,                /* I - first row to write (1 = 1st row)        */
-                    1,                  /* I - first vector element to write (1 = 1st) */
-                    1,                  /* I - number of values to write               */
-                    [0.0].as_mut_ptr(), /* I - array of values to write                */
-                    &mut status,        /* IO - error status                           */
+                    self.fptr,   /* I - FITS file pointer                       */
+                    11,          /* I - number of column to write (1 = 1st col) */
+                    row,         /* I - first row to write (1 = 1st row)        */
+                    1,           /* I - first vector element to write (1 = 1st) */
+                    1,           /* I - number of values to write               */
+                    &mut 0.0,    /* I - array of values to write                */
+                    &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status)?;
             }
         }
 
+        // Drop some C strings.
+        unsafe {
+            drop(CString::from_raw(x_c_str));
+            drop(CString::from_raw(y_c_str));
+        }
+
+        // Finally close the file.
+        self.close()?;
+
         Ok(())
     }
 
     /// Write the antenna table to a uvfits file using the provided
-    /// [`marlu::mwalib::CorrelatorContext`]
+    /// [`mwalib::CorrelatorContext`]
     ///
     /// `self` must have only have a single HDU when this function is called
     /// (true when using methods only provided by `Self`).
@@ -734,26 +729,20 @@ impl UvfitsWriter {
 
     /// Write a visibility row into the uvfits file.
     ///
-    /// `uvfits` must have been opened in write mode and currently have HDU 0
-    /// open. The [`FitsFile`] must be supplied to this function to force the
-    /// caller to think about calling this function efficiently; opening the
-    /// file for every call would be a problem, and keeping the file open in
-    /// [`UvfitsWriter`] would mean the struct is not thread safe.
-    ///
     /// `tile_index1` and `tile_index2` are expected to be zero indexed; they
-    /// are made one indexed by this function.
+    /// are made into the one-indexed uvfits convention by this function.
     ///
     /// # Errors
     ///
     /// Will return an [`UvfitsWriteError`] if a fits operation fails.
     ///
-    /// TODO: Assumes that all fine channels are written in `vis.` This needs to
+    /// TODO: Assumes that all fine channels are written in `vis`. This needs to
     /// be updated to add visibilities to an existing uvfits row.
     #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn write_vis_row(
+    #[inline(always)]
+    #[cfg(test)]
+    fn write_vis_row(
         &mut self,
-        uvfits: &mut FitsFile,
         uvw: UVW,
         tile_index1: usize,
         tile_index2: usize,
@@ -767,36 +756,26 @@ impl UvfitsWriter {
             });
         }
 
-        let mut row = Vec::with_capacity(5 + vis.len());
-        row.push((uvw.u / VEL_C) as f32);
-        row.push((uvw.v / VEL_C) as f32);
-        row.push((uvw.w / VEL_C) as f32);
-        row.push(encode_uvfits_baseline(tile_index1 + 1, tile_index2 + 1) as f32);
         let jd_trunc = self.start_epoch.as_jde_utc_days().floor() + 0.5;
         let jd_frac = epoch.as_jde_utc_days() - jd_trunc;
-        row.push(jd_frac as f32);
-        for &v in vis {
-            row.push(v);
-        }
 
-        let mut status = 0;
-        unsafe {
-            fitsio_sys::ffpgpe(
-                uvfits.as_raw(),                  /* I - FITS file pointer                      */
-                self.current_num_rows as i64 + 1, /* I - group to write(1 = 1st group)          */
-                1,                                /* I - first vector element to write(1 = 1st) */
-                row.len() as i64,                 /* I - number of values to write              */
-                row.as_mut_ptr(),                 /* I - array of values that are written       */
-                &mut status,                      /* IO - error status                          */
-            );
-        }
-        fits_check_status(status)?;
-        self.current_num_rows += 1;
+        self.buffer.extend_from_slice(&[
+            (uvw.u / VEL_C) as f32,
+            (uvw.v / VEL_C) as f32,
+            (uvw.w / VEL_C) as f32,
+            encode_uvfits_baseline(tile_index1 + 1, tile_index2 + 1) as f32,
+            jd_frac as f32,
+        ]);
+        self.buffer.extend_from_slice(vis);
+
+        Self::write_vis_row_inner(self.fptr, &mut self.current_num_rows, &mut self.buffer)?;
+
+        self.buffer.clear();
         Ok(())
     }
 
     // / Write visibilty and weight rows into the uvfits file from the provided
-    // / [`marlu::mwalib::CorrelatorContext`].
+    // / [`mwalib::CorrelatorContext`].
     // /
     // / # Details
     // /
@@ -859,6 +838,43 @@ impl UvfitsWriter {
     //         draw_progress,
     //     )
     // }
+
+    #[inline(always)]
+    fn write_vis_row_inner(
+        fptr: *mut fitsio_sys::fitsfile,
+        current_num_rows: &mut usize,
+        vis: &mut [f32],
+    ) -> Result<(), fitsio::errors::Error> {
+        let mut status = 0;
+        unsafe {
+            // ffpgpe = fits_write_grppar_flt
+            fitsio_sys::ffpgpe(
+                fptr,                         /* I - FITS file pointer                      */
+                *current_num_rows as i64 + 1, /* I - group to write(1 = 1st group)          */
+                1,                            /* I - first vector element to write(1 = 1st) */
+                vis.len() as i64,             /* I - number of values to write              */
+                vis.as_mut_ptr(),             /* I - array of values that are written       */
+                &mut status,                  /* IO - error status                          */
+            );
+        }
+        fits_check_status(status)?;
+        *current_num_rows += 1;
+        Ok(())
+    }
+
+    /// Close this [`UvfitsWriter`], even if it is not appropriate to do so (the
+    /// writer should have the antenna table written before closing). It would
+    /// be nice to have this code inside the `Drop` method, but `Drop` code
+    /// cannot fail.
+    pub fn close(self) -> Result<(), fitsio::errors::Error> {
+        trace!("closing fits file ({})", self.path.display());
+        let mut status = 0;
+        unsafe {
+            // ffclos = fits_close_file
+            fitsio_sys::ffclos(self.fptr, &mut status);
+        }
+        fits_check_status(status)
+    }
 }
 
 impl VisWritable for UvfitsWriter {
@@ -911,35 +927,34 @@ impl VisWritable for UvfitsWriter {
         );
         write_progress.set_message("write ms vis");
 
-        // Open the table for writing
-        let mut uvfits = self.open()?;
         trace!(
             "self.total_num_rows={}, self.current_num_rows={}, num_avg_rows (selected)={}",
             self.total_num_rows,
             self.current_num_rows,
             num_avg_rows
         );
-        assert!(self.total_num_rows as u64 - self.current_num_rows as u64 >= num_avg_rows as u64);
-
-        trace!(
-            "self.total_num_rows={}, self.current_num_rows={}, num_avg_rows (selected)={}",
-            self.total_num_rows,
+        assert!(usize::abs_diff(self.total_num_rows, self.current_num_rows) >= num_avg_rows,
+            "The incoming number of averaged rows ({num_avg_rows}) plus the current number of rows ({}) exceeds the total number of rows ({})",
             self.current_num_rows,
-            num_avg_rows
+            self.total_num_rows
         );
-        assert!(self.total_num_rows as u64 - self.current_num_rows as u64 >= num_avg_rows as u64);
 
-        // temporary vector to hold visiblity data, avoids heap allocation
-        let mut vis_tmp: Vec<f32> = vec![0.0; 3 * num_vis_pols * num_avg_chans];
+        // Ensure our buffer is the correct size. Reusing the buffer means we
+        // avoid a heap allocation every time this function is called.
+        self.buffer
+            .resize(5 + 3 * num_vis_pols * num_avg_chans, 0.0);
         let mut avg_weight: f32;
         let mut avg_flag: bool;
         let mut avg_jones: Jones<f32>;
+
+        let jd_trunc = self.start_epoch.as_jde_utc_days().floor() + 0.5;
 
         for (avg_centroid_timestamp, jones_chunk, weight_chunk) in izip!(
             vis_ctx.timeseries(true, true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
+            let jd_frac = (avg_centroid_timestamp.as_jde_utc_days() - jd_trunc) as f32;
             let prec_info = precess_time(
                 self.phase_centre,
                 avg_centroid_timestamp,
@@ -950,13 +965,19 @@ impl VisWritable for UvfitsWriter {
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
-                vis_ctx.sel_baselines.clone().into_iter(),
+                vis_ctx.sel_baselines.iter().copied(),
                 jones_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyz_precessed =
                     tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
-                let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
+                let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000) / VEL_C;
+
+                self.buffer[0] = uvw.u as f32;
+                self.buffer[1] = uvw.v as f32;
+                self.buffer[2] = uvw.w as f32;
+                self.buffer[3] = encode_uvfits_baseline(ant1_idx + 1, ant2_idx + 1) as f32;
+                self.buffer[4] = jd_frac;
 
                 // MWA/CASA/AOFlagger visibility order is XX,XY,YX,YY
                 // UVFits visibility order is XX,YY,XY,YX
@@ -964,7 +985,7 @@ impl VisWritable for UvfitsWriter {
                 for (jones_chunk, weight_chunk, vis_chunk) in izip!(
                     jones_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    vis_tmp.chunks_exact_mut(12),
+                    self.buffer[5..].chunks_exact_mut(3 * num_vis_pols),
                 ) {
                     avg_weight = weight_chunk[[0, 0]];
                     avg_jones = jones_chunk[[0, 0]];
@@ -979,30 +1000,32 @@ impl VisWritable for UvfitsWriter {
                         );
                     }
 
-                    // TODO: something a little prettier
-                    vis_chunk[0] = avg_jones[0].re;
-                    vis_chunk[1] = avg_jones[0].im;
-                    vis_chunk[2] = avg_weight;
-                    vis_chunk[3] = avg_jones[3].re;
-                    vis_chunk[4] = avg_jones[3].im;
-                    vis_chunk[5] = avg_weight;
-                    vis_chunk[6] = avg_jones[1].re;
-                    vis_chunk[7] = avg_jones[1].im;
-                    vis_chunk[8] = avg_weight;
-                    vis_chunk[9] = avg_jones[2].re;
-                    vis_chunk[10] = avg_jones[2].im;
-                    vis_chunk[11] = avg_weight;
+                    // vis_chunk has 12 elements if num_vis_pols is 4, but, it
+                    // is possible that this is 2 instead. By iterating over the
+                    // Jones elements and applying them, we write the correct
+                    // polarisations for however long vis_chunk actually is.
+                    vis_chunk
+                        .iter_mut()
+                        .zip([
+                            avg_jones[0].re,
+                            avg_jones[0].im,
+                            avg_weight,
+                            avg_jones[3].re,
+                            avg_jones[3].im,
+                            avg_weight,
+                            avg_jones[1].re,
+                            avg_jones[1].im,
+                            avg_weight,
+                            avg_jones[2].re,
+                            avg_jones[2].im,
+                            avg_weight,
+                        ])
+                        .for_each(|(vis_chunk_element, vis)| {
+                            *vis_chunk_element = vis;
+                        });
                 }
 
-                self.write_vis_row(
-                    &mut uvfits,
-                    uvw,
-                    ant1_idx,
-                    ant2_idx,
-                    avg_centroid_timestamp,
-                    &vis_tmp,
-                )?;
-
+                Self::write_vis_row_inner(self.fptr, &mut self.current_num_rows, &mut self.buffer)?;
                 write_progress.inc(1);
             }
         }
@@ -1013,14 +1036,140 @@ impl VisWritable for UvfitsWriter {
     }
 }
 
+fn fits_write_int(
+    fptr: *mut fitsio_sys::fitsfile,
+    keyname: &str,
+    value: i64,
+    comment: Option<&str>,
+) -> Result<(), FitsioOrCStringError> {
+    let mut status = 0;
+    let keyname = CString::new(keyname)?;
+    let comment = match comment {
+        Some(c) => Some(CString::new(c)?),
+        None => None,
+    };
+    unsafe {
+        // ffukyj = fits_update_key_lng
+        fitsio_sys::ffukyj(
+            fptr,                                                    /* I - FITS file pointer  */
+            keyname.as_ptr(),                                        /* I - keyword name       */
+            value,                                                   /* I - keyword value      */
+            comment.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()), /* I - keyword comment    */
+            &mut status,                                             /* IO - error status      */
+        );
+    }
+    fits_check_status(status)?;
+    Ok(())
+}
+
+fn fits_write_double(
+    fptr: *mut fitsio_sys::fitsfile,
+    keyname: &str,
+    value: f64,
+    comment: Option<&str>,
+) -> Result<(), FitsioOrCStringError> {
+    let mut status = 0;
+    let keyname = CString::new(keyname)?;
+    let comment = match comment {
+        Some(c) => Some(CString::new(c)?),
+        None => None,
+    };
+    unsafe {
+        // ffukyd = fits_update_key_dbl
+        fitsio_sys::ffukyd(
+            fptr,                                                    /* I - FITS file pointer  */
+            keyname.as_ptr(),                                        /* I - keyword name       */
+            value,                                                   /* I - keyword value      */
+            -15,                                                     /* I - no of decimals     */
+            comment.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()), /* I - keyword comment    */
+            &mut status,                                             /* IO - error status      */
+        );
+    }
+
+    fits_check_status(status)?;
+    Ok(())
+}
+
+fn fits_write_string(
+    fptr: *mut fitsio_sys::fitsfile,
+    keyname: &str,
+    value: &str,
+    comment: Option<&str>,
+) -> Result<(), FitsioOrCStringError> {
+    let mut status = 0;
+    let keyname = CString::new(keyname)?;
+    let value = CString::new(value)?;
+    let comment = match comment {
+        Some(c) => Some(CString::new(c)?),
+        None => None,
+    };
+    unsafe {
+        // ffukys = fits_update_key_str
+        fitsio_sys::ffukys(
+            fptr,                                                    /* I - FITS file pointer  */
+            keyname.as_ptr(),                                        /* I - keyword name       */
+            value.as_ptr(),                                          /* I - keyword value      */
+            comment.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()), /* I - keyword comment    */
+            &mut status,
+        ); /* IO - error status      */
+    }
+    fits_check_status(status)?;
+    Ok(())
+}
+
+fn fits_write_comment(
+    fptr: *mut fitsio_sys::fitsfile,
+    comment: &str,
+) -> Result<(), FitsioOrCStringError> {
+    let mut status = 0;
+    let comment = CString::new(comment)?;
+    unsafe {
+        // ffpcom = fits_write_comment
+        fitsio_sys::ffpcom(
+            fptr,
+            comment.as_ptr(), /* I - comment string      */
+            &mut status,      /* IO - error status       */
+        );
+    }
+    fits_check_status(status)?;
+    Ok(())
+}
+
+fn fits_write_history(
+    fptr: *mut fitsio_sys::fitsfile,
+    history: &str,
+) -> Result<(), FitsioOrCStringError> {
+    let mut status = 0;
+    let history = CString::new(history)?;
+    unsafe {
+        // ffphis = fits_write_history
+        fitsio_sys::ffphis(
+            fptr,
+            history.as_ptr(), /* I - history string     */
+            &mut status,      /* IO - error status      */
+        );
+    }
+    fits_check_status(status)?;
+    Ok(())
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(super) enum FitsioOrCStringError {
+    #[error(transparent)]
+    Fitsio(#[from] fitsio::errors::Error),
+
+    #[error(transparent)]
+    Nul(#[from] std::ffi::NulError),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
     use fitsio::{
-        errors::check_status as fits_check_status,
         hdu::{FitsHdu, HduInfo},
+        FitsFile,
     };
 
     use crate::{
@@ -1564,7 +1713,7 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let u = UvfitsWriter::from_mwalib(
+        let mut u = UvfitsWriter::from_mwalib(
             tmp_uvfits_file.path(),
             &corr_ctx,
             &vis_sel.timestep_range,
@@ -1576,10 +1725,28 @@ mod tests {
             1,
         )
         .unwrap();
-
-        let f = u.open().unwrap();
-
-        drop(f);
+        for _timestep_index in vis_sel.timestep_range.clone() {
+            for (baseline_index, (tile1, tile2)) in vis_sel
+                .get_ant_pairs(&corr_ctx.metafits_context)
+                .into_iter()
+                .enumerate()
+            {
+                u.write_vis_row(
+                    UVW::default(),
+                    tile1,
+                    tile2,
+                    Epoch::from_gpst_seconds(1196175296.0),
+                    (baseline_index..baseline_index + corr_ctx.num_coarse_chans)
+                        .into_iter()
+                        .map(|int| int as f32)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .unwrap();
+            }
+        }
+        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
+            .unwrap();
 
         let cotter_uvfits_path = Path::new("tests/data/1196175296_mwa_ord/1196175296.uvfits");
 
@@ -1612,18 +1779,34 @@ mod tests {
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
 
-        let u = UvfitsWriter::from_marlu(
+        let mut u = UvfitsWriter::from_marlu(
             tmp_uvfits_file.path(),
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
-            Some(corr_ctx.metafits_context.obs_name.clone()),
+            Some(&corr_ctx.metafits_context.obs_name),
         )
         .unwrap();
-
-        let f = u.open().unwrap();
-
-        drop(f);
+        for _timestep_index in 0..vis_ctx.num_sel_timesteps {
+            for (baseline_index, (tile1, tile2)) in
+                vis_ctx.sel_baselines.clone().into_iter().enumerate()
+            {
+                u.write_vis_row(
+                    UVW::default(),
+                    tile1,
+                    tile2,
+                    vis_ctx.start_timestamp,
+                    (baseline_index..baseline_index + vis_ctx.num_sel_chans)
+                        .into_iter()
+                        .map(|int| int as f32)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .unwrap();
+            }
+        }
+        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
+            .unwrap();
 
         let cotter_uvfits_path = Path::new("tests/data/1196175296_mwa_ord/1196175296.uvfits");
 
@@ -1654,12 +1837,11 @@ mod tests {
             170e6,
             3,
             RADec::new_degrees(0.0, 60.0),
-            Some("test".to_string()),
+            Some("test"),
             LatLngHeight::new_mwa(),
         )
         .unwrap();
 
-        let mut f = u.open().unwrap();
         for _timestep_index in 0..num_timesteps {
             for baseline_index in 0..num_baselines {
                 let (tile1, tile2) = match baseline_index {
@@ -1670,7 +1852,6 @@ mod tests {
                 };
 
                 u.write_vis_row(
-                    &mut f,
                     UVW::default(),
                     tile1,
                     tile2,

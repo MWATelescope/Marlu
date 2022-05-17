@@ -50,7 +50,7 @@ pub trait VisReadable: Sync + Send {
 }
 
 /// The container can accept a chunk of visibilities to be written.
-pub trait VisWritable: Sync + Send {
+pub trait VisWritable {
     /// Write a chunk of visibilities, contextualised with a [`VisContext`].
     ///
     /// This makes use of the heuristic that the weights of all pols of a visibility
