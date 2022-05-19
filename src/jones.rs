@@ -96,6 +96,25 @@ impl<F: Float> Jones<F> {
     pub fn axbh(a: Self, b: Self) -> Self {
         a * b.h()
     }
+
+    #[inline]
+    pub fn to_complex_array(self) -> [Complex<F>; 4] {
+        self.0
+    }
+
+    #[inline]
+    pub fn to_float_array(self) -> [F; 8] {
+        [
+            self.0[0].re,
+            self.0[0].im,
+            self.0[1].re,
+            self.0[1].im,
+            self.0[2].re,
+            self.0[2].im,
+            self.0[3].re,
+            self.0[3].im,
+        ]
+    }
 }
 
 impl<F: Float + FloatCore> Jones<F> {
@@ -839,5 +858,29 @@ mod tests {
             one_through_eight(),
             Jones::from([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
         );
+    }
+
+    #[test]
+    fn test_to_complex_array() {
+        let j = one_through_eight();
+        let j2 = j.to_complex_array();
+        assert_abs_diff_eq!(j[0], j2[0]);
+        assert_abs_diff_eq!(j[1], j2[1]);
+        assert_abs_diff_eq!(j[2], j2[2]);
+        assert_abs_diff_eq!(j[3], j2[3]);
+    }
+
+    #[test]
+    fn test_to_float_array() {
+        let j = one_through_eight();
+        let j2 = j.to_float_array();
+        assert_abs_diff_eq!(j[0].re, j2[0]);
+        assert_abs_diff_eq!(j[0].im, j2[1]);
+        assert_abs_diff_eq!(j[1].re, j2[2]);
+        assert_abs_diff_eq!(j[1].im, j2[3]);
+        assert_abs_diff_eq!(j[2].re, j2[4]);
+        assert_abs_diff_eq!(j[2].im, j2[5]);
+        assert_abs_diff_eq!(j[3].re, j2[6]);
+        assert_abs_diff_eq!(j[3].im, j2[7]);
     }
 }
