@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 //! Selecting a subset of correlator visibilities from an observation using mwalib indices.
 //!
 //! Observations can sometimes be too large to fit in memory. This method will only load
