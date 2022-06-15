@@ -365,12 +365,13 @@ impl VisContext {
     }
 
     /// Get the weight factor: a measure of the resolution relative to the base
-    /// resolution of the legacy MWA correlator (1s / 10kHZ).
+    /// resolution of the legacy MWA correlator (1s / 10kHz).
     ///
-    /// This is a conceptfrom Cotter, and the legacy MWA correlator where the value
-    /// is a multiple of the frequency resolution (relative to 10kHz), and the
-    /// time averaging factor (relative to 1s).
+    /// This is a concept from Cotter, and the legacy MWA correlator where the
+    /// value is a multiple of the frequency resolution (relative to 10kHz), and
+    /// the time averaging factor (relative to 1s).
     pub fn weight_factor(&self) -> f64 {
-        self.freq_resolution_hz * self.int_time.in_seconds() / 10000.0
+        self.int_time.in_seconds() / crate::constants::TIME_WEIGHT_FACTOR * self.freq_resolution_hz
+            / crate::constants::FREQ_WEIGHT_FACTOR
     }
 }

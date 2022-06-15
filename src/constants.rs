@@ -29,6 +29,13 @@ pub const MWA_LONG_DEG: f64 = MWA_LONG_RAD * 180.0 / PI;
 /// MWA height (a.k.a. altitude) \[metres\]
 pub const MWA_HEIGHT_M: f64 = 377.827;
 
+/// The weight given to time when calculating a weight factor. When combined
+/// with [`FREQ_WEIGHT_FACTOR`], a visibility weight can be calculated.
+pub const TIME_WEIGHT_FACTOR: f64 = 1.0;
+/// The weight given to frequency when calculating a weight factor. When
+/// combined with [`TIME_WEIGHT_FACTOR`], a visibility weight can be calculated.
+pub const FREQ_WEIGHT_FACTOR: f64 = 10000.0;
+
 // cotter's constants. Useful for being more precise when converting geocentric
 // XYZ to geodetic XYZ!
 /// cotter's MWA latitude on Earth in radians. Use [`MWA_LAT_RAD`] unless you know
