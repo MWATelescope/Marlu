@@ -73,3 +73,7 @@ harness = false
 [[bench]]
 name = "bench_io"
 harness = false
+
+[patch.crates-io]
+mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "digital_gains_plus" }
+# mwalib = { path = "../mwalib" }
