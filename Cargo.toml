@@ -77,3 +77,5 @@ harness = false
 [patch.crates-io]
 mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "digital_gains_plus" }
 # mwalib = { path = "../mwalib" }
+rubbl_core = { git = "https://github.com/cjordan/rubbl", branch = "failure->thiserror" }
+rubbl_casatables = { git = "https://github.com/cjordan/rubbl", branch = "failure->thiserror" }
