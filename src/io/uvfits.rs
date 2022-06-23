@@ -16,7 +16,7 @@ use crate::{
     erfa_sys::{eraGst06a, ERFA_DJM0},
     fitsio::errors::check_status as fits_check_status,
     fitsio_sys,
-    hifitime::Epoch,
+    hifitime::{Duration, Epoch, Unit},
     io::error::BadArrayShape,
     mwalib::{fitsio, CorrelatorContext, MetafitsContext},
     ndarray::{ArrayView3, Axis},
@@ -977,10 +977,11 @@ impl VisWritable for UvfitsWriter {
         ) {
             let jd_frac = (avg_centroid_timestamp.as_jde_utc_days() - jd_trunc) as f32;
             let prec_info = precess_time(
-                self.phase_centre,
-                avg_centroid_timestamp,
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,
+                self.phase_centre,
+                avg_centroid_timestamp,
+                Duration::from_f64(0.0, Unit::Second), // TODO
             );
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);

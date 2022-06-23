@@ -13,7 +13,7 @@ use crate::{
 use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
-use hifitime::Unit;
+use hifitime::{Duration, Unit};
 use lazy_static::lazy_static;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
@@ -1780,10 +1780,11 @@ impl VisWritable for MeasurementSetWriter {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.as_mjd_utc_seconds();
 
             let prec_info = precess_time(
-                self.phase_centre,
-                avg_centroid_timestamp,
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,
+                self.phase_centre,
+                avg_centroid_timestamp,
+                Duration::from_f64(0.0, Unit::Second), // TODO
             );
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
