@@ -4,15 +4,18 @@
 
 //! Code to handle precession (including nutation).
 //!
-//! A lot of easy-to-read info is here:
+//! This is a really good resource:
+//! <https://lweb.cfa.harvard.edu/~jzhao/times.html>
+//!
+//! Some easy-to-read info is here:
 //! <https://en.wikipedia.org/wiki/Astronomical_nutation>
 //!
-//! A harder to read source of info is here:
+//! A harder-to-read source of info is here:
 //! <https://www.aanda.org/articles/aa/pdf/2003/48/aa4068.pdf>
 
 use std::f64::consts::TAU;
 
-use hifitime::Epoch;
+use hifitime::{Duration, Epoch};
 use rayon::prelude::*;
 
 use crate::{pal, HADec, RADec, XyzGeodetic};
@@ -66,26 +69,35 @@ impl PrecessionInfo {
     }
 }
 
-/// Get the local mean sidereal time.
-pub fn get_lmst(time: Epoch, array_longitude_rad: f64) -> f64 {
-    let gmst = pal::palGmst(time.as_mjd_utc_days());
+/// Get the local mean sidereal time. `time` should be in the UTC frame, and
+/// `dut1` (i.e. UT1 - UTC) provides a better estimate of the LMST. If DUT1
+/// isn't known, then a [`Duration`] of 0 seconds can be used; the results are
+/// wrong by up to 0.9 seconds.
+pub fn get_lmst(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
+    let ut1 = (time + dut1).as_mjd_utc_days();
+    let gmst = pal::palGmst(ut1);
     (gmst + array_longitude_rad) % TAU
 }
 
+/// Obtain precessed coordinate information. `time` should be in the UTC frame,
+/// and `dut1` (i.e. UT1 - UTC) provides a better estimate of the LMST. If DUT1
+/// isn't known, then a [`Duration`] of 0 seconds can be used; the results are
+/// wrong by up to 0.9 seconds.
+///
 /// This function is very similar to cotter's `PrepareTimestepUVW`.
 pub fn precess_time(
-    phase_centre: RADec,
-    time: Epoch,
     array_longitude_rad: f64,
     array_latitude_rad: f64,
+    phase_centre: RADec,
+    time: Epoch,
+    dut1: Duration,
 ) -> PrecessionInfo {
-    let mjd = time.as_mjd_utc_days();
-
-    // Note that we explicitly use the LMST because we're handling nutation
-    // ourselves.
-    let lmst = get_lmst(time, array_longitude_rad);
+    // Note that we explicitly use the mean LST (i.e. LMST) because we're
+    // handling nutation ourselves.
+    let lmst = get_lmst(array_longitude_rad, time, dut1);
 
     let j2000 = 2000.0;
+    let mjd = (time + dut1).as_mjd_utc_days();
     let radec_aber = aber_radec_rad(j2000, mjd, phase_centre);
     let mut rotation_matrix = [[0.0; 3]; 3];
     unsafe { pal::palPrenut(j2000, mjd, rotation_matrix.as_mut_ptr()) };
@@ -205,42 +217,52 @@ fn rotate_radec(rotation_matrix: &mut [[f64; 3]; 3], ra: f64, dec: f64) -> (f64,
 #[cfg(test)]
 mod tests {
     use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
+    use hifitime::Unit;
     use std::str::FromStr;
 
     use super::*;
     use crate::constants::{MWA_LAT_RAD, MWA_LONG_RAD};
 
-    // astropy doesn't exactly agree with the numbers below, I think because the
-    // LST listed in MWA metafits files doesn't agree with what astropy thinks
-    // it should be. But, it's all very close.
+    // Expected values are taken from astropy 5.0.4, calculated with e.g.
+    //
+    // loc = EarthLocation(lat=-0.4660608448386394*u.rad, lon=2.0362898668561042*u.rad, height=377.827*u.m)
+    // np.deg2rad(Time("1090008642", format="gps", scale="utc", location=loc).sidereal_time("mean").value*15)
+    //
+    // DUT1 values are calculated with e.g.
+    //
+    // Time("1090008643", format="gps", scale="utc", location=loc).delta_ut1_utc
     #[test]
     fn test_get_lst() {
         let epoch = Epoch::from_gpst_seconds(1090008642.0);
+        let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
         assert_abs_diff_eq!(
-            get_lmst(epoch, MWA_LONG_RAD),
-            6.262087947389409,
-            epsilon = 1e-10
+            get_lmst(MWA_LONG_RAD, epoch, dut1),
+            6.262065126600022,
+            epsilon = 1e-9
         );
 
         let epoch = Epoch::from_gpst_seconds(1090008643.0);
+        let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
         assert_abs_diff_eq!(
-            get_lmst(epoch, MWA_LONG_RAD),
-            6.2621608685650045,
-            epsilon = 1e-10
+            get_lmst(MWA_LONG_RAD, epoch, dut1),
+            6.26213804775838,
+            epsilon = 1e-9
         );
 
         let epoch = Epoch::from_gpst_seconds(1090008647.0);
+        let dut1 = Duration::from_f64(-0.31295758, Unit::Second);
         assert_abs_diff_eq!(
-            get_lmst(epoch, MWA_LONG_RAD),
-            6.262452553175729,
-            epsilon = 1e-10
+            get_lmst(MWA_LONG_RAD, epoch, dut1),
+            6.262429732391841,
+            epsilon = 1e-9
         );
 
         let epoch = Epoch::from_gpst_seconds(1090008644.0);
+        let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
         assert_abs_diff_eq!(
-            get_lmst(epoch, MWA_LONG_RAD),
-            6.262233789694743,
-            epsilon = 1e-10
+            get_lmst(MWA_LONG_RAD, epoch, dut1),
+            6.262210968916753,
+            epsilon = 1e-9
         );
     }
 
@@ -255,16 +277,22 @@ mod tests {
         let j2000_epoch = Epoch::from_str("2000-01-01T11:58:55.816 UTC").unwrap();
 
         let phase_centre = RADec::new_degrees(0.0, -27.0);
-        let eor0 = precess_time(phase_centre, j2000_epoch, MWA_LONG_RAD, MWA_LAT_RAD);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][0], 1.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][1], 1.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][2], 1.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][1], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][2], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][0], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][2], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][0], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][1], 0.0, epsilon = 1e-4);
+        let eor0 = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            j2000_epoch,
+            Duration::from_total_nanoseconds(0),
+        );
+        assert_abs_diff_eq!(eor0.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor0.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor0.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor0.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
 
         assert_abs_diff_eq!(eor0.lmst_j2000 - eor0.hadec_j2000.ha, 0.0, epsilon = 1e-4);
         assert_abs_diff_eq!(eor0.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
@@ -273,16 +301,85 @@ mod tests {
         assert_abs_diff_eq!(eor0.lmst, 0.6433259676052971, epsilon = 1e-4);
 
         let phase_centre = RADec::new_degrees(60.0, -30.0);
-        let eor1 = precess_time(phase_centre, j2000_epoch, MWA_LONG_RAD, MWA_LAT_RAD);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][0], 1.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][1], 1.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][2], 1.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][1], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][2], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][0], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][2], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][0], 0.0, epsilon = 1e-4);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][1], 0.0, epsilon = 1e-4);
+        let eor1 = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            j2000_epoch,
+            Duration::from_total_nanoseconds(0),
+        );
+        assert_abs_diff_eq!(eor1.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor1.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor1.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor1.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
+
+        assert_abs_diff_eq!(
+            eor1.lmst_j2000 - eor1.hadec_j2000.ha,
+            -5.235898085317921,
+            epsilon = 1e-4
+        );
+        assert_abs_diff_eq!(eor1.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
+        assert_abs_diff_eq!(eor1.lmst, eor1.lmst_j2000, epsilon = 1e-4);
+
+        assert_abs_diff_eq!(eor1.lmst, 0.6433259676052971, epsilon = 1e-4);
+    }
+
+    #[test]
+    // TODO: reduce cognitive complexity
+    #[allow(clippy::cognitive_complexity)]
+    fn test_no_precession_at_j2000_with_dut1() {
+        // Note that the test values are exactly the same as above, despite
+        // using a DUT1.
+
+        // https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_dates_and_J2000
+        let j2000_epoch = Epoch::from_str("2000-01-01T11:58:55.816 UTC").unwrap();
+
+        let phase_centre = RADec::new_degrees(0.0, -27.0);
+        let eor0 = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            j2000_epoch,
+            Duration::from_f64(0.35494706, Unit::Second),
+        );
+        assert_abs_diff_eq!(eor0.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor0.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor0.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor0.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor0.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
+
+        assert_abs_diff_eq!(eor0.lmst_j2000 - eor0.hadec_j2000.ha, 0.0, epsilon = 1e-4);
+        assert_abs_diff_eq!(eor0.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
+        assert_abs_diff_eq!(eor0.lmst, eor0.lmst_j2000, epsilon = 1e-4);
+
+        assert_abs_diff_eq!(eor0.lmst, 0.6433259676052971, epsilon = 1e-4);
+
+        let phase_centre = RADec::new_degrees(60.0, -30.0);
+        let eor1 = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            j2000_epoch,
+            Duration::from_f64(0.35494706, Unit::Second),
+        );
+        assert_abs_diff_eq!(eor1.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor1.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor1.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(eor1.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(eor1.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
 
         assert_abs_diff_eq!(
             eor1.lmst_j2000 - eor1.hadec_j2000.ha,
@@ -300,7 +397,13 @@ mod tests {
         let epoch = Epoch::from_gpst_seconds(1065880128.0);
         let phase_centre = RADec::new_degrees(0.0, -27.0);
 
-        let p = precess_time(phase_centre, epoch, MWA_LONG_RAD, MWA_LAT_RAD);
+        let p = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            epoch,
+            Duration::from_total_nanoseconds(0),
+        );
         // How do I know this is right? Good question! ... I don't.
         assert_abs_diff_eq!(p.rotation_matrix[0][0], 1.0, epsilon = 1e-5);
         assert_abs_diff_eq!(p.rotation_matrix[1][1], 1.0, epsilon = 1e-5);
@@ -331,7 +434,13 @@ mod tests {
         let epoch = Epoch::from_gpst_seconds(1099334672.0);
         let phase_centre = RADec::new_degrees(60.0, -30.0);
 
-        let p = precess_time(phase_centre, epoch, MWA_LONG_RAD, MWA_LAT_RAD);
+        let p = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            epoch,
+            Duration::from_total_nanoseconds(0),
+        );
         // How do I know this is right? Good question! ... I don't.
         assert_abs_diff_eq!(p.rotation_matrix[0][0], 1.0, epsilon = 1e-5);
         assert_abs_diff_eq!(p.rotation_matrix[1][1], 1.0, epsilon = 1e-5);
@@ -348,6 +457,45 @@ mod tests {
         assert_abs_diff_eq!(p.lmst, 1.4598017673520172, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst_j2000, 1.4571918352968762, epsilon = 1e-10);
         assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661807836570052, epsilon = 1e-10);
+        assert_abs_diff_ne!(p.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-5);
+
+        let pc_hadec = phase_centre.to_hadec(p.lmst);
+        let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
+        let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
+        assert_abs_diff_eq!(ha_diff_arcmin, 9.344552279378359, epsilon = 1e-5);
+        assert_abs_diff_eq!(dec_diff_arcmin, -0.12035370887056628, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn test_precess_1099334672_to_j2000_with_dut1() {
+        // Test values have changed from the test above, due to the DUT1.
+
+        let epoch = Epoch::from_gpst_seconds(1099334672.0);
+        let phase_centre = RADec::new_degrees(60.0, -30.0);
+
+        let p = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            epoch,
+            Duration::from_f64(-0.39623459, Unit::Second),
+        );
+        // How do I know this is right? Good question! ... I don't.
+        assert_abs_diff_eq!(p.rotation_matrix[0][0], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(p.rotation_matrix[1][1], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(p.rotation_matrix[2][2], 1.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(p.rotation_matrix[0][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(p.rotation_matrix[0][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(p.rotation_matrix[1][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(p.rotation_matrix[1][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(p.rotation_matrix[2][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(p.rotation_matrix[2][1], 0.0, epsilon = 1e-5);
+
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4098571004815674, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235637661235192, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst, 1.4597728734531659, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst_j2000, 1.457162939693978, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661808254250147, epsilon = 1e-10);
         assert_abs_diff_ne!(p.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-5);
 
         let pc_hadec = phase_centre.to_hadec(p.lmst);

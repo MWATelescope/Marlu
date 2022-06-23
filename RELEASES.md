@@ -2,6 +2,11 @@
 
 # Unreleased
 
+- Support DUT1 usage:
+  - The precession API has changed
+  - `UvfitsWriter` reports the DUT1 with `UT1UTC`
+  - `MeasurementSetWriter` changes its time frame from `UTC` to `UT1`, iff the
+    supplied DUT1 is non zero.
 - IO code changes:
   - Rename `VisReadable` to `VisRead`
   - Rename `VisWritable` to `VisWrite`

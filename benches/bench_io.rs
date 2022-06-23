@@ -12,6 +12,7 @@ use std::{
 
 use criterion::*;
 use glob::glob;
+use hifitime::Duration;
 use marlu::{
     io::{ms::MeasurementSetWriter, UvfitsWriter, VisWrite},
     mwalib,
@@ -77,6 +78,7 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
                     obs_ctx.phase_centre,
                     obs_ctx.array_pos,
                     vec![],
+                    Duration::from_total_nanoseconds(0),
                 );
                 ms_writer
                     .initialize_mwa(
@@ -129,6 +131,7 @@ fn bench_uvfits_init_mwax_half_1247842824(crt: &mut Criterion) {
                     &vis_ctx,
                     obs_ctx.array_pos,
                     obs_ctx.phase_centre,
+                    Duration::from_total_nanoseconds(0),
                     obs_ctx.name.as_deref(),
                     vec![],
                     vec![],
@@ -206,6 +209,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                     obs_ctx.phase_centre,
                     obs_ctx.array_pos,
                     vec![],
+                    Duration::from_total_nanoseconds(0),
                 );
                 ms_writer
                     .initialize_mwa(
@@ -263,6 +267,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
                     &vis_ctx,
                     obs_ctx.array_pos,
                     obs_ctx.phase_centre,
+                    Duration::from_total_nanoseconds(0),
                     obs_ctx.name.as_deref(),
                     obs_ctx.ant_names.clone(),
                     vec![],

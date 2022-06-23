@@ -15,7 +15,7 @@ use crate::{
     erfa_sys::{eraGst06a, ERFA_DJM0},
     fitsio::errors::check_status as fits_check_status,
     fitsio_sys,
-    hifitime::Epoch,
+    hifitime::{Duration, Epoch},
     io::error::BadArrayShape,
     mwalib::fitsio,
     ndarray::{ArrayView3, Axis},
@@ -141,6 +141,11 @@ pub struct UvfitsWriter {
     /// The *unprecessed* positions of the antennas. The writing code will
     /// precess these positions to J2000 for each timestep.
     antenna_positions: Vec<XyzGeodetic>,
+
+    /// UT1 - UTC, a.k.a. DUT1. We assume that this value is suitable for all
+    /// timesteps being written; this is pretty sensible, because the value
+    /// should change very slowly (a few milliseconds over ~5 days?).
+    dut1: Duration,
 }
 
 impl UvfitsWriter {
@@ -200,6 +205,7 @@ impl UvfitsWriter {
         array_pos: LatLngHeight,
         antenna_names: Vec<String>,
         antenna_positions: Vec<XyzGeodetic>,
+        dut1: Duration,
         history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let path = path.as_ref();
@@ -353,6 +359,7 @@ impl UvfitsWriter {
             array_pos,
             antenna_names,
             antenna_positions,
+            dut1,
         })
     }
 
@@ -362,6 +369,7 @@ impl UvfitsWriter {
         vis_ctx: &VisContext,
         array_pos: LatLngHeight,
         phase_centre: RADec,
+        dut1: Duration,
         obs_name: Option<&str>,
         antenna_names: Vec<String>,
         antenna_positions: Vec<XyzGeodetic>,
@@ -385,6 +393,7 @@ impl UvfitsWriter {
             array_pos,
             antenna_names,
             antenna_positions,
+            dut1,
             history,
         )
     }
@@ -480,7 +489,12 @@ impl UvfitsWriter {
 
         fits_write_double(self.fptr, "POLARX", 0.0, None)?;
         fits_write_double(self.fptr, "POLARY", 0.0, None)?;
-        fits_write_double(self.fptr, "UT1UTC", 0.0, None)?;
+        fits_write_double(
+            self.fptr,
+            "UT1UTC",
+            self.dut1.in_seconds(),
+            Some("UT1 - UTC, a.k.a. DUT1"),
+        )?;
         fits_write_double(self.fptr, "DATUTC", 0.0, None)?;
 
         // AIPS 117 calls this TIMESYS, but Cotter calls in TIMSYS, so we do both.
@@ -516,20 +530,12 @@ impl UvfitsWriter {
         // Assume the station coordinates are "right handed".
         fits_write_string(self.fptr, "XYZHAND", "RIGHT", None)?;
 
-        // Precess the antenna positions to J2000.
-        let prec_info = precess_time(
-            self.phase_centre,
-            self.start_epoch,
-            self.array_pos.longitude_rad,
-            self.array_pos.latitude_rad,
-        );
-        let xyz_precessed = prec_info.precess_xyz_parallel(&self.antenna_positions);
-
         // Write to the table row by row.
         let mut x_c_str = CString::new("X")?.into_raw();
         let mut y_c_str = CString::new("Y")?.into_raw();
-        for (i, (pos, name)) in xyz_precessed
-            .into_iter()
+        for (i, (pos, name)) in self
+            .antenna_positions
+            .iter()
             .zip_eq(self.antenna_names.iter())
             .enumerate()
         {
@@ -841,10 +847,11 @@ impl VisWrite for UvfitsWriter {
         ) {
             let jd_frac = (avg_centroid_timestamp.as_jde_utc_days() - jd_trunc) as f32;
             let prec_info = precess_time(
-                self.phase_centre,
-                avg_centroid_timestamp,
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,
+                self.phase_centre,
+                avg_centroid_timestamp,
+                self.dut1,
             );
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&self.antenna_positions);
@@ -1638,6 +1645,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
+            Duration::from_total_nanoseconds(0),
             Some(obs_name),
             names,
             positions,
@@ -1717,6 +1725,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
+            Duration::from_total_nanoseconds(0),
             Some(&corr_ctx.metafits_context.obs_name),
             names,
             positions,
@@ -1784,6 +1793,7 @@ mod tests {
             LatLngHeight::new_mwa(),
             names,
             positions,
+            Duration::from_total_nanoseconds(0),
             None,
         )
         .unwrap();
@@ -1862,6 +1872,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
+            Duration::from_total_nanoseconds(0),
             None,
             names,
             positions,
@@ -1965,6 +1976,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
+            Duration::from_total_nanoseconds(0),
             None,
             names,
             positions,
@@ -2074,6 +2086,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
+            Duration::from_total_nanoseconds(0),
             Some(&field_name),
             names,
             positions,
@@ -2227,7 +2240,6 @@ mod tests {
             get_required_fits_key!(&mut birli_fptr, &birli_ant_hdu, "POLARX").unwrap();
         assert_abs_diff_eq!(birli_ant_polary, 0.);
         // -> UT1UTC = UT1 - UTC (sec)
-        // ---> notes from @mkolopanis: we also use 0 here.
         let birli_ant_ut1utc: f32 =
             get_required_fits_key!(&mut birli_fptr, &birli_ant_hdu, "UT1UTC").unwrap();
         assert_abs_diff_eq!(birli_ant_ut1utc, 0.);
@@ -2364,6 +2376,7 @@ mod tests {
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
+            Duration::from_total_nanoseconds(0),
             Some(&corr_ctx.metafits_context.obs_name),
             names,
             positions,

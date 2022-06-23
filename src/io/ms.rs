@@ -13,7 +13,7 @@ use crate::{
 use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
-use hifitime::Unit;
+use hifitime::{Duration, Unit};
 use lazy_static::lazy_static;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
@@ -70,6 +70,11 @@ pub struct MeasurementSetWriter {
     /// The *unprecessed* positions of the antennas. The writing code will
     /// precess these positions to J2000 for each timestep.
     antenna_positions: Vec<XyzGeodetic>,
+
+    /// UT1 - UTC, a.k.a. DUT1. We assume that this value is suitable for all
+    /// timesteps being written; this is pretty sensible, because the value
+    /// should change very slowly (a few milliseconds over ~5 days?).
+    dut1: Duration,
 }
 
 impl MeasurementSetWriter {
@@ -78,6 +83,7 @@ impl MeasurementSetWriter {
         phase_centre: RADec,
         array_pos: LatLngHeight,
         antenna_positions: Vec<XyzGeodetic>,
+        dut1: Duration,
     ) -> Self {
         MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
@@ -85,6 +91,7 @@ impl MeasurementSetWriter {
             array_pos,
             main_row_idx: 0,
             antenna_positions,
+            dut1,
         }
     }
 
@@ -300,7 +307,15 @@ impl MeasurementSetWriter {
 
         let mut meas_info = TableRecord::new()?;
         meas_info.put_field("type", &"epoch".to_string())?;
-        meas_info.put_field("Ref", &"UTC".to_string())?;
+        meas_info.put_field(
+            "Ref",
+            &if self.dut1.in_seconds().abs() > f64::EPSILON {
+                "UT1"
+            } else {
+                "UTC"
+            }
+            .to_string(),
+        )?;
 
         obs_table.put_column_keyword("MWA_DATE_REQUESTED", "MEASINFO", &meas_info)?;
 
@@ -371,7 +386,15 @@ impl MeasurementSetWriter {
 
         let mut meas_info = TableRecord::new()?;
         meas_info.put_field("type", &"epoch".to_string())?;
-        meas_info.put_field("Ref", &"UTC".to_string())?;
+        meas_info.put_field(
+            "Ref",
+            &if self.dut1.in_seconds().abs() > f64::EPSILON {
+                "UT1"
+            } else {
+                "UTC"
+            }
+            .to_string(),
+        )?;
 
         pointing_table_desc.put_column_keyword("INTERVAL", "MEASINFO", &meas_info)?;
 
@@ -1346,6 +1369,22 @@ impl MeasurementSetWriter {
         let num_avg_rows = num_avg_timesteps * num_sel_baselines;
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
 
+        // If the DUT1 is non zero, we assume we're tracking a UT1 reference
+        // frame. Otherwise, we assume its UTC.
+        let mut meas_info = TableRecord::new()?;
+        meas_info.put_field("type", &"epoch".to_string())?;
+        meas_info.put_field(
+            "Ref",
+            &if self.dut1.in_seconds().abs() > f64::EPSILON {
+                "UT1"
+            } else {
+                "UTC"
+            }
+            .to_string(),
+        )?;
+        main_table.put_column_keyword("TIME", "MEASINFO", &meas_info)?;
+        main_table.put_column_keyword("TIME_CENTROID", "MEASINFO", &meas_info)?;
+
         main_table.add_rows(num_avg_rows)?;
 
         // /////////////// //
@@ -1673,8 +1712,12 @@ impl MeasurementSetWriter {
             .map(|weights_pol_view| weights_pol_view.sum())
             .collect::<Vec<f32>>();
 
-        table.put_cell("TIME", idx, &time)?;
-        table.put_cell("TIME_CENTROID", idx, &time_centroid)?;
+        table.put_cell("TIME", idx, &(time + self.dut1.in_seconds()))?;
+        table.put_cell(
+            "TIME_CENTROID",
+            idx,
+            &(time_centroid + self.dut1.in_seconds()),
+        )?;
         table.put_cell("ANTENNA1", idx, &antenna1)?;
         table.put_cell("ANTENNA2", idx, &antenna2)?;
         table.put_cell("DATA_DESC_ID", idx, &data_desc_id)?;
@@ -1771,10 +1814,11 @@ impl VisWrite for MeasurementSetWriter {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.as_mjd_utc_seconds();
 
             let prec_info = precess_time(
-                self.phase_centre,
-                avg_centroid_timestamp,
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,
+                self.phase_centre,
+                avg_centroid_timestamp,
+                self.dut1,
             );
 
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&self.antenna_positions);
@@ -1924,8 +1968,13 @@ mod tests {
         // the subfolder doesn't exist
         let table_path = temp_dir.path().join("subfolder").join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
 
@@ -1941,8 +1990,13 @@ mod tests {
         std::fs::File::create(&naughty_file).unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         let result = ms_writer.decompress_default_tables();
         assert!(result.is_err());
         match result {
@@ -1962,8 +2016,13 @@ mod tests {
         std::fs::File::create(&naughty_file).unwrap();
         let table_path = temp_dir.path().join("subfolder").join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         let result = ms_writer.decompress_default_tables();
         assert!(result.is_err());
         match result {
@@ -2254,8 +2313,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
 
@@ -2449,8 +2513,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
 
@@ -2479,8 +2548,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -2509,8 +2583,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods().unwrap();
         drop(ms_writer);
@@ -2561,8 +2640,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -2624,8 +2708,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -2671,8 +2760,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -2704,8 +2798,13 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::new(0., -0.47123889803846897);
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, LatLngHeight::new_mwa(), vec![]);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            LatLngHeight::new_mwa(),
+            vec![],
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3218,8 +3317,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3287,8 +3391,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3359,8 +3468,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3406,8 +3520,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3446,8 +3565,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3486,8 +3610,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3557,8 +3686,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3628,8 +3762,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3688,8 +3827,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3739,8 +3883,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3807,8 +3956,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3876,8 +4030,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -3965,8 +4124,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -4046,8 +4210,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -4102,8 +4271,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -4160,8 +4334,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
 
         vis_sel.timestep_range = 0..3;
         vis_sel.baseline_idxs = vec![0];
@@ -4559,8 +4738,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
         ms_writer.add_cotter_mods(768).unwrap();
@@ -4840,8 +5024,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let mut ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let mut ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
 
         let vis_sel = VisSelection {
             timestep_range: 0..2,
@@ -4937,8 +5126,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let mut ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let mut ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
 
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
 
@@ -5073,8 +5267,13 @@ mod tests {
                 .to_geodetic_inner(geocentric_vector, s_long, c_long)
             })
             .collect();
-        let mut ms_writer =
-            MeasurementSetWriter::new(&table_path, phase_centre, array_pos, antenna_positions);
+        let mut ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::from_total_nanoseconds(0),
+        );
 
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
 
@@ -5209,6 +5408,7 @@ mod tests {
             obs_ctx.phase_centre,
             obs_ctx.array_pos,
             antenna_positions,
+            Duration::from_total_nanoseconds(0),
         );
         ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
@@ -5310,6 +5510,7 @@ mod tests {
             obs_ctx.phase_centre,
             obs_ctx.array_pos,
             antenna_positions,
+            Duration::from_total_nanoseconds(0),
         );
         ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
