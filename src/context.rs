@@ -117,6 +117,26 @@ impl ObsContext {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct History {
+    /// The application (and version) used to create the file
+    pub application: Option<String>,
+    /// The command line arguments used to create the file
+    pub cmd_line: Option<String>,
+    /// What the application did (human readable)
+    pub message: Option<String>,
+}
+
+impl History {
+    pub fn as_comment(&self) -> String {
+        [
+            self.application.as_ref().map(|s| format!("Created by {}", s)),
+            self.cmd_line.as_ref().map(|s| format!("CmdLine: {}", s)),
+            self.message.as_ref().map(|s| format!("Msg: {}", s)),
+        ].into_iter().flatten().collect::<Vec<String>>().join("\n")
+    }
+}
+
 /// An extension of [`ObsContext`] that for MWA-specific metadata that is not
 /// present in some file types like uvfits.
 pub struct MwaObsContext {
