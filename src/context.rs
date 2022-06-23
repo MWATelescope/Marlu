@@ -18,7 +18,7 @@ cfg_if::cfg_if! {
 }
 
 /// A container for observation metadata common across most file types
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ObsContext {
     /// Scheduled start time
     pub sched_start_timestamp: Epoch,
