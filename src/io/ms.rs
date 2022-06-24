@@ -1527,7 +1527,6 @@ impl MeasurementSetWriter {
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_millis() as f64
             / 1000.;
-        // TODO: cmd_line, message, params
         let default_message = format!("{} {}", PKG_NAME, PKG_VERSION);
         let (cmd_line, application, message) = match history {
             Some(History {

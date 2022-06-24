@@ -117,6 +117,7 @@ impl ObsContext {
     }
 }
 
+/// A container for metadata about how a visibility file was created.
 #[derive(Debug, Clone, Default)]
 pub struct History<'a> {
     /// The application (and version) used to create the file
