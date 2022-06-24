@@ -22,7 +22,7 @@ use crate::{
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
-    Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
+    History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
 };
 use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::{izip, Itertools};
@@ -192,6 +192,7 @@ impl UvfitsWriter {
         phase_centre: RADec,
         obs_name: Option<&str>,
         array_pos: LatLngHeight,
+        history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let path = path.as_ref();
         // Delete any file that already exists.
@@ -305,16 +306,26 @@ impl UvfitsWriter {
         fits_write_history(fptr, "AIPS WTSCAL =  1.0")?;
 
         // Add in version information
-        fits_write_comment(
-            fptr,
-            &format!(
-                "Created by {} v{}",
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION")
-            ),
-        )?;
+        let software = match history {
+            Some(History {
+                application: Some(app),
+                ..
+            }) => (*app).to_string(),
+            _ => format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+        };
 
-        fits_write_string(fptr, "SOFTWARE", env!("CARGO_PKG_NAME"), None)?;
+        match history {
+            Some(history) => {
+                for comment in &history.as_comments() {
+                    fits_write_comment(fptr, comment)?;
+                }
+            }
+            None => {
+                fits_write_comment(fptr, &format!("Created by {software}",))?;
+            }
+        };
+
+        fits_write_string(fptr, "SOFTWARE", &software, None)?;
         fits_write_string(
             fptr,
             "GITLABEL",
@@ -359,6 +370,7 @@ impl UvfitsWriter {
         phase_centre: Option<RADec>,
         avg_time: usize,
         avg_freq: usize,
+        history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let phase_centre = phase_centre
             .unwrap_or_else(|| RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context));
@@ -378,7 +390,14 @@ impl UvfitsWriter {
             avg_freq,
         );
 
-        Self::from_marlu(path, &vis_ctx, array_pos, phase_centre, Some(&field_name))
+        Self::from_marlu(
+            path,
+            &vis_ctx,
+            array_pos,
+            phase_centre,
+            Some(&field_name),
+            history,
+        )
     }
 
     pub fn from_marlu<T: AsRef<Path>>(
@@ -387,6 +406,7 @@ impl UvfitsWriter {
         array_pos: Option<LatLngHeight>,
         phase_centre: RADec,
         obs_name: Option<&str>,
+        history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let avg_freqs_hz: Vec<f64> = vis_ctx.avg_frequencies_hz();
         let avg_centre_chan = avg_freqs_hz.len() / 2;
@@ -416,6 +436,7 @@ impl UvfitsWriter {
             phase_centre,
             obs_name,
             array_pos,
+            history,
         )
     }
 
@@ -1164,13 +1185,14 @@ pub(super) enum FitsioOrCStringError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tempfile::NamedTempFile;
+    use std::io::Read;
 
+    use super::*;
     use fitsio::{
         hdu::{FitsHdu, HduInfo},
         FitsFile,
     };
+    use tempfile::NamedTempFile;
 
     use crate::{
         constants::{
@@ -1723,6 +1745,7 @@ mod tests {
             None,
             1,
             1,
+            None,
         )
         .unwrap();
         for _timestep_index in vis_sel.timestep_range.clone() {
@@ -1785,6 +1808,7 @@ mod tests {
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
             Some(&corr_ctx.metafits_context.obs_name),
+            None,
         )
         .unwrap();
         for _timestep_index in 0..vis_ctx.num_sel_timesteps {
@@ -1839,6 +1863,7 @@ mod tests {
             RADec::new_degrees(0.0, 60.0),
             Some("test"),
             LatLngHeight::new_mwa(),
+            None,
         )
         .unwrap();
 
@@ -1913,6 +1938,7 @@ mod tests {
             None,
             1,
             1,
+            None,
         )
         .unwrap();
 
@@ -2007,6 +2033,7 @@ mod tests {
             None,
             avg_time,
             avg_freq,
+            None,
         )
         .unwrap();
 
@@ -2101,6 +2128,7 @@ mod tests {
             None,
             1,
             1,
+            None,
         )
         .unwrap();
 
@@ -2339,5 +2367,96 @@ mod tests {
         let birli_ant_freqid: i32 =
             get_required_fits_key!(&mut birli_fptr, &birli_ant_hdu, "FREQID").unwrap();
         assert_eq!(birli_ant_freqid, -1);
+    }
+
+    /// Tests for Comments
+    #[test]
+    fn comments() {
+        let corr_ctx = get_mwa_legacy_context();
+
+        let tmp_uvfits_file = NamedTempFile::new().unwrap();
+
+        let vis_ctx = VisContext::from_mwalib(&corr_ctx, &(0..1), &(0..1), &[0], 1, 1);
+
+        let array_pos = Some(LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        });
+
+        let history = History {
+            application: Some("Cotter MWA preprocessor"),
+            cmd_line: Some(
+                "cotter \"-m\" \"tests/data/1196175296_mwa_ord/1196175296.cotter.me\
+                tafits\" \"-o\" \"tests/data/1196175296_mwa_ord/1196175296.uvfits\" \"-allowmi\
+                ssing\" \"-edgewidth\" \"0\" \"-endflag\" \"0\" \"-initflag\" \"0\" \"-noantennaprunin\
+                g\" \"-nocablelength\" \"-noflagautos\" \"-noflagdcchannels\" \"-nogeom\" \"-nosbg\
+                ains\" \"-sbpassband\" \"tests/data/subband-passband-2ch-unitary.txt\" \"-sbst\
+                art\" \"1\" \"-sbcount\" \"2\" \"-nostats\" \"-flag-strategy\" \"/usr/local/share/ao\
+                flagger/strategies/mwa-default.lua\" \"tests/data/1196175296_mwa_ord/11961\
+                75296_20171201145440_gpubox01_00.fits\" \"tests/data/1196175296_mwa_ord/11\
+                96175296_20171201145440_gpubox02_00.fits\" \"tests/data/1196175296_mwa_ord\
+                /1196175296_20171201145540_gpubox01_01.fits\" \"tests/data/1196175296_mwa_\
+                ord/1196175296_20171201145540_gpubox02_01.fits\""
+            ),
+            message: None
+        };
+
+        let mut u = UvfitsWriter::from_marlu(
+            tmp_uvfits_file.path(),
+            &vis_ctx,
+            array_pos,
+            RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
+            Some(&corr_ctx.metafits_context.obs_name),
+            Some(&history),
+        )
+        .unwrap();
+        for _timestep_index in 0..vis_ctx.num_sel_timesteps {
+            for (baseline_index, (tile1, tile2)) in
+                vis_ctx.sel_baselines.clone().into_iter().enumerate()
+            {
+                u.write_vis_row(
+                    UVW::default(),
+                    tile1,
+                    tile2,
+                    vis_ctx.start_timestamp,
+                    (baseline_index..baseline_index + vis_ctx.num_sel_chans)
+                        .into_iter()
+                        .map(|int| int as f32)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .unwrap();
+            }
+        }
+        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
+            .unwrap();
+
+        // Reading out a block of COMMENT strings out a fits file, the dirty way.
+        fn read_comment_block(f: &mut std::fs::File) -> String {
+            let mut buf = [0u8; 80];
+            let mut found_comment_block = false;
+            let mut comment_block = String::new();
+            for _ in 0..100 {
+                f.read_exact(&mut buf).unwrap();
+                let s = std::str::from_utf8(&buf).unwrap();
+                if s.starts_with("COMMENT ") {
+                    found_comment_block = true;
+                    comment_block.push_str(s.split_at(8).1);
+                } else if found_comment_block {
+                    break;
+                }
+            }
+            comment_block
+        }
+        let mut birli_file = std::fs::File::open(tmp_uvfits_file.path()).unwrap();
+        let first_birli_comment = read_comment_block(&mut birli_file);
+        let second_birli_comment = read_comment_block(&mut birli_file);
+        let mut cotter_file = std::fs::File::open(tmp_uvfits_file.path()).unwrap();
+        let first_cotter_comment = read_comment_block(&mut cotter_file);
+        let second_cotter_comment = read_comment_block(&mut cotter_file);
+
+        assert_eq!(first_birli_comment, first_cotter_comment);
+        assert_eq!(second_birli_comment, second_cotter_comment);
     }
 }

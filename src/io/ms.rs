@@ -7,7 +7,7 @@ use crate::{
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
-    LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
+    History, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
 };
 
 use std::path::{Path, PathBuf};
@@ -1148,6 +1148,7 @@ impl MeasurementSetWriter {
     /// `avg_freq` - the frequency averaging factor which determines the number of frequencies that
     ///     will be written
     #[cfg(feature = "mwalib")]
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize_from_mwalib(
         &self,
         corr_ctx: &CorrelatorContext,
@@ -1156,6 +1157,7 @@ impl MeasurementSetWriter {
         baseline_idxs: &[usize],
         avg_time: usize,
         avg_freq: usize,
+        history: Option<&History>,
     ) -> Result<(), MeasurementSetWriteError> {
         let vis_ctx = VisContext::from_mwalib(
             corr_ctx,
@@ -1172,7 +1174,7 @@ impl MeasurementSetWriter {
 
         let mwa_ctx = MwaObsContext::from_mwalib(&corr_ctx.metafits_context);
 
-        self.initialize_mwa(&vis_ctx, &obs_ctx, &mwa_ctx, coarse_chan_range)
+        self.initialize_mwa(&vis_ctx, &obs_ctx, &mwa_ctx, history, coarse_chan_range)
     }
 
     /// Initialize a measurement set, including the extended MWA tables from a [`VisContext`],
@@ -1185,6 +1187,7 @@ impl MeasurementSetWriter {
         vis_ctx: &VisContext,
         obs_ctx: &ObsContext,
         mwa_ctx: &MwaObsContext,
+        history: Option<&History>,
         coarse_chan_range: &Range<usize>,
     ) -> Result<(), MeasurementSetWriteError> {
         let ObsContext {
@@ -1194,7 +1197,7 @@ impl MeasurementSetWriter {
             ..
         } = &obs_ctx;
 
-        self.initialize(vis_ctx, obs_ctx)?;
+        self.initialize(vis_ctx, obs_ctx, history)?;
 
         self.add_mwa_mods()?;
 
@@ -1315,6 +1318,7 @@ impl MeasurementSetWriter {
         &self,
         vis_ctx: &VisContext,
         obs_ctx: &ObsContext,
+        history: Option<&History>,
     ) -> Result<(), MeasurementSetWriteError> {
         trace!("initialize");
 
@@ -1523,17 +1527,27 @@ impl MeasurementSetWriter {
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_millis() as f64
             / 1000.;
-        // TODO: cmd_line, message, params
-        let cmd_line = "TODO";
-        let message = "TODO";
-        let params = "TODO";
+        let default_message = format!("{} {}", PKG_NAME, PKG_VERSION);
+        let (cmd_line, application, message) = match history {
+            Some(History {
+                cmd_line,
+                application,
+                message,
+            }) => (
+                cmd_line.unwrap_or_default(),
+                application.unwrap_or_default(),
+                message.unwrap_or_default(),
+            ),
+            None => ("", default_message.as_str(), ""),
+        };
+        let params = "";
         self.write_history_row(
             &mut hist_table,
             0,
             time,
             cmd_line,
             message,
-            &format!("{} {}", PKG_NAME, PKG_VERSION),
+            application,
             params,
         )?;
 
@@ -3126,6 +3140,45 @@ mod tests {
         [-211.53, -211.53],
     ];
 
+    const COTTER_HISTORY: History<'static> = History {
+        application: Some("Cotter MWA preprocessor"),
+        cmd_line: Some(
+            "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
+            \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.ms\" \
+            \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \
+            \"-nosbgains\" \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \
+            \"-edgewidth\" \"0\" \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \
+            \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \
+            \"-flag-strategy\" \"/usr/share/aoflagger/strategies/mwa-default.lua\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"\
+            ",
+        ),
+        message: Some("Preprocessed & AOFlagged"),
+    };
+
     /// Test data:
     /// ```python
     /// tb.open('tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms/ANTENNA')
@@ -3647,7 +3700,31 @@ mod tests {
                 &mut hist_table,
                 0,
                 5149221788.625,
-                "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.ms\" \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \"-nosbgains\" \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \"-edgewidth\" \"0\" \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \"-flag-strategy\" \"/usr/share/aoflagger/strategies/mwa-default.lua\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"",
+                "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
+                \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.ms\" \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \"-nosbgains\" \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \"-edgewidth\" \"0\" \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \"-flag-strategy\" \"/usr/share/aoflagger/strategies/mwa-default.lua\" \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \
+                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"",
                 "Preprocessed & AOFlagged",
                 "Cotter MWA preprocessor",
                 "timeavg=1,freqavg=1,windowSize=4",
@@ -3847,6 +3924,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
+                Some(&COTTER_HISTORY),
             )
             .unwrap();
 
@@ -3922,13 +4000,13 @@ mod tests {
                     "OBSERVATION_ID",
                     "ORIGIN",
                     "PRIORITY",
+                    "APPLICATION",
+                    "CLI_COMMAND",
+                    "MESSAGE",
                     // TODO:
                     // "APP_PARAMS",
-                    // "CLI_COMMAND",
-                    // "MESSAGE",
                     // WONTDO:
                     // "TIME", // this is wrong in Cotter.
-                    // "APPLICATION", // Different application so these will never match
                 ],
             ),
             (
@@ -4393,20 +4471,20 @@ mod tests {
         //         "APPLIED", "COMMAND", "INTERVAL", "LEVEL", "REASON", "SEVERITY", "TIME", "TYPE",
         //     ],
         // ),
-        // (
-        //     "HISTORY",
-        //     &[
-        //         "APP_PARAMS",
-        //         "CLI_COMMAND",
-        //         "APPLICATION",
-        //         "MESSAGE",
-        //         "OBJECT_ID",
-        //         "OBSERVATION_ID",
-        //         "ORIGIN",
-        //         "PRIORITY",
-        //         "TIME",
-        //     ],
-        // ),
+        (
+            "HISTORY",
+            &[
+                // "APP_PARAMS",
+                "CLI_COMMAND",
+                "APPLICATION",
+                "MESSAGE",
+                // "OBJECT_ID",
+                // "OBSERVATION_ID",
+                // "ORIGIN",
+                // "PRIORITY",
+                // "TIME",
+            ],
+        ),
         (
             "OBSERVATION",
             &[
@@ -4504,6 +4582,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
+                Some(&COTTER_HISTORY),
             )
             .unwrap();
 
@@ -4570,6 +4649,41 @@ mod tests {
 
         let (avg_time, avg_freq) = (2, 2);
 
+        let mut history = COTTER_HISTORY.clone();
+        history.cmd_line = Some(
+            "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
+        \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.avg_4s_80khz.ms\" \
+        \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \"-nosbgains\" \
+        \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \"-edgewidth\" \"0\" \
+        \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \
+        \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \"-flag-strategy\" \
+        \"/usr/share/aoflagger/strategies/mwa-default.lua\" \"-timeres\" \"4\" \"-freqres\" \"80\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"",
+        );
+
         ms_writer
             .initialize_from_mwalib(
                 &corr_ctx,
@@ -4578,6 +4692,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
+                Some(&history),
             )
             .unwrap();
 
@@ -4656,6 +4771,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
+                Some(&COTTER_HISTORY),
             )
             .unwrap();
 
@@ -4759,7 +4875,7 @@ mod tests {
 
         let mut ms_writer =
             MeasurementSetWriter::new(&table_path, obs_ctx.phase_centre, Some(obs_ctx.array_pos));
-        ms_writer.initialize(&vis_ctx, &obs_ctx).unwrap();
+        ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
         let good_jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         let good_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
@@ -4859,7 +4975,7 @@ mod tests {
 
         let mut ms_writer =
             MeasurementSetWriter::new(&table_path, obs_ctx.phase_centre, Some(obs_ctx.array_pos));
-        ms_writer.initialize(&vis_ctx, &obs_ctx).unwrap();
+        ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
         // Break things by making vis_sel and vis_ctx too big
         vis_ctx.num_sel_timesteps += 1;

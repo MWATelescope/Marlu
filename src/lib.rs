@@ -45,7 +45,7 @@ pub mod io;
 pub mod cuda;
 
 // Re-exports.
-pub use context::{MwaObsContext, ObsContext, VisContext};
+pub use context::{History, MwaObsContext, ObsContext, VisContext};
 pub use jones::Jones;
 pub use pos::{
     azel::AzEl,

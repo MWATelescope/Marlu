@@ -117,6 +117,31 @@ impl ObsContext {
     }
 }
 
+/// A container for metadata about how a visibility file was created.
+#[derive(Debug, Clone, Default)]
+pub struct History<'a> {
+    /// The application (and version) used to create the file
+    pub application: Option<&'a str>,
+    /// The command line arguments used to create the file
+    pub cmd_line: Option<&'a str>,
+    /// What the application did (human readable)
+    pub message: Option<&'a str>,
+}
+
+impl<'a> History<'a> {
+    /// Format history as a series of uvfits COMMENTs
+    pub fn as_comments(&self) -> Vec<String> {
+        [
+            self.application.map(|s| format!("Created by {}", s)),
+            self.cmd_line.map(|s| format!("CmdLine: {}", s)),
+            self.message.map(|s| format!("Msg: {}", s)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+    }
+}
+
 /// An extension of [`ObsContext`] that for MWA-specific metadata that is not
 /// present in some file types like uvfits.
 pub struct MwaObsContext {
