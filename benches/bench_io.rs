@@ -83,7 +83,13 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
                     Some(obs_ctx.array_pos),
                 );
                 ms_writer
-                    .initialize_mwa(&vis_ctx, &obs_ctx, &mwa_ctx, None, &vis_sel.coarse_chan_range)
+                    .initialize_mwa(
+                        &vis_ctx,
+                        &obs_ctx,
+                        &mwa_ctx,
+                        None,
+                        &vis_sel.coarse_chan_range,
+                    )
                     .unwrap();
             })
         },
@@ -206,7 +212,13 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                     Some(obs_ctx.array_pos),
                 );
                 ms_writer
-                    .initialize_mwa(&vis_ctx, &obs_ctx, &mwa_ctx, None, &vis_sel.coarse_chan_range)
+                    .initialize_mwa(
+                        &vis_ctx,
+                        &obs_ctx,
+                        &mwa_ctx,
+                        None,
+                        &vis_sel.coarse_chan_range,
+                    )
                     .unwrap();
                 ms_writer
                     .write_vis_marlu(

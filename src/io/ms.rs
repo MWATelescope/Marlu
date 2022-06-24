@@ -7,7 +7,7 @@ use crate::{
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
-    LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic, History,
+    History, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
 };
 
 use std::path::{Path, PathBuf};
@@ -1157,7 +1157,7 @@ impl MeasurementSetWriter {
         baseline_idxs: &[usize],
         avg_time: usize,
         avg_freq: usize,
-        history: Option<History>,
+        history: Option<&History>,
     ) -> Result<(), MeasurementSetWriteError> {
         let vis_ctx = VisContext::from_mwalib(
             corr_ctx,
@@ -1187,7 +1187,7 @@ impl MeasurementSetWriter {
         vis_ctx: &VisContext,
         obs_ctx: &ObsContext,
         mwa_ctx: &MwaObsContext,
-        history: Option<History>,
+        history: Option<&History>,
         coarse_chan_range: &Range<usize>,
     ) -> Result<(), MeasurementSetWriteError> {
         let ObsContext {
@@ -1318,7 +1318,7 @@ impl MeasurementSetWriter {
         &self,
         vis_ctx: &VisContext,
         obs_ctx: &ObsContext,
-        history: Option<History>,
+        history: Option<&History>,
     ) -> Result<(), MeasurementSetWriteError> {
         trace!("initialize");
 
@@ -1528,31 +1528,27 @@ impl MeasurementSetWriter {
             .as_millis() as f64
             / 1000.;
         // TODO: cmd_line, message, params
+        let default_message = format!("{} {}", PKG_NAME, PKG_VERSION);
         let (cmd_line, application, message) = match history {
-            Some(history) => (
-                match history.cmd_line {
-                    Some(cmd_line) => cmd_line,
-                    None => "".into(),
-                },
-                match history.application {
-                    Some(application) => application,
-                    None => "".into(),
-                },
-                match history.message {
-                    Some(message) => message,
-                    None => "".into(),
-                },
+            Some(History {
+                cmd_line,
+                application,
+                message,
+            }) => (
+                cmd_line.unwrap_or_default(),
+                application.unwrap_or_default(),
+                message.unwrap_or_default(),
             ),
-            None => ("".into(), format!("{} {}", PKG_NAME, PKG_VERSION), "".into()),
+            None => ("", default_message.as_str(), ""),
         };
         let params = "";
         self.write_history_row(
             &mut hist_table,
             0,
             time,
-            &cmd_line,
-            &message,
-            &application,
+            cmd_line,
+            message,
+            application,
             params,
         )?;
 
@@ -3145,45 +3141,44 @@ mod tests {
         [-211.53, -211.53],
     ];
 
-    fn get_cotter_history() -> History {
-        History {
-            application: Some(String::from("Cotter MWA preprocessor")),
-            cmd_line: Some(String::from(
-                "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
-                \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.ms\" \
-                \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \
-                \"-nosbgains\" \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \
-                \"-edgewidth\" \"0\" \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \
-                \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \
-                \"-flag-strategy\" \"/usr/share/aoflagger/strategies/mwa-default.lua\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \
-                \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"\
-                ")),
-            message: Some(String::from("Preprocessed & AOFlagged")),
-        }
-    }
+    const COTTER_HISTORY: History<'static> = History {
+        application: Some("Cotter MWA preprocessor"),
+        cmd_line: Some(
+            "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
+            \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.ms\" \
+            \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \
+            \"-nosbgains\" \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \
+            \"-edgewidth\" \"0\" \"-initflag\" \"0\" \"-endflag\" \"0\" \"-sbpassband\" \
+            \"tests/data/subband-passband-32ch-unitary.txt\" \"-nostats\" \
+            \"-flag-strategy\" \"/usr/share/aoflagger/strategies/mwa-default.lua\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox01_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox02_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox03_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox04_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox05_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox06_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox07_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox08_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox09_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox10_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox11_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox12_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox13_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox14_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox15_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox16_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox17_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox18_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox19_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox20_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \
+            \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"\
+            ",
+        ),
+        message: Some("Preprocessed & AOFlagged"),
+    };
 
     /// Test data:
     /// ```python
@@ -3930,7 +3925,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
-                Some(get_cotter_history()),
+                Some(&COTTER_HISTORY),
             )
             .unwrap();
 
@@ -4588,7 +4583,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
-                Some(get_cotter_history()),
+                Some(&COTTER_HISTORY),
             )
             .unwrap();
 
@@ -4655,8 +4650,9 @@ mod tests {
 
         let (avg_time, avg_freq) = (2, 2);
 
-        let mut history = get_cotter_history();
-        history.cmd_line = Some("cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
+        let mut history = COTTER_HISTORY.clone();
+        history.cmd_line = Some(
+            "cotter \"-m\" \"tests/data/1254670392_avg/1254670392.metafits\" \
         \"-o\" \"tests/data/1254670392_avg/1254670392.cotter.none.avg_4s_80khz.ms\" \
         \"-allowmissing\" \"-nostats\" \"-nogeom\" \"-noantennapruning\" \"-nosbgains\" \
         \"-noflagautos\" \"-noflagdcchannels\" \"-nocablelength\" \"-edgewidth\" \"0\" \
@@ -4686,7 +4682,8 @@ mod tests {
         \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox21_00.fits\" \
         \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox22_00.fits\" \
         \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox23_00.fits\" \
-        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"".into());
+        \"tests/data/1254670392_avg/1254670392_20191009153257_gpubox24_00.fits\"",
+        );
 
         ms_writer
             .initialize_from_mwalib(
@@ -4696,7 +4693,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
-                Some(history),
+                Some(&history),
             )
             .unwrap();
 
@@ -4775,7 +4772,7 @@ mod tests {
                 &vis_sel.baseline_idxs,
                 avg_time,
                 avg_freq,
-                Some(get_cotter_history()),
+                Some(&COTTER_HISTORY),
             )
             .unwrap();
 

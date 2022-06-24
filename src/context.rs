@@ -118,22 +118,26 @@ impl ObsContext {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct History {
+pub struct History<'a> {
     /// The application (and version) used to create the file
-    pub application: Option<String>,
+    pub application: Option<&'a str>,
     /// The command line arguments used to create the file
-    pub cmd_line: Option<String>,
+    pub cmd_line: Option<&'a str>,
     /// What the application did (human readable)
-    pub message: Option<String>,
+    pub message: Option<&'a str>,
 }
 
-impl History {
+impl<'a> History<'a> {
     pub fn as_comment(&self) -> String {
         [
-            self.application.as_ref().map(|s| format!("Created by {}", s)),
-            self.cmd_line.as_ref().map(|s| format!("CmdLine: {}", s)),
-            self.message.as_ref().map(|s| format!("Msg: {}", s)),
-        ].into_iter().flatten().collect::<Vec<String>>().join("\n")
+            self.application.map(|s| format!("Created by {}", s)),
+            self.cmd_line.map(|s| format!("CmdLine: {}", s)),
+            self.message.map(|s| format!("Msg: {}", s)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n")
     }
 }
 
