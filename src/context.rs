@@ -128,7 +128,8 @@ pub struct History<'a> {
 }
 
 impl<'a> History<'a> {
-    pub fn as_comment(&self) -> String {
+    /// Format history as a series of uvfits COMMENTs
+    pub fn as_comments(&self) -> Vec<String> {
         [
             self.application.map(|s| format!("Created by {}", s)),
             self.cmd_line.map(|s| format!("CmdLine: {}", s)),
@@ -137,7 +138,6 @@ impl<'a> History<'a> {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
-        .join("\n")
     }
 }
 

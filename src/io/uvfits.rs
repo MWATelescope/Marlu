@@ -306,24 +306,26 @@ impl UvfitsWriter {
         fits_write_history(fptr, "AIPS WTSCAL =  1.0")?;
 
         // Add in version information
-        let comment: String = match history {
-            Some(history) => history.as_comment(),
-            None => format!(
-                "Created by {} v{}",
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION")
-            ),
-        };
-        fits_write_comment(fptr, &comment)?;
         let software = match history {
             Some(History {
                 application: Some(app),
                 ..
-            }) => app,
-            _ => env!("CARGO_PKG_NAME"),
+            }) => (*app).to_string(),
+            _ => format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
         };
 
-        fits_write_string(fptr, "SOFTWARE", software, None)?;
+        match history {
+            Some(history) => {
+                for comment in &history.as_comments() {
+                    fits_write_comment(fptr, comment)?;
+                }
+            }
+            None => {
+                fits_write_comment(fptr, &format!("Created by {software}",))?;
+            }
+        };
+
+        fits_write_string(fptr, "SOFTWARE", &software, None)?;
         fits_write_string(
             fptr,
             "GITLABEL",
