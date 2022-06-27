@@ -1,5 +1,26 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.7.0 (2022-06-24)
+
+- ⚡ @cjordan 's lightning fast uvfits optimization: using raw cfitsio instead of fitsio_sys
+- use rust 1.60
+- Use erfa-sys 2.0
+- use ndarray 0.15.4 (instead of a range of versions)
+- use mwalib 0.15.0:
+  - cable lengths applied
+  - expose DUT1 from metafits
+- use mwalib antennas instead of rfinputs
+- better error messages when creating measurement sets in paths that either don't
+  exist, or are not a directory.
+- api changes:
+  - io:
+    - uvfits `obs_name` from `Option<String>` to `Option<&str>`.
+    - `history` metadata in ms and uvfits
+  - Jones: convenience methods for array access
+  - constants: ecpose `FREQ_WEIGHT_FACTOR`, `TIME_WEIGHT_FACTOR`
+  - context: impl `Clone` for `ObsContext`
+  - pos/lmn: add `LmnRime` and `LMN::prepare_for_rime`
+
 # Version 0.6.1 (2022-03-24)
 
 - impl Clone for VisContext
