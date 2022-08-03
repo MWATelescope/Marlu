@@ -52,7 +52,7 @@ pub use pos::{
     earth::{Ellipsoid, LatLngHeight},
     enh::ENH,
     hadec::HADec,
-    lmn::LMN,
+    lmn::{LmnRime, LMN},
     pal, precession,
     radec::RADec,
     uvw::UVW,

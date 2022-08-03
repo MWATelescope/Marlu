@@ -1,7 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
 
-# Unreleased
+# Version 0.7.1 (2022-08-03)
 
+- Re-export `LmnRime`.
 - Add `to_earth` and `to_earth_wgs84` functions on `XyzGeocentric`.
 
 # Version 0.7.0 (2022-06-24)
