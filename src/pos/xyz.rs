@@ -21,7 +21,7 @@ use super::ErfaError;
 use crate::{
     constants::MWA_LAT_RAD,
     math::{baseline_to_tiles, cross_correlation_baseline_to_tiles},
-    HADec, LatLngHeight, ENH, UVW,
+    Ellipsoid, HADec, LatLngHeight, ENH, UVW,
 };
 
 /// The geodetic (x,y,z) coordinates of an antenna (a.k.a. tile or station). All
@@ -237,8 +237,8 @@ impl std::ops::Sub<XyzGeodetic> for XyzGeodetic {
     }
 }
 
-/// The geocentric (x,y,z) coordinates of an antenna (a.k.a. tile or station).
-/// All units are in metres.
+/// The International Terrestrial Reference Frame (ITRF), or geocentric, (x,y,z)
+/// coordinates of an antenna (a.k.a. tile or station). All units are in metres.
 ///
 /// This coordinate system is discussed at length in Interferometry and
 /// Synthesis in Radio Astronomy, Third Edition, Section 4: Geometrical
@@ -330,6 +330,41 @@ impl XyzGeocentric {
     /// location.
     pub fn to_geodetic_mwa(self) -> Result<XyzGeodetic, ErfaError> {
         self.to_geodetic(LatLngHeight::new_mwa())
+    }
+
+    /// Convert a [`XyzGeocentric`] coordinate to [`LatLngHeight`] using the
+    /// specified [`Ellipsoid`]. If in doubt, use [`Ellipsoid::WGS84`] (i.e. the
+    /// latest one that's typically used).
+    pub fn to_earth(self, ellipsoid: Ellipsoid) -> Result<LatLngHeight, ErfaError> {
+        let mut earth = LatLngHeight {
+            longitude_rad: 0.0,
+            latitude_rad: 0.0,
+            height_metres: 0.0,
+        };
+        unsafe {
+            let status = erfa_sys::eraGc2gd(
+                ellipsoid as i32,
+                [self.x, self.y, self.z].as_mut_ptr(),
+                &mut earth.longitude_rad,
+                &mut earth.latitude_rad,
+                &mut earth.height_metres,
+            );
+            if status != 0 {
+                return Err(ErfaError {
+                    source_file: file!(),
+                    source_line: line!(),
+                    status,
+                    function: "eraGc2gd",
+                });
+            }
+        }
+        Ok(earth)
+    }
+
+    /// Convert a [`XyzGeocentric`] coordinate to [`LatLngHeight`] using the
+    /// ellipsoid [`Ellipsoid::WGS84`].
+    pub fn to_earth_wgs84(self) -> Result<LatLngHeight, ErfaError> {
+        self.to_earth(Ellipsoid::WGS84)
     }
 }
 
@@ -595,5 +630,18 @@ mod tests {
             .to_xyz(MWA_LAT_RAD),
             epsilon = 1e-5
         );
+    }
+
+    #[test]
+    fn test_geocentric_to_earth() {
+        // We're assuming earth to geocentric is sensible.
+        let xyz = XyzGeocentric {
+            x: -2559454.079,
+            y: 5095372.144,
+            z: -2849057.185,
+        };
+        let earth = xyz.to_earth_wgs84().unwrap();
+        let xyz2 = earth.to_geocentric_wgs84().unwrap();
+        assert_abs_diff_eq!(xyz, xyz2, epsilon = 1e-9);
     }
 }

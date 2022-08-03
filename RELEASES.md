@@ -1,5 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Unreleased
+
+- Add `to_earth` and `to_earth_wgs84` functions on `XyzGeocentric`.
+
 # Version 0.7.0 (2022-06-24)
 
 - ⚡ @cjordan 's lightning fast uvfits optimization: using raw cfitsio instead of fitsio_sys
