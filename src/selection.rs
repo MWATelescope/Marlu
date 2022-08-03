@@ -109,7 +109,7 @@ pub enum SelectionError {
 }
 
 /// Keep track of which mwalib indices the values in a jones array, its' weights and its' flags
-/// came from. Similar to a `VisSelection`, but requires an `mwalib::CorrelatorContext` to be
+/// came from. Similar to a `VisContext`, but requires an `mwalib::CorrelatorContext` to be
 /// fully interpreted
 ///
 /// TODO: this definitely needs `fine_chans_per_coarse`

@@ -353,11 +353,8 @@ impl VisContext {
         };
         let offset = if centroid { 0.5 } else { 0.0 };
         let start_timestamp = self.start_timestamp + offset * int_time;
-        TimeSeries::inclusive(
-            start_timestamp,
-            start_timestamp + (num_timesteps as f64) * int_time,
-            int_time,
-        )
+        let end_timestamp = start_timestamp + (num_timesteps as f64) * int_time;
+        TimeSeries::exclusive(start_timestamp, end_timestamp, int_time)
     }
 
     /// The number of channels in the post-averaging frequency dimension
@@ -398,5 +395,58 @@ impl VisContext {
     pub fn weight_factor(&self) -> f64 {
         self.int_time.in_seconds() / crate::constants::TIME_WEIGHT_FACTOR * self.freq_resolution_hz
             / crate::constants::FREQ_WEIGHT_FACTOR
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hifitime::Unit;
+
+    use crate::constants::VEL_C;
+
+    use super::*;
+    #[test]
+    fn vis_ctx_timeseries_length() {
+        let start_timestamp = Epoch::from_gpst_seconds(1090008640.);
+        let int_time = Duration::from_f64(1., Unit::Second);
+        let mut vis_ctx = VisContext {
+            num_sel_timesteps: 1,
+            start_timestamp,
+            int_time,
+            num_sel_chans: 1,
+            start_freq_hz: VEL_C,
+            freq_resolution_hz: 10_000.,
+            sel_baselines: vec![(0, 1), (0, 2)],
+            avg_time: 2,
+            avg_freq: 1,
+            num_vis_pols: 4,
+        };
+        vis_ctx.num_sel_timesteps = 3;
+        let times: Vec<_> = vis_ctx.timeseries(false, false).collect();
+        assert_eq!(times.len(), 3);
+        let times: Vec<_> = vis_ctx.timeseries(true, false).collect();
+        assert_eq!(times.len(), 2);
+        let times: Vec<_> = vis_ctx.timeseries(false, true).collect();
+        assert_eq!(times.len(), 3);
+        let times: Vec<_> = vis_ctx.timeseries(true, true).collect();
+        assert_eq!(times.len(), 2);
+        vis_ctx.num_sel_timesteps = 2;
+        let times: Vec<_> = vis_ctx.timeseries(false, false).collect();
+        assert_eq!(times.len(), 2);
+        let times: Vec<_> = vis_ctx.timeseries(true, false).collect();
+        assert_eq!(times.len(), 1);
+        let times: Vec<_> = vis_ctx.timeseries(false, true).collect();
+        assert_eq!(times.len(), 2);
+        let times: Vec<_> = vis_ctx.timeseries(true, true).collect();
+        assert_eq!(times.len(), 1);
+        vis_ctx.num_sel_timesteps = 1;
+        let times: Vec<_> = vis_ctx.timeseries(false, false).collect();
+        assert_eq!(times.len(), 1);
+        let times: Vec<_> = vis_ctx.timeseries(true, false).collect();
+        assert_eq!(times.len(), 1);
+        let times: Vec<_> = vis_ctx.timeseries(false, true).collect();
+        assert_eq!(times.len(), 1);
+        let times: Vec<_> = vis_ctx.timeseries(true, true).collect();
+        assert_eq!(times.len(), 1);
     }
 }
