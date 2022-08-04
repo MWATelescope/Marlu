@@ -68,6 +68,12 @@ pub use num_complex::Complex;
 pub use num_traits;
 pub use rayon;
 
+// Include the generated built.rs code into our library
+pub mod built_info {
+    // The file has been placed there by the build script.
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 // If "mwalib" is enabled, re-export the crate here, as well its re-exported
 // crates.
 cfg_if::cfg_if! {

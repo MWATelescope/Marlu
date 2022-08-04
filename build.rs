@@ -23,6 +23,9 @@ fn infer_static(name: &str) -> bool {
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
+    // Gather build time info
+    built::write_built_file().expect("Failed to acquire build-time information");
+
     #[cfg(feature = "cuda")]
     {
         // Link CUDA. If the library path manually specified, search there.

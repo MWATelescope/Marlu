@@ -406,6 +406,8 @@ mod tests {
 
     use super::*;
     #[test]
+    // TODO: these collects are needed because of https://github.com/nyx-space/hifitime/issues/131
+    #[allow(clippy::needless_collect)]
     fn vis_ctx_timeseries_length() {
         let start_timestamp = Epoch::from_gpst_seconds(1090008640.);
         let int_time = Duration::from_f64(1., Unit::Second);
