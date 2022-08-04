@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.7.2 (2022-08-04)
+
+- Expose Marlu version in `built_info`
+- fix a bug that caused vis_ctx.timeseries to give an additional timestep.
+
 # Version 0.7.1 (2022-08-03)
 
 - Re-export `LmnRime`.
