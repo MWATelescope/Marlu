@@ -237,6 +237,46 @@ impl std::ops::Sub<XyzGeodetic> for XyzGeodetic {
     }
 }
 
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for XyzGeodetic {
+    type Epsilon = f64;
+
+    fn default_epsilon() -> f64 {
+        f64::EPSILON
+    }
+
+    fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
+        f64::abs_diff_eq(&self.x, &other.x, epsilon)
+            && f64::abs_diff_eq(&self.y, &other.y, epsilon)
+            && f64::abs_diff_eq(&self.z, &other.z, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for XyzGeodetic {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.x, &other.x, epsilon, max_relative)
+            && f64::relative_eq(&self.y, &other.y, epsilon, max_relative)
+            && f64::relative_eq(&self.z, &other.z, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
+    }
+}
+
 /// The International Terrestrial Reference Frame (ITRF), or geocentric, (x,y,z)
 /// coordinates of an antenna (a.k.a. tile or station). All units are in metres.
 ///
@@ -368,11 +408,8 @@ impl XyzGeocentric {
     }
 }
 
-#[cfg(test)]
-use approx::AbsDiffEq;
-
-#[cfg(test)]
-impl AbsDiffEq for XyzGeodetic {
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for XyzGeocentric {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -386,18 +423,28 @@ impl AbsDiffEq for XyzGeodetic {
     }
 }
 
-#[cfg(test)]
-impl AbsDiffEq for XyzGeocentric {
-    type Epsilon = f64;
-
-    fn default_epsilon() -> f64 {
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for XyzGeocentric {
+    #[inline]
+    fn default_max_relative() -> f64 {
         f64::EPSILON
     }
 
-    fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
-        f64::abs_diff_eq(&self.x, &other.x, epsilon)
-            && f64::abs_diff_eq(&self.y, &other.y, epsilon)
-            && f64::abs_diff_eq(&self.z, &other.z, epsilon)
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.x, &other.x, epsilon, max_relative)
+            && f64::relative_eq(&self.y, &other.y, epsilon, max_relative)
+            && f64::relative_eq(&self.z, &other.z, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
     }
 }
 

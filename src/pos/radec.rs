@@ -186,6 +186,44 @@ impl std::fmt::Display for RADec {
     }
 }
 
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for RADec {
+    type Epsilon = f64;
+
+    fn default_epsilon() -> f64 {
+        f64::EPSILON
+    }
+
+    fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
+        f64::abs_diff_eq(&self.ra, &other.ra, epsilon)
+            && f64::abs_diff_eq(&self.dec, &other.dec, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for RADec {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.ra, &other.ra, epsilon, max_relative)
+            && f64::relative_eq(&self.dec, &other.dec, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,9 +239,7 @@ mod tests {
             m: -0.008971846102111436,
             n: 0.9994804738961642,
         };
-        assert_abs_diff_eq!(lmn.l, expected.l, epsilon = 1e-10);
-        assert_abs_diff_eq!(lmn.m, expected.m, epsilon = 1e-10);
-        assert_abs_diff_eq!(lmn.n, expected.n, epsilon = 1e-10);
+        assert_abs_diff_eq!(lmn, expected, epsilon = 1e-10);
     }
 
     #[test]
@@ -219,16 +255,28 @@ mod tests {
         let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
-        assert_abs_diff_eq!(weighted_pos.ra, 10.5_f64.to_radians(), epsilon = 1e-10);
-        assert_abs_diff_eq!(weighted_pos.dec, 9.5_f64.to_radians(), epsilon = 1e-10);
+        assert_abs_diff_eq!(
+            weighted_pos,
+            RADec {
+                ra: 10.5_f64.to_radians(),
+                dec: 9.5_f64.to_radians()
+            },
+            epsilon = 1e-10
+        );
 
         // Complex case: both components have different weights.
         let w1 = 3.0;
         let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
-        assert_abs_diff_eq!(weighted_pos.ra, 10.25_f64.to_radians(), epsilon = 1e-10);
-        assert_abs_diff_eq!(weighted_pos.dec, 9.25_f64.to_radians(), epsilon = 1e-10);
+        assert_abs_diff_eq!(
+            weighted_pos,
+            RADec {
+                ra: 10.25_f64.to_radians(),
+                dec: 9.25_f64.to_radians()
+            },
+            epsilon = 1e-10
+        );
     }
 
     #[test]
@@ -241,8 +289,14 @@ mod tests {
         let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
-        assert_abs_diff_eq!(weighted_pos.ra, 4.5_f64.to_radians(), epsilon = 1e-10);
-        assert_abs_diff_eq!(weighted_pos.dec, 9.5_f64.to_radians(), epsilon = 1e-10);
+        assert_abs_diff_eq!(
+            weighted_pos,
+            RADec {
+                ra: 4.5_f64.to_radians(),
+                dec: 9.5_f64.to_radians()
+            },
+            epsilon = 1e-10
+        );
     }
 
     #[test]
@@ -252,8 +306,7 @@ mod tests {
         let result = RADec::weighted_average(&[c], &[w]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
-        assert_abs_diff_eq!(weighted_pos.ra, 0.5, epsilon = 1e-10);
-        assert_abs_diff_eq!(weighted_pos.dec, 0.75, epsilon = 1e-10);
+        assert_abs_diff_eq!(weighted_pos, RADec { ra: 0.5, dec: 0.75 }, epsilon = 1e-10);
     }
 
     #[test]

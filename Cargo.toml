@@ -25,6 +25,9 @@ io = ["rubbl_core", "rubbl_casatables", "approx"]
 # Provide CUDA convenience code
 cuda = ["cuda-runtime-sys"]
 
+# Provide approx traits on data types
+approx = ["dep:approx"]
+
 # Compile various C libraries statically.
 erfa-static = ["erfa-sys/static"]
 cfitsio-static = ["mwalib/cfitsio-static"]

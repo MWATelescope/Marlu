@@ -85,11 +85,8 @@ impl std::ops::Div<f64> for UVW {
     }
 }
 
-#[cfg(test)]
-use approx::AbsDiffEq;
-
-#[cfg(test)]
-impl AbsDiffEq for UVW {
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for UVW {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -100,6 +97,31 @@ impl AbsDiffEq for UVW {
         f64::abs_diff_eq(&self.u, &other.u, epsilon)
             && f64::abs_diff_eq(&self.v, &other.v, epsilon)
             && f64::abs_diff_eq(&self.w, &other.w, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for UVW {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.u, &other.u, epsilon, max_relative)
+            && f64::relative_eq(&self.v, &other.v, epsilon, max_relative)
+            && f64::relative_eq(&self.w, &other.w, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
     }
 }
 
@@ -115,9 +137,14 @@ mod tests {
             v: 2.0,
             w: 3.0,
         } * 3.0;
-        assert_abs_diff_eq!(uvw.u, 3.0);
-        assert_abs_diff_eq!(uvw.v, 6.0);
-        assert_abs_diff_eq!(uvw.w, 9.0);
+        assert_abs_diff_eq!(
+            uvw,
+            UVW {
+                u: 3.0,
+                v: 6.0,
+                w: 9.0
+            }
+        );
     }
 
     #[test]
@@ -127,8 +154,13 @@ mod tests {
             v: 6.0,
             w: 9.0,
         } / 3.0;
-        assert_abs_diff_eq!(uvw.u, 1.0);
-        assert_abs_diff_eq!(uvw.v, 2.0);
-        assert_abs_diff_eq!(uvw.w, 3.0);
+        assert_abs_diff_eq!(
+            uvw,
+            UVW {
+                u: 1.0,
+                v: 2.0,
+                w: 3.0
+            }
+        );
     }
 }

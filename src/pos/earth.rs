@@ -99,11 +99,8 @@ impl Display for LatLngHeight {
     }
 }
 
-#[cfg(test)]
-use approx::AbsDiffEq;
-
-#[cfg(test)]
-impl AbsDiffEq for LatLngHeight {
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for LatLngHeight {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -114,6 +111,44 @@ impl AbsDiffEq for LatLngHeight {
         f64::abs_diff_eq(&self.longitude_rad, &other.longitude_rad, epsilon)
             && f64::abs_diff_eq(&self.latitude_rad, &other.latitude_rad, epsilon)
             && f64::abs_diff_eq(&self.height_metres, &other.height_metres, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for LatLngHeight {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(
+            &self.longitude_rad,
+            &other.longitude_rad,
+            epsilon,
+            max_relative,
+        ) && f64::relative_eq(
+            &self.latitude_rad,
+            &other.latitude_rad,
+            epsilon,
+            max_relative,
+        ) && f64::relative_eq(
+            &self.height_metres,
+            &other.height_metres,
+            epsilon,
+            max_relative,
+        )
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
     }
 }
 

@@ -8,7 +8,7 @@
 use crate::{constants::MWA_LAT_RAD, XyzGeodetic};
 
 /// East, North and Height coordinates.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct ENH {
     /// East \[metres\]
@@ -55,6 +55,46 @@ impl ENH {
     }
 }
 
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for ENH {
+    type Epsilon = f64;
+
+    fn default_epsilon() -> f64 {
+        f64::EPSILON
+    }
+
+    fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
+        f64::abs_diff_eq(&self.e, &other.e, epsilon)
+            && f64::abs_diff_eq(&self.n, &other.n, epsilon)
+            && f64::abs_diff_eq(&self.h, &other.h, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for ENH {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.e, &other.e, epsilon, max_relative)
+            && f64::relative_eq(&self.n, &other.n, epsilon, max_relative)
+            && f64::relative_eq(&self.h, &other.h, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,8 +108,14 @@ mod tests {
             h: 375.212,
         };
         let xyz = ENH::to_xyz_mwa(enh);
-        assert_abs_diff_eq!(xyz.x, 289.56928486613185, epsilon = 1e-10);
-        assert_abs_diff_eq!(xyz.y, -585.675, epsilon = 1e-10);
-        assert_abs_diff_eq!(xyz.z, -259.3106536687549, epsilon = 1e-10);
+        assert_abs_diff_eq!(
+            xyz,
+            XyzGeodetic {
+                x: 289.56928486613185,
+                y: -585.675,
+                z: -259.3106536687549
+            },
+            epsilon = 1e-10
+        );
     }
 }

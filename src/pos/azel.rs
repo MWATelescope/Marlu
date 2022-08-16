@@ -67,11 +67,8 @@ impl std::fmt::Display for AzEl {
     }
 }
 
-#[cfg(test)]
-use approx::AbsDiffEq;
-
-#[cfg(test)]
-impl AbsDiffEq for AzEl {
+#[cfg(any(test, feature = "approx"))]
+impl approx::AbsDiffEq for AzEl {
     type Epsilon = f64;
 
     fn default_epsilon() -> f64 {
@@ -81,6 +78,30 @@ impl AbsDiffEq for AzEl {
     fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
         f64::abs_diff_eq(&self.az, &other.az, epsilon)
             && f64::abs_diff_eq(&self.el, &other.el, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for AzEl {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.az, &other.az, epsilon, max_relative)
+            && f64::relative_eq(&self.el, &other.el, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
     }
 }
 

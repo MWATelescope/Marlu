@@ -96,7 +96,7 @@ impl std::fmt::Display for HADec {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "approx"))]
 impl approx::AbsDiffEq for HADec {
     type Epsilon = f64;
 
@@ -107,6 +107,30 @@ impl approx::AbsDiffEq for HADec {
     fn abs_diff_eq(&self, other: &Self, epsilon: f64) -> bool {
         f64::abs_diff_eq(&self.ha, &other.ha, epsilon)
             && f64::abs_diff_eq(&self.dec, &other.dec, epsilon)
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl approx::RelativeEq for HADec {
+    #[inline]
+    fn default_max_relative() -> f64 {
+        f64::EPSILON
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: f64, max_relative: f64) -> bool {
+        f64::relative_eq(&self.ha, &other.ha, epsilon, max_relative)
+            && f64::relative_eq(&self.dec, &other.dec, epsilon, max_relative)
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
     }
 }
 

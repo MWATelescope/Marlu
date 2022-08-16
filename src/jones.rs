@@ -16,7 +16,8 @@ use std::ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, 
 use crate::Complex;
 use num_traits::{float::FloatCore, Float, Num, NumAssign, Zero};
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[repr(transparent)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct Jones<F: Float + Num>([Complex<F>; 4]);
 
 impl<F: Float> Jones<F> {
@@ -586,10 +587,10 @@ impl std::fmt::Debug for Jones<f64> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "approx"))]
 impl<F: Float + approx::AbsDiffEq> approx::AbsDiffEq for Jones<F>
 where
-    F::Epsilon: Clone,
+    F::Epsilon: Copy,
 {
     type Epsilon = F::Epsilon;
 
@@ -600,7 +601,38 @@ where
 
     #[inline]
     fn abs_diff_eq(&self, other: &Self, epsilon: F::Epsilon) -> bool {
-        (0..4).all(|idx| Complex::<F>::abs_diff_eq(&self[idx], &other[idx], epsilon.clone()))
+        self.into_iter()
+            .zip(other.into_iter())
+            .all(|(s, o)| Complex::<F>::abs_diff_eq(&s, &o, epsilon))
+    }
+}
+
+#[cfg(any(test, feature = "approx"))]
+impl<F: Float + approx::AbsDiffEq + approx::RelativeEq> approx::RelativeEq for Jones<F>
+where
+    F::Epsilon: Copy,
+{
+    #[inline]
+    fn default_max_relative() -> F::Epsilon {
+        F::default_epsilon()
+    }
+
+    #[inline]
+    fn relative_eq(&self, other: &Self, epsilon: F::Epsilon, max_relative: F::Epsilon) -> bool {
+        self.into_iter().zip(other.into_iter()).all(|(s, o)| {
+            F::relative_eq(&s.re, &o.re, epsilon, max_relative)
+                && F::relative_eq(&s.im, &o.im, epsilon, max_relative)
+        })
+    }
+
+    #[inline]
+    fn relative_ne(
+        &self,
+        other: &Self,
+        epsilon: Self::Epsilon,
+        max_relative: Self::Epsilon,
+    ) -> bool {
+        !Self::relative_eq(self, other, epsilon, max_relative)
     }
 }
 
