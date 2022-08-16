@@ -2,6 +2,13 @@
 
 # Unreleased
 
+- IO code changes:
+  - Rename `VisReadable` to `VisRead`
+  - Rename `VisWritable` to `VisWrite`
+  - Remove `write_vis_mwalib`
+  - Rename `write_vis_marlu` to `write_vis`
+  - Add a `finalise` method to `VisWrite`
+  - The `UvfitsWriter` API is slightly different
 - Remove a bunch of needless `clone`s from the code. This may improve
   performance.
 - Add an optional `approx` feature that exposes trait implementations like

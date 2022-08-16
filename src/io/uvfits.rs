@@ -6,7 +6,6 @@
 
 use std::{
     ffi::CString,
-    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -18,19 +17,19 @@ use crate::{
     fitsio_sys,
     hifitime::Epoch,
     io::error::BadArrayShape,
-    mwalib::{fitsio, CorrelatorContext, MetafitsContext},
+    mwalib::fitsio,
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
-    History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, ENH, UVW,
+    History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
 use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::{izip, Itertools};
-use log::{trace, warn};
+use log::trace;
 
 use super::{
     error::{IOError, UvfitsWriteError},
-    VisWritable,
+    VisWrite,
 };
 
 /// From a `hifitime` [`Epoch`], get a formatted date string with the hours,
@@ -135,6 +134,13 @@ pub struct UvfitsWriter {
 
     /// Array Position [Latitude (radians), Longitude (radians), Height (m)]
     array_pos: LatLngHeight,
+
+    /// Names of the antennas.
+    antenna_names: Vec<String>,
+
+    /// The *unprecessed* positions of the antennas. The writing code will
+    /// precess these positions to J2000 for each timestep.
+    antenna_positions: Vec<XyzGeodetic>,
 }
 
 impl UvfitsWriter {
@@ -192,6 +198,8 @@ impl UvfitsWriter {
         phase_centre: RADec,
         obs_name: Option<&str>,
         array_pos: LatLngHeight,
+        antenna_names: Vec<String>,
+        antenna_positions: Vec<XyzGeodetic>,
         history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let path = path.as_ref();
@@ -343,86 +351,25 @@ impl UvfitsWriter {
             start_epoch,
             phase_centre,
             array_pos,
+            antenna_names,
+            antenna_positions,
         })
     }
 
-    /// Create a new uvfits file at the specified path using an
-    /// [`mwalib::CorrelatorContext`]
-    ///
-    /// # Details
-    ///
-    /// start epoch is determined by `timestep_range.start` which may not
-    /// necessarily match the obsid.
-    ///
-    /// # Errors
-    ///
-    /// See: [`UvfitsWriter::new`]
-    ///
-    /// TODO: reduce number of arguments.
     #[allow(clippy::too_many_arguments)]
-    pub fn from_mwalib<T: AsRef<Path>>(
-        path: T,
-        corr_ctx: &CorrelatorContext,
-        timestep_range: &Range<usize>,
-        coarse_chan_range: &Range<usize>,
-        baseline_idxs: &[usize],
-        array_pos: Option<LatLngHeight>,
-        phase_centre: Option<RADec>,
-        avg_time: usize,
-        avg_freq: usize,
-        history: Option<&History>,
-    ) -> Result<UvfitsWriter, UvfitsWriteError> {
-        let phase_centre = phase_centre
-            .unwrap_or_else(|| RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context));
-
-        let obs_name = &corr_ctx.metafits_context.obs_name;
-        let field_name = match obs_name.rsplit_once('_') {
-            Some((field_name, _)) => field_name.to_string(),
-            None => obs_name.clone(),
-        };
-
-        let vis_ctx = VisContext::from_mwalib(
-            corr_ctx,
-            timestep_range,
-            coarse_chan_range,
-            baseline_idxs,
-            avg_time,
-            avg_freq,
-        );
-
-        Self::from_marlu(
-            path,
-            &vis_ctx,
-            array_pos,
-            phase_centre,
-            Some(&field_name),
-            history,
-        )
-    }
-
     pub fn from_marlu<T: AsRef<Path>>(
         path: T,
         vis_ctx: &VisContext,
-        array_pos: Option<LatLngHeight>,
+        array_pos: LatLngHeight,
         phase_centre: RADec,
         obs_name: Option<&str>,
+        antenna_names: Vec<String>,
+        antenna_positions: Vec<XyzGeodetic>,
         history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let avg_freqs_hz: Vec<f64> = vis_ctx.avg_frequencies_hz();
         let avg_centre_chan = avg_freqs_hz.len() / 2;
         let avg_centre_freq_hz = avg_freqs_hz[avg_centre_chan];
-
-        let array_pos = array_pos.map_or_else(
-            || {
-                warn!("we are using MWA lat / lng / height from mwalib for array position");
-                // The results here are slightly different to those given by cotter.
-                // This is at least partly due to different constants (the altitude is
-                // definitely slightly different), but possibly also because ERFA is
-                // more accurate than cotter's "homebrewed" Geodetic2XYZ.
-                LatLngHeight::new_mwa()
-            },
-            |pos| pos,
-        );
 
         Self::new(
             path,
@@ -436,16 +383,14 @@ impl UvfitsWriter {
             phase_centre,
             obs_name,
             array_pos,
+            antenna_names,
+            antenna_positions,
             history,
         )
     }
 
-    /// Write the antenna table to a uvfits file. Assumes that the array
-    /// location is MWA.
-    ///
-    /// `positions` are the [`XyzGeodetic`] coordinates
-    /// of the MWA tiles. These positions need to have the MWA's "centre" XYZ
-    /// coordinates subtracted to make them local XYZ.
+    /// Write the antenna table to a uvfits file. This consumes the
+    /// [`UvfitsWriter`], preventing any further modifications.
     ///
     /// `Self` must have only have a single HDU when this function is called
     /// (true when using methods only provided by `Self`).
@@ -455,11 +400,7 @@ impl UvfitsWriter {
     /// # Errors
     ///
     /// Will return an [`UvfitsWriteError`] if a fits operation fails.
-    pub fn write_uvfits_antenna_table<T: AsRef<str>>(
-        self,
-        antenna_names: &[T],
-        positions: &[XyzGeodetic],
-    ) -> Result<(), UvfitsWriteError> {
+    pub fn write_uvfits_antenna_table(&mut self) -> Result<(), UvfitsWriteError> {
         if self.current_num_rows != self.total_num_rows {
             return Err(UvfitsWriteError::NotEnoughRowsWritten {
                 current: self.current_num_rows,
@@ -575,14 +516,27 @@ impl UvfitsWriter {
         // Assume the station coordinates are "right handed".
         fits_write_string(self.fptr, "XYZHAND", "RIGHT", None)?;
 
+        // Precess the antenna positions to J2000.
+        let prec_info = precess_time(
+            self.phase_centre,
+            self.start_epoch,
+            self.array_pos.longitude_rad,
+            self.array_pos.latitude_rad,
+        );
+        let xyz_precessed = prec_info.precess_xyz_parallel(&self.antenna_positions);
+
         // Write to the table row by row.
         let mut x_c_str = CString::new("X")?.into_raw();
         let mut y_c_str = CString::new("Y")?.into_raw();
-        for (i, (pos, name)) in positions.iter().zip_eq(antenna_names).enumerate() {
+        for (i, (pos, name)) in xyz_precessed
+            .into_iter()
+            .zip_eq(self.antenna_names.iter())
+            .enumerate()
+        {
             let row = i as i64 + 1;
             unsafe {
                 // ANNAME. ffpcls = fits_write_col_str
-                let mut c_antenna_name = CString::new(name.as_ref())?.into_raw();
+                let mut c_antenna_name = CString::new(name.as_str())?.into_raw();
                 fitsio_sys::ffpcls(
                     self.fptr,           /* I - FITS file pointer                       */
                     1,                   /* I - number of column to write (1 = 1st col) */
@@ -713,39 +667,16 @@ impl UvfitsWriter {
             drop(CString::from_raw(y_c_str));
         }
 
-        // Finally close the file.
-        self.close()?;
+        // Close the fits file.
+        trace!("closing fits file ({})", self.path.display());
+        let mut status = 0;
+        unsafe {
+            // ffclos = fits_close_file
+            fitsio_sys::ffclos(self.fptr, &mut status);
+        }
+        fits_check_status(status)?;
 
         Ok(())
-    }
-
-    /// Write the antenna table to a uvfits file using the provided
-    /// [`mwalib::CorrelatorContext`]
-    ///
-    /// `self` must have only have a single HDU when this function is called
-    /// (true when using methods only provided by `Self`).
-    ///
-    /// `latitude_rad` Optionally override the latitude of the array [Radians]
-    ///
-    /// # Errors
-    ///
-    /// See: [`UvfitsWriter::write_uvfits_antenna_table`]
-    ///
-    pub fn write_ants_from_mwalib(self, context: &MetafitsContext) -> Result<(), UvfitsWriteError> {
-        let (antenna_names, positions): (Vec<String>, Vec<XyzGeodetic>) = context
-            .antennas
-            .iter()
-            .map(|antenna| {
-                let position_enh = ENH {
-                    e: antenna.east_m,
-                    n: antenna.north_m,
-                    h: antenna.height_m,
-                };
-                let position = position_enh.to_xyz(self.array_pos.latitude_rad);
-                (antenna.tile_name.clone(), position)
-            })
-            .unzip();
-        self.write_uvfits_antenna_table(&antenna_names, &positions)
     }
 
     /// Write a visibility row into the uvfits file.
@@ -795,71 +726,6 @@ impl UvfitsWriter {
         Ok(())
     }
 
-    // / Write visibilty and weight rows into the uvfits file from the provided
-    // / [`mwalib::CorrelatorContext`].
-    // /
-    // / # Details
-    // /
-    // / `uvfits` must have been opened in write mode and currently have HDU 0
-    // / open. The [`FitsFile`] must be supplied to this function to force the
-    // / caller to think about calling this function efficiently; opening the
-    // / file for every call would be a problem, and keeping the file open in
-    // / [`UvfitsWriter`] would mean the struct is not thread safe.
-    // /
-    // / `baseline_idxs` the baseline indices (according to mwalib)
-    // / which should be written to the file
-    // /
-    // / `jones_array` a [`ndarray::Array3`] of [`Jones`] visibilities with dimensions
-    // / [timestep][channel][baselines]
-    // /
-    // / `flag_array` a [`ndarray::Array3`] of boolean flags with dimensions
-    // / identical dimensions to `jones_array`
-    // /
-    // / `timestep_range` the range of timestep indices (according to mwalib)
-    // / which are used in the visibility and flag arrays
-    // /
-    // / `coarse_chan_range` the range of coarse channel indices (according to mwalib)
-    // / which are used in the visibility and flag arrays
-    // /
-    // / `baseline_idxs` the baseline indices (according to mwalib) used
-    // / in the visibility and flag arrays
-    // /
-    // / # Errors
-    // /
-    // / Will return an [`UvfitsWriteError`] if a fits operation fails.
-    // /
-    // / TODO: reduce number of arguments.
-    // #[allow(clippy::too_many_arguments)]
-    // pub fn write_jones_flags(
-    //     &mut self,
-    //     context: &CorrelatorContext,
-    //     jones_array: &Array3<Jones<f32>>,
-    //     flag_array: &Array3<bool>,
-    //     timestep_range: &Range<usize>,
-    //     coarse_chan_range: &Range<usize>,
-    //     baseline_idxs: &[usize],
-    //     avg_time: usize,
-    //     avg_freq: usize,
-    //     draw_progress: bool,
-    // ) -> Result<(), IOError> {
-    //     let num_pols = context.metafits_context.num_visibility_pols;
-    //     let expanded_flag_array = add_dimension(flag_array.view(), num_pols);
-    //     let weight_factor = get_weight_factor(context);
-    //     let weight_array = flag_to_weight_array(&expanded_flag_array.view(), weight_factor);
-    //     self.write_vis_mwalib(
-    //         jones_array.view(),
-    //         weight_array.view(),
-    //         expanded_flag_array.view(),
-    //         context,
-    //         timestep_range,
-    //         coarse_chan_range,
-    //         baseline_idxs,
-    //         avg_time,
-    //         avg_freq,
-    //         draw_progress,
-    //     )
-    // }
-
     #[inline(always)]
     fn write_vis_row_inner(
         fptr: *mut fitsio_sys::fitsfile,
@@ -898,14 +764,12 @@ impl UvfitsWriter {
     }
 }
 
-impl VisWritable for UvfitsWriter {
-    //  TODO: merge weights and flags
-    fn write_vis_marlu(
+impl VisWrite for UvfitsWriter {
+    fn write_vis(
         &mut self,
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
         vis_ctx: &VisContext,
-        tiles_xyz_geod: &[XyzGeodetic],
         draw_progress: bool,
     ) -> Result<(), IOError> {
         let sel_dims = vis_ctx.sel_dims();
@@ -983,7 +847,7 @@ impl VisWritable for UvfitsWriter {
                 self.array_pos.latitude_rad,
             );
 
-            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
+            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&self.antenna_positions);
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter().copied(),
@@ -1053,6 +917,11 @@ impl VisWritable for UvfitsWriter {
 
         write_progress.finish();
 
+        Ok(())
+    }
+
+    fn finalise(&mut self) -> Result<(), IOError> {
+        self.write_uvfits_antenna_table()?;
         Ok(())
     }
 }
@@ -1200,9 +1069,10 @@ mod tests {
         },
         mwalib::{
             _get_fits_col, _get_required_fits_key, _open_fits, _open_hdu, fits_open, fits_open_hdu,
-            get_fits_col, get_required_fits_key,
+            get_fits_col, get_required_fits_key, CorrelatorContext,
         },
         selection::VisSelection,
+        ENH,
     };
 
     use approx::{abs_diff_eq, assert_abs_diff_eq};
@@ -1729,22 +1599,48 @@ mod tests {
 
         let vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
 
-        let array_pos = Some(LatLngHeight {
+        let array_pos = LatLngHeight {
             longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
+        };
 
-        let mut u = UvfitsWriter::from_mwalib(
-            tmp_uvfits_file.path(),
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+
+        let obs_name = &corr_ctx.metafits_context.obs_name;
+
+        let vis_ctx = VisContext::from_mwalib(
             &corr_ctx,
             &vis_sel.timestep_range,
             &vis_sel.coarse_chan_range,
             &vis_sel.baseline_idxs,
+            1,
+            1,
+        );
+
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                let position = position_enh.to_xyz(array_pos.latitude_rad);
+                (antenna.tile_name.clone(), position)
+            })
+            .unzip();
+
+        let mut u = UvfitsWriter::from_marlu(
+            tmp_uvfits_file.path(),
+            &vis_ctx,
             array_pos,
-            None,
-            1,
-            1,
+            phase_centre,
+            Some(obs_name),
+            names,
+            positions,
             None,
         )
         .unwrap();
@@ -1768,8 +1664,7 @@ mod tests {
                 .unwrap();
             }
         }
-        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
-            .unwrap();
+        u.finalise().unwrap();
 
         let cotter_uvfits_path = Path::new("tests/data/1196175296_mwa_ord/1196175296.uvfits");
 
@@ -1796,11 +1691,26 @@ mod tests {
             1,
         );
 
-        let array_pos = Some(LatLngHeight {
+        let array_pos = LatLngHeight {
             longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
+        };
+
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                let position = position_enh.to_xyz(array_pos.latitude_rad);
+                (antenna.tile_name.clone(), position)
+            })
+            .unzip();
 
         let mut u = UvfitsWriter::from_marlu(
             tmp_uvfits_file.path(),
@@ -1808,6 +1718,8 @@ mod tests {
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
             Some(&corr_ctx.metafits_context.obs_name),
+            names,
+            positions,
             None,
         )
         .unwrap();
@@ -1827,8 +1739,7 @@ mod tests {
                 .unwrap();
             }
         }
-        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
-            .unwrap();
+        u.finalise().unwrap();
 
         let cotter_uvfits_path = Path::new("tests/data/1196175296_mwa_ord/1196175296.uvfits");
 
@@ -1849,6 +1760,16 @@ mod tests {
         let obsid = 1065880128;
         let start_epoch = Epoch::from_gpst_seconds(obsid as f64);
 
+        let names = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions: Vec<XyzGeodetic> = (0..names.len())
+            .into_iter()
+            .map(|i| XyzGeodetic {
+                x: i as f64,
+                y: i as f64 * 2.0,
+                z: i as f64 * 3.0,
+            })
+            .collect();
+
         let mut u = UvfitsWriter::new(
             tmp_uvfits_file.path(),
             num_timesteps,
@@ -1861,6 +1782,8 @@ mod tests {
             RADec::new_degrees(0.0, 60.0),
             Some("test"),
             LatLngHeight::new_mwa(),
+            names,
+            positions,
             None,
         )
         .unwrap();
@@ -1889,16 +1812,7 @@ mod tests {
             }
         }
 
-        let names = ["Tile1", "Tile2", "Tile3"];
-        let positions: Vec<XyzGeodetic> = (0..names.len())
-            .into_iter()
-            .map(|i| XyzGeodetic {
-                x: i as f64,
-                y: i as f64 * 2.0,
-                z: i as f64 * 3.0,
-            })
-            .collect();
-        u.write_uvfits_antenna_table(&names, &positions).unwrap();
+        u.finalise().unwrap();
     }
 
     /// This test ensures center frequencies are calculated correctly.
@@ -1920,22 +1834,37 @@ mod tests {
             1,
         );
 
-        let array_pos = Some(LatLngHeight {
+        let array_pos = LatLngHeight {
             longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
+        };
 
-        let mut u = UvfitsWriter::from_mwalib(
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                let position = position_enh.to_xyz(array_pos.latitude_rad);
+                (antenna.tile_name.clone(), position)
+            })
+            .unzip();
+
+        let mut u = UvfitsWriter::from_marlu(
             tmp_uvfits_file.path(),
-            &corr_ctx,
-            &vis_sel.timestep_range,
-            &vis_sel.coarse_chan_range,
-            &vis_sel.baseline_idxs,
+            &vis_ctx,
             array_pos,
+            phase_centre,
             None,
-            1,
-            1,
+            names,
+            positions,
             None,
         )
         .unwrap();
@@ -1964,17 +1893,10 @@ mod tests {
                 *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
-        u.write_vis_marlu(
-            jones_array.view(),
-            weight_array.view(),
-            &vis_ctx,
-            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
-            false,
-        )
-        .unwrap();
-
-        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
+        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
             .unwrap();
+
+        u.finalise().unwrap();
 
         let mut birli_fptr = fits_open!(&tmp_uvfits_file.path()).unwrap();
 
@@ -2015,22 +1937,37 @@ mod tests {
             avg_freq,
         );
 
-        let array_pos = Some(LatLngHeight {
+        let array_pos = LatLngHeight {
             longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
+        };
 
-        let mut u = UvfitsWriter::from_mwalib(
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                let position = position_enh.to_xyz(array_pos.latitude_rad);
+                (antenna.tile_name.clone(), position)
+            })
+            .unzip();
+
+        let mut u = UvfitsWriter::from_marlu(
             tmp_uvfits_file.path(),
-            &corr_ctx,
-            &vis_sel.timestep_range,
-            &vis_sel.coarse_chan_range,
-            &vis_sel.baseline_idxs,
+            &vis_ctx,
             array_pos,
+            phase_centre,
             None,
-            avg_time,
-            avg_freq,
+            names,
+            positions,
             None,
         )
         .unwrap();
@@ -2059,17 +1996,10 @@ mod tests {
                 *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
-        u.write_vis_marlu(
-            jones_array.view(),
-            weight_array.view(),
-            &vis_ctx,
-            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
-            false,
-        )
-        .unwrap();
-
-        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
+        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
             .unwrap();
+
+        u.finalise().unwrap();
 
         let mut birli_fptr = fits_open!(&tmp_uvfits_file.path()).unwrap();
 
@@ -2110,22 +2040,43 @@ mod tests {
             1,
         );
 
-        let array_pos = Some(LatLngHeight {
+        let array_pos = LatLngHeight {
             longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
+        };
 
-        let mut u = UvfitsWriter::from_mwalib(
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                let position = position_enh.to_xyz(array_pos.latitude_rad);
+                (antenna.tile_name.clone(), position)
+            })
+            .unzip();
+
+        let obs_name = &corr_ctx.metafits_context.obs_name;
+        let field_name = match obs_name.rsplit_once('_') {
+            Some((field_name, _)) => field_name.to_string(),
+            None => obs_name.clone(),
+        };
+
+        let mut u = UvfitsWriter::from_marlu(
             tmp_uvfits_file.path(),
-            &corr_ctx,
-            &vis_sel.timestep_range,
-            &vis_sel.coarse_chan_range,
-            &vis_sel.baseline_idxs,
+            &vis_ctx,
             array_pos,
-            None,
-            1,
-            1,
+            phase_centre,
+            Some(&field_name),
+            names,
+            positions,
             None,
         )
         .unwrap();
@@ -2154,17 +2105,10 @@ mod tests {
                 *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
-        u.write_vis_marlu(
-            jones_array.view(),
-            weight_array.view(),
-            &vis_ctx,
-            &XyzGeodetic::get_tiles_mwa(&corr_ctx.metafits_context),
-            false,
-        )
-        .unwrap();
-
-        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
+        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
             .unwrap();
+
+        u.finalise().unwrap();
 
         let mut birli_fptr = fits_open!(&tmp_uvfits_file.path()).unwrap();
 
@@ -2376,11 +2320,11 @@ mod tests {
 
         let vis_ctx = VisContext::from_mwalib(&corr_ctx, &(0..1), &(0..1), &[0], 1, 1);
 
-        let array_pos = Some(LatLngHeight {
+        let array_pos = LatLngHeight {
             longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
-        });
+        };
 
         let history = History {
             application: Some("Cotter MWA preprocessor"),
@@ -2400,12 +2344,29 @@ mod tests {
             message: None
         };
 
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                let position = position_enh.to_xyz(array_pos.latitude_rad);
+                (antenna.tile_name.clone(), position)
+            })
+            .unzip();
+
         let mut u = UvfitsWriter::from_marlu(
             tmp_uvfits_file.path(),
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
             Some(&corr_ctx.metafits_context.obs_name),
+            names,
+            positions,
             Some(&history),
         )
         .unwrap();
@@ -2425,8 +2386,7 @@ mod tests {
                 .unwrap();
             }
         }
-        u.write_ants_from_mwalib(&corr_ctx.metafits_context)
-            .unwrap();
+        u.finalise().unwrap();
 
         // Reading out a block of COMMENT strings out a fits file, the dirty way.
         fn read_comment_block(f: &mut std::fs::File) -> String {

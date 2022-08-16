@@ -4,17 +4,21 @@
 
 //! Benchmarks
 
+use std::{
+    cmp::min,
+    env,
+    path::{Path, PathBuf},
+};
+
 use criterion::*;
 use glob::glob;
 use marlu::{
-    io::{ms::MeasurementSetWriter, UvfitsWriter, VisWritable},
+    io::{ms::MeasurementSetWriter, UvfitsWriter, VisWrite},
     mwalib,
     ndarray::Array3,
     Complex, Jones, MwaObsContext, ObsContext, VisContext, VisSelection,
 };
 use mwalib::CorrelatorContext;
-use std::env;
-use std::{cmp::min, path::Path};
 use tempfile::tempdir;
 
 // ///////////// //
@@ -71,7 +75,8 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
                 let ms_writer = MeasurementSetWriter::new(
                     ms_path,
                     obs_ctx.phase_centre,
-                    Some(obs_ctx.array_pos),
+                    obs_ctx.array_pos,
+                    vec![],
                 );
                 ms_writer
                     .initialize_mwa(
@@ -122,9 +127,11 @@ fn bench_uvfits_init_mwax_half_1247842824(crt: &mut Criterion) {
                 let u = UvfitsWriter::from_marlu(
                     uvfits_path,
                     &vis_ctx,
-                    Some(obs_ctx.array_pos),
+                    obs_ctx.array_pos,
                     obs_ctx.phase_centre,
                     obs_ctx.name.as_deref(),
+                    vec![],
+                    vec![],
                     None,
                 )
                 .unwrap();
@@ -185,9 +192,6 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
         1,
     );
 
-    let ant_positions_geodetic: Vec<_> = obs_ctx.ant_positions_geodetic().collect();
-
-    #[allow(deprecated)]
     crt.bench_function(
         &format!(
             "MeasurementSetWriter::write_vis_marlu - mwax_half_1247842824 {:?}",
@@ -200,7 +204,8 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                 let mut ms_writer = MeasurementSetWriter::new(
                     ms_path,
                     obs_ctx.phase_centre,
-                    Some(obs_ctx.array_pos),
+                    obs_ctx.array_pos,
+                    vec![],
                 );
                 ms_writer
                     .initialize_mwa(
@@ -212,13 +217,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                     )
                     .unwrap();
                 ms_writer
-                    .write_vis_marlu(
-                        jones_array.view(),
-                        weight_array.view(),
-                        &vis_ctx,
-                        &ant_positions_geodetic,
-                        false,
-                    )
+                    .write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
                     .unwrap();
             })
         },
@@ -250,9 +249,6 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
         1,
     );
 
-    let ant_positions_geodetic: Vec<_> = obs_ctx.ant_positions_geodetic().collect();
-
-    #[allow(deprecated)]
     crt.bench_function(
         &format!(
             "UvfitsWriter::write_vis_marlu - mwax_half_1247842824 {:?}",
@@ -265,20 +261,16 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
                 let mut uvfits_writer = UvfitsWriter::from_marlu(
                     uvfits_path,
                     &vis_ctx,
-                    Some(obs_ctx.array_pos),
+                    obs_ctx.array_pos,
                     obs_ctx.phase_centre,
                     obs_ctx.name.as_deref(),
+                    obs_ctx.ant_names.clone(),
+                    vec![],
                     None,
                 )
                 .unwrap();
                 uvfits_writer
-                    .write_vis_marlu(
-                        jones_array.view(),
-                        weight_array.view(),
-                        &vis_ctx,
-                        &ant_positions_geodetic,
-                        false,
-                    )
+                    .write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
                     .unwrap();
                 uvfits_writer.close().unwrap();
             })

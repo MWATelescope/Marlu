@@ -87,7 +87,7 @@ cfg_if::cfg_if! {
 cfg_if::cfg_if! {
     if #[cfg(feature = "io")] {
         pub use rubbl_casatables;
-        pub use io::{MeasurementSetWriter, UvfitsWriter, VisWritable, UvfitsWriteError};
+        pub use io::{MeasurementSetWriter, UvfitsWriter, VisWrite, UvfitsWriteError};
     }
 }
 
