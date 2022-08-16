@@ -204,7 +204,7 @@ impl MwaObsContext {
             result.ant_slots.outer_iter_mut(),
             result.ant_cable_lengths.outer_iter_mut(),
         ) {
-            let (rf_x, rf_y) = (ant.rfinput_x.clone(), ant.rfinput_y.clone());
+            let (rf_x, rf_y) = (&ant.rfinput_x, &ant.rfinput_y);
             input.assign(&array![rf_x.input as usize, rf_y.input as _]);
             *number = ant.tile_id as _;
             *receiver = rf_x.rec_number as _;

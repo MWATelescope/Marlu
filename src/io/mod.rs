@@ -173,8 +173,8 @@ pub fn encode_flags(
 ) -> Result<Array3<f32>, IOError> {
     if flags.dim() != weights.dim() {
         return Err(IOError::BadArrayShape(BadArrayShape {
-            argument: "flags".into(),
-            function: "encode_flags".into(),
+            argument: "flags",
+            function: "encode_flags",
             expected: format!("{:?}", weights.dim()),
             received: format!("{:?}", flags.dim()),
         }));

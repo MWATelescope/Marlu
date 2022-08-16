@@ -2,6 +2,8 @@
 
 # Unreleased
 
+- Remove a bunch of needless `clone`s from the code. This may improve
+  performance.
 - Add an optional `approx` feature that exposes trait implementations like
   `approx::AbsDiffEq` on each of the coordinate types (e.g. `UVW`).
 - Make `Jones` `#[repr(transparent)]`

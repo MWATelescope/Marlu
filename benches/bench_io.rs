@@ -31,20 +31,11 @@ fn get_context_mwax_half_1247842824() -> CorrelatorContext {
     let test_dir = get_test_dir();
     let test_path = Path::new(&test_dir);
     let vis_path = test_path.join("1247842824_vis");
-    let metafits_path = vis_path
-        .join("1247842824.metafits")
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let gpufits_glob = vis_path
-        .join("1247842824_*gpubox*_00.fits")
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let gpufits_files: Vec<String> = glob(gpufits_glob.as_str())
+    let metafits_path = vis_path.join("1247842824.metafits");
+    let gpufits_glob = vis_path.join("1247842824_*gpubox*_00.fits");
+    let gpufits_files: Vec<PathBuf> = glob(gpufits_glob.to_str().unwrap())
         .unwrap()
         .filter_map(Result::ok)
-        .map(|path| path.to_str().unwrap().to_owned())
         .collect();
     CorrelatorContext::new(metafits_path, &gpufits_files).unwrap()
 }

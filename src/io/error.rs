@@ -8,8 +8,8 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 #[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
 pub struct BadArrayShape {
-    pub argument: String,
-    pub function: String,
+    pub argument: &'static str,
+    pub function: &'static str,
     pub expected: String,
     pub received: String,
 }

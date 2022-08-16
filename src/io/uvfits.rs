@@ -51,7 +51,7 @@ fn rust_strings_to_c_strings<T: AsRef<str>>(
 ) -> Result<Vec<*mut i8>, std::ffi::NulError> {
     let mut c_strings = Vec::with_capacity(strings.len());
     for s in strings {
-        let rust_str = s.as_ref().to_owned();
+        let rust_str = s.as_ref();
         let c_str = CString::new(rust_str)?;
         c_strings.push(c_str.into_raw());
     }
@@ -378,7 +378,7 @@ impl UvfitsWriter {
         let obs_name = &corr_ctx.metafits_context.obs_name;
         let field_name = match obs_name.rsplit_once('_') {
             Some((field_name, _)) => field_name.to_string(),
-            None => obs_name.to_owned(),
+            None => obs_name.clone(),
         };
 
         let vis_ctx = VisContext::from_mwalib(
@@ -911,16 +911,16 @@ impl VisWritable for UvfitsWriter {
         let sel_dims = vis_ctx.sel_dims();
         if vis.dim() != sel_dims {
             return Err(IOError::BadArrayShape(BadArrayShape {
-                argument: "vis".into(),
-                function: "write_vis_marlu".into(),
+                argument: "vis",
+                function: "write_vis_marlu",
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", vis.dim()),
             }));
         }
         if weights.dim() != sel_dims {
             return Err(IOError::BadArrayShape(BadArrayShape {
-                argument: "weights".into(),
-                function: "write_vis_marlu".into(),
+                argument: "weights",
+                function: "write_vis_marlu",
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", weights.dim()),
             }));
@@ -1812,13 +1812,11 @@ mod tests {
         )
         .unwrap();
         for _timestep_index in 0..vis_ctx.num_sel_timesteps {
-            for (baseline_index, (tile1, tile2)) in
-                vis_ctx.sel_baselines.clone().into_iter().enumerate()
-            {
+            for (baseline_index, (tile1, tile2)) in vis_ctx.sel_baselines.iter().enumerate() {
                 u.write_vis_row(
                     UVW::default(),
-                    tile1,
-                    tile2,
+                    *tile1,
+                    *tile2,
                     vis_ctx.start_timestamp,
                     (baseline_index..baseline_index + vis_ctx.num_sel_chans)
                         .into_iter()
@@ -2412,13 +2410,11 @@ mod tests {
         )
         .unwrap();
         for _timestep_index in 0..vis_ctx.num_sel_timesteps {
-            for (baseline_index, (tile1, tile2)) in
-                vis_ctx.sel_baselines.clone().into_iter().enumerate()
-            {
+            for (baseline_index, (tile1, tile2)) in vis_ctx.sel_baselines.iter().enumerate() {
                 u.write_vis_row(
                     UVW::default(),
-                    tile1,
-                    tile2,
+                    *tile1,
+                    *tile2,
                     vis_ctx.start_timestamp,
                     (baseline_index..baseline_index + vis_ctx.num_sel_chans)
                         .into_iter()

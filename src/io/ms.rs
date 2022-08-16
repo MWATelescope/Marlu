@@ -485,8 +485,8 @@ impl MeasurementSetWriter {
             }
             sh => {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                    argument: "chan_info".into(),
-                    function: "write_spectral_window_row".into(),
+                    argument: "chan_info",
+                    function: "write_spectral_window_row",
                     expected: "[n, 4]".into(),
                     received: format!("{:?}", sh),
                 }))
@@ -693,8 +693,8 @@ impl MeasurementSetWriter {
             }
             sh => {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                    argument: "corr_product".into(),
-                    function: "write_polarization_row".into(),
+                    argument: "corr_product",
+                    function: "write_polarization_row",
                     expected: format!("[n, 2] (where n = corr_type.len() = {})", num_corr_type),
                     received: format!("{:?}", sh),
                 }))
@@ -739,8 +739,8 @@ impl MeasurementSetWriter {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
         if proper_motion.len() != 2 {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "proper_motion".into(),
-                function: "write_source_row".into(),
+                argument: "proper_motion",
+                function: "write_source_row",
                 expected: "[2]".into(),
                 received: format!("{:?}", proper_motion.len()),
             }));
@@ -795,8 +795,8 @@ impl MeasurementSetWriter {
             }
             sh => {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                    argument: "dir_info".into(),
-                    function: "write_field_row".into(),
+                    argument: "dir_info",
+                    function: "write_field_row",
                     expected: "[3, p, 2] (where p is highest polynomial order)".into(),
                     received: format!("{:?}", sh),
                 }))
@@ -1022,40 +1022,40 @@ impl MeasurementSetWriter {
 
         if beam_offset.shape() != [num_receptors as usize, 2] {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "beam_offset".into(),
-                function: "write_feed_row".into(),
+                argument: "beam_offset",
+                function: "write_feed_row",
                 expected: "[n, 2]".into(),
                 received: format!("{:?}", beam_offset.shape()),
             }));
         }
         if pol_type.len() != num_receptors as usize {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "pol_type".into(),
-                function: "write_feed_row".into(),
+                argument: "pol_type",
+                function: "write_feed_row",
                 expected: "n".into(),
                 received: format!("{:?}", pol_type.len()),
             }));
         }
         if pol_response.shape() != [num_receptors as usize, num_receptors as usize] {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "pol_response".into(),
-                function: "write_feed_row".into(),
+                argument: "pol_response",
+                function: "write_feed_row",
                 expected: "[n, n]".into(),
                 received: format!("{:?}", pol_response.shape()),
             }));
         }
         if position.len() != 3 {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "position".into(),
-                function: "write_feed_row".into(),
+                argument: "position",
+                function: "write_feed_row",
                 expected: "3".into(),
                 received: format!("{:?}", position.len()),
             }));
         }
         if receptor_angle.len() != num_receptors as usize {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "receptor_angle".into(),
-                function: "write_feed_row".into(),
+                argument: "receptor_angle",
+                function: "write_feed_row",
                 expected: "n".into(),
                 received: format!("{:?}", receptor_angle.len()),
             }));
@@ -1402,16 +1402,13 @@ impl MeasurementSetWriter {
 
         ant_table.add_rows(obs_ctx.num_ants())?;
 
-        for (idx, (position_geoc, name)) in izip!(
-            obs_ctx.ant_positions_geocentric(),
-            obs_ctx.ant_names.clone(),
-        )
-        .enumerate()
+        for (idx, (position_geoc, name)) in
+            izip!(obs_ctx.ant_positions_geocentric(), obs_ctx.ant_names.iter()).enumerate()
         {
             self.write_antenna_row(
                 &mut ant_table,
                 idx as _,
-                &name,
+                name,
                 "MWA",
                 "GROUND-BASED",
                 "ALT-AZ",
@@ -1640,8 +1637,8 @@ impl MeasurementSetWriter {
 
         if uvw.len() != 3 {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "uvw".into(),
-                function: "write_main_row".into(),
+                argument: "uvw",
+                function: "write_main_row",
                 expected: "3".into(),
                 received: format!("{:?}", uvw.len()),
             }));
@@ -1649,8 +1646,8 @@ impl MeasurementSetWriter {
 
         if sigma.len() != num_pols {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                argument: "sigma".into(),
-                function: "write_main_row".into(),
+                argument: "sigma",
+                function: "write_main_row",
                 expected: format!("{}", num_pols),
                 received: format!("{:?}", sigma.len()),
             }));
@@ -1665,8 +1662,8 @@ impl MeasurementSetWriter {
                     && w1 == &num_pols => {}
             (dsh, fsh, wsh) => {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
-                    argument: "data|flags|weights".into(),
-                    function: "write_main_row".into(),
+                    argument: "data|flags|weights",
+                    function: "write_main_row",
                     expected: format!(
                         "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({})",
                         num_pols
@@ -1716,16 +1713,16 @@ impl VisWritable for MeasurementSetWriter {
         let sel_dims = vis_ctx.sel_dims();
         if vis.dim() != sel_dims {
             return Err(IOError::BadArrayShape(BadArrayShape {
-                argument: "vis".into(),
-                function: "write_vis_marlu".into(),
+                argument: "vis",
+                function: "write_vis_marlu",
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", vis.dim()),
             }));
         }
         if weights.dim() != sel_dims {
             return Err(IOError::BadArrayShape(BadArrayShape {
-                argument: "weights".into(),
-                function: "write_vis_marlu".into(),
+                argument: "weights",
+                function: "write_vis_marlu",
                 expected: format!("{:?}", sel_dims),
                 received: format!("{:?}", weights.dim()),
             }));
@@ -1789,12 +1786,12 @@ impl VisWritable for MeasurementSetWriter {
             let tiles_xyz_precessed = prec_info.precess_xyz_parallel(tiles_xyz_geod);
 
             for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk) in izip!(
-                vis_ctx.sel_baselines.clone().into_iter(),
+                vis_ctx.sel_baselines.iter(),
                 vis_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyz_precessed =
-                    tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
+                    tiles_xyz_precessed[*ant1_idx] - tiles_xyz_precessed[*ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
 
                 // copy values into temporary arrays to avoid heap allocs.
@@ -1845,8 +1842,8 @@ impl VisWritable for MeasurementSetWriter {
                     self.main_row_idx as _,
                     scan_centroid_mjd_utc_s,
                     scan_centroid_mjd_utc_s,
-                    ant1_idx as _,
-                    ant2_idx as _,
+                    *ant1_idx as _,
+                    *ant2_idx as _,
                     0,
                     &uvw_tmp,
                     vis_ctx.avg_int_time().in_seconds(),
@@ -4150,8 +4147,8 @@ mod tests {
         Vec<(usize, usize)>,
     );
 
-    fn get_test_data(
-        csv_path: PathBuf,
+    fn get_test_data<P: AsRef<Path>>(
+        csv_path: P,
         num_timesteps: usize,
         num_freqs: usize,
         num_baselines: usize,
@@ -4165,7 +4162,7 @@ mod tests {
         let headers = reader.headers().unwrap();
         let keys = ["time", "ant1", "ant2", "u", "v", "w", "pol", "type", "0"];
         let indices = parse_csv_headers(headers, &keys);
-        let freq_start_header = indices.get("0").unwrap().to_owned();
+        let freq_start_header = *indices.get("0").unwrap();
 
         let mut jones = Array3::<Jones<f32>>::zeros((num_timesteps, num_freqs, num_baselines));
         let mut weights = Array4::<f32>::zeros((num_timesteps, num_freqs, num_baselines, 4));
@@ -4310,7 +4307,7 @@ mod tests {
         main_table.add_rows(num_timesteps * num_baselines).unwrap();
 
         let (jones, weights, flags, uvws, times, baselines) = get_test_data(
-            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv".into(),
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv",
             num_timesteps,
             num_freqs,
             num_baselines,
@@ -4587,7 +4584,7 @@ mod tests {
             .unwrap();
 
         let (jones_array, weight_array, flag_array, _, _, _) = get_test_data(
-            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv".into(),
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv",
             2,
             768,
             1,
@@ -4697,7 +4694,7 @@ mod tests {
             .unwrap();
 
         let (jones_array, weight_array, flag_array, _, _, _) = get_test_data(
-            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv".into(),
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv",
             2,
             768,
             1,
@@ -4776,7 +4773,7 @@ mod tests {
             .unwrap();
 
         let (jones_array, weight_array, flag_array, _, _, _) = get_test_data(
-            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv".into(),
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv",
             2,
             768,
             1,

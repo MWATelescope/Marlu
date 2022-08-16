@@ -167,7 +167,7 @@ impl VisSelection {
                 corr_ctx.common_timestep_indices.first(),
                 corr_ctx.provided_timestep_indices.last(),
             ) {
-                (Some(&first), Some(&last)) if first <= last => (first..last + 1),
+                (Some(&first), Some(&last)) if first <= last => first..last + 1,
                 (.., None) => {
                     return Err(SelectionError::NoProvidedTimesteps {
                         hdu_info: format!("{:?}", &corr_ctx.gpubox_time_map),
@@ -503,7 +503,7 @@ impl VisSelection {
                             // arrays: [chan]
                             for (mut jones_array, baseline_idx) in izip!(
                                 jones_array.axis_iter_mut(Axis(1)),
-                                self.baseline_idxs.clone()
+                                self.baseline_idxs.iter()
                             ) {
                                 // buffer: [chan][pol][complex]
                                 let hdu_baseline_chunk = &hdu_buffer
