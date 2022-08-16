@@ -14,11 +14,11 @@ Convenience Rust code that handles coordinate transformations, Jones matrices,
 etc.
 
 ## Prerequisites
-- A Rust compiler with a version >= 1.56.0
+- A Rust compiler with a version >= 1.60.0
 
   ```bash
   $ rustc -V
-  rustc 1.57.0 (f1edd0429 2021-11-29)
+  rustc 1.63.0 (4b91a6ea7 2022-08-08)
   ```
 
   https://www.rust-lang.org/tools/install

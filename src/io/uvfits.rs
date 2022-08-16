@@ -807,12 +807,13 @@ impl VisWrite for UvfitsWriter {
             ProgressDrawTarget::hidden()
         };
         let write_progress =
-            indicatif::ProgressBar::with_draw_target(num_avg_rows as u64, draw_target);
+            indicatif::ProgressBar::with_draw_target(Some(num_avg_rows as u64), draw_target);
         write_progress.set_style(
             ProgressStyle::default_bar()
                 .template(
                     "{msg:16}: [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent:3}% ({eta:5})",
                 )
+                .unwrap()
                 .progress_chars("=> "),
         );
         write_progress.set_message("write ms vis");

@@ -1,7 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
 
-# Unreleased
+# Version 0.8.0 (2022-08-22)
 
+- Bump dependency versions.
 - `cargo` feature changes:
   - `io` no longer exists
   - `cfitsio` now exists. uvfits writing is possible with just `cfitsio`, and

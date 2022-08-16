@@ -61,8 +61,6 @@ cfg_if::cfg_if! {
         use itertools::izip;
         use log::warn;
         use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-        use crossbeam_channel::unbounded;
-        use crossbeam_utils::thread;
         use crate::{
             mwalib::{CorrelatorContext, MetafitsContext},
             ndarray::{ArrayViewMut3, Axis},
@@ -106,6 +104,10 @@ pub enum SelectionError {
         /// The shape that was received instead
         received: String,
     },
+
+    #[cfg(feature = "mwalib")]
+    #[error(transparent)]
+    Mwalib(#[from] mwalib::GpuboxError),
 }
 
 /// Keep track of which mwalib indices the values in a jones array, its' weights and its' flags
@@ -394,7 +396,7 @@ impl VisSelection {
             });
         };
 
-        // since we are using read_by_by basline into buffer, the visibilities are read in order:
+        // since we are using read_by_baseline_into_buffer, the visibilities are read in order:
         // baseline,frequency,pol,r,i
 
         // compiler optimization
@@ -406,9 +408,6 @@ impl VisSelection {
 
         let floats_per_baseline = floats_per_chan * fine_chans_per_coarse;
         let floats_per_hdu = floats_per_baseline * corr_ctx.metafits_context.num_baselines;
-
-        // A queue of errors
-        let (tx_error, rx_error) = unbounded();
 
         // Progress bar draw target
         let draw_target = if draw_progress {
@@ -428,6 +427,7 @@ impl VisSelection {
                         .with_style(
                             ProgressStyle::default_bar()
                                 .template("{msg:16}: [{wide_bar:.blue}] {pos:4}/{len:4}")
+                                .unwrap()
                                 .progress_chars("=> "),
                         )
                         .with_position(0)
@@ -445,99 +445,85 @@ impl VisSelection {
                         .template(
                             "{msg:16}: [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent:3}% ({eta:5})",
                         )
+                        .unwrap()
                         .progress_chars("=> "),
                 )
                 .with_position(0)
                 .with_message("loading hdus"),
         );
 
-        thread::scope(|scope| {
-            // Spawn a thread to draw the progress bars.
-            scope.spawn(|_| {
-                multi_progress.join().unwrap();
-            });
+        // Load HDUs from each coarse channel. arrays: [timestep][chan][baseline]
+        jones_array
+            .axis_chunks_iter_mut(Axis(1), fine_chans_per_coarse)
+            .into_par_iter()
+            .zip(flag_array.axis_chunks_iter_mut(Axis(1), fine_chans_per_coarse))
+            .zip(self.coarse_chan_range.clone())
+            .zip(read_progress)
+            .try_for_each(
+                |(((mut jones_array, mut flag_array), coarse_chan_idx), progress)| {
+                    progress.set_position(0);
 
-            total_progress.set_position(0);
+                    // buffer: [baseline][chan][pol][complex]
+                    let mut hdu_buffer: Vec<f32> = vec![0.0; floats_per_hdu];
 
-            // Error handling thread
-            scope.spawn(|_| {
-                for (mwalib_timestep_idx, mwalib_coarse_chan_idx, err) in rx_error {
-                    warn!(
-                        "Flagging missing HDU @ ts={}, cc={} {:?}",
-                        mwalib_timestep_idx, mwalib_coarse_chan_idx, err
-                    );
-                }
-            });
-
-            // Load HDUs from each coarse channel. arrays: [timestep][chan][baseline]
-
-            //refactor below
-            jones_array
-                .axis_chunks_iter_mut(Axis(1), fine_chans_per_coarse)
-                .into_par_iter()
-                .zip(flag_array.axis_chunks_iter_mut(Axis(1), fine_chans_per_coarse))
-                .zip(self.coarse_chan_range.clone())
-                .zip(read_progress)
-                .for_each(
-                    |(((mut jones_array, mut flag_array), coarse_chan_idx), progress)| {
-                        progress.set_position(0);
-
-                        // buffer: [baseline][chan][pol][complex]
-                        let mut hdu_buffer: Vec<f32> = vec![0.0; floats_per_hdu];
-
-                        // arrays: [chan][baseline]
-                        for (mut jones_array, mut flag_array, timestep_idx) in izip!(
-                            jones_array.outer_iter_mut(),
-                            flag_array.outer_iter_mut(),
-                            self.timestep_range.clone(),
+                    // arrays: [chan][baseline]
+                    for (mut jones_array, mut flag_array, timestep_idx) in izip!(
+                        jones_array.outer_iter_mut(),
+                        flag_array.outer_iter_mut(),
+                        self.timestep_range.clone(),
+                    ) {
+                        match corr_ctx.read_by_baseline_into_buffer(
+                            timestep_idx,
+                            coarse_chan_idx,
+                            hdu_buffer.as_mut_slice(),
                         ) {
-                            if let Err(err) = corr_ctx.read_by_baseline_into_buffer(
-                                timestep_idx,
-                                coarse_chan_idx,
-                                hdu_buffer.as_mut_slice(),
-                            ) {
-                                flag_array.fill(true);
-                                tx_error.send((timestep_idx, coarse_chan_idx, err)).unwrap();
-                                continue;
-                            }
-                            // arrays: [chan]
-                            for (mut jones_array, baseline_idx) in izip!(
-                                jones_array.axis_iter_mut(Axis(1)),
-                                self.baseline_idxs.iter()
-                            ) {
-                                // buffer: [chan][pol][complex]
-                                let hdu_baseline_chunk = &hdu_buffer
-                                    [baseline_idx * floats_per_baseline..][..floats_per_baseline];
-                                for (jones, hdu_chan_chunk) in izip!(
-                                    jones_array.iter_mut(),
-                                    hdu_baseline_chunk.chunks_exact(floats_per_chan)
+                            Ok(()) => {
+                                // arrays: [chan]
+                                for (mut jones_array, baseline_idx) in izip!(
+                                    jones_array.axis_iter_mut(Axis(1)),
+                                    self.baseline_idxs.iter()
                                 ) {
-                                    *jones = Jones::from([
-                                        hdu_chan_chunk[0],
-                                        hdu_chan_chunk[1],
-                                        hdu_chan_chunk[2],
-                                        hdu_chan_chunk[3],
-                                        hdu_chan_chunk[4],
-                                        hdu_chan_chunk[5],
-                                        hdu_chan_chunk[6],
-                                        hdu_chan_chunk[7],
-                                    ]);
+                                    // buffer: [chan][pol][complex]
+                                    let hdu_baseline_chunk = &hdu_buffer
+                                        [baseline_idx * floats_per_baseline..]
+                                        [..floats_per_baseline];
+                                    for (jones, hdu_chan_chunk) in izip!(
+                                        jones_array.iter_mut(),
+                                        hdu_baseline_chunk.chunks_exact(floats_per_chan)
+                                    ) {
+                                        *jones = Jones::from([
+                                            hdu_chan_chunk[0],
+                                            hdu_chan_chunk[1],
+                                            hdu_chan_chunk[2],
+                                            hdu_chan_chunk[3],
+                                            hdu_chan_chunk[4],
+                                            hdu_chan_chunk[5],
+                                            hdu_chan_chunk[6],
+                                            hdu_chan_chunk[7],
+                                        ]);
+                                    }
                                 }
                             }
-
-                            progress.inc(1);
-                            total_progress.inc(1);
+                            Err(mwalib::GpuboxError::NoDataForTimeStepCoarseChannel { .. }) => {
+                                warn!(
+                                    "Flagging missing HDU @ ts={}, cc={}",
+                                    timestep_idx, coarse_chan_idx
+                                );
+                                flag_array.fill(true);
+                            }
+                            Err(e) => return Err(e),
                         }
-                        progress.finish();
-                    },
-                );
 
-            drop(tx_error);
+                        progress.inc(1);
+                        total_progress.inc(1);
+                    }
+                    progress.finish();
+                    Ok(())
+                },
+            )?;
 
-            // We're done!
-            total_progress.finish();
-        })
-        .unwrap();
+        // We're done!
+        total_progress.finish();
 
         Ok(())
     }
