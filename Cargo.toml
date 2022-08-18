@@ -17,10 +17,16 @@ categories = ["science"]
 exclude = ["tests/*", ".vscode/*", ".github/*", ".talismanrc"]
 
 [features]
-default = ["io", "mwalib"]
+default = ["mwalib", "ms"]
 
-# Provide IO code. Pulls in heavy dependencies like rubbl.
-io = ["rubbl_core", "rubbl_casatables", "approx"]
+# Link against cfitsio, enabling uvfits IO code
+cfitsio = ["fitsio", "fitsio-sys"]
+
+# Provide mwalib convenience functions (requires cfitsio)
+mwalib = ["dep:mwalib", "cfitsio"]
+
+# Provide measurement set IO code.
+ms = ["rubbl_core", "rubbl_casatables", "failure", "flate2"]
 
 # Provide CUDA convenience code
 cuda = ["cuda-runtime-sys"]
@@ -35,28 +41,40 @@ cuda-static = []
 all-static = ["erfa-static", "cfitsio-static", "cuda-static"]
 
 [dependencies]
-approx = { version = "0.5.0", features = ["num-complex"], optional = true }
 cfg-if = "1.0.0"
 crossbeam-channel = "0.5"
 crossbeam-utils = "0.8"
-cuda-runtime-sys = { version = "0.3.0-alpha.1", optional = true }
 erfa-sys = "0.2.0"
-failure = "^0.1"
-flate2 = "1.0.13"
 hifitime = "3.0.0"
 indicatif = { version = "0.16.0", features = ["rayon"] }
 itertools = "0.10.0"
 lazy_static = "1.4.0"
 log = "0.4.4"
-mwalib = { version = "0.15.0", optional = true }
 ndarray = { version = "0.15.4", features = ["rayon"] }
 num-complex = "0.4.0"
 num-traits = "0.2.0"
 rayon = "1.5.0"
-rubbl_casatables = { version = "0.6.0", optional = true }
-rubbl_core = { version = "0.3.0", optional = true }
 tar = "0.4.15"
 thiserror = "1.0.0"
+
+# "cfitsio" feature
+fitsio = { version = "0.19.0", optional = true }
+fitsio-sys = { version = "0.4.0", optional = true }
+
+# "mwalib" feature
+mwalib = { version = "0.15.0", optional = true }
+
+# "ms" feature
+failure = { version = "^0.1", optional = true }
+flate2 = { version = "1.0.13", optional = true }
+rubbl_casatables = { version = "0.6.0", optional = true }
+rubbl_core = { version = "0.3.0", optional = true }
+
+# "cuda" feature
+cuda-runtime-sys = { version = "0.3.0-alpha.1", optional = true }
+
+# "approx" feature
+approx = { version = "0.5.0", features = ["num-complex"], optional = true }
 
 [dev-dependencies]
 approx = { version = "0.5.0", features = ["num-complex"] }

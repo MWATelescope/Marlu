@@ -2,19 +2,19 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use crate::{
-    average_chunk_f64, c32,
-    io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
-    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
-    num_complex::Complex,
-    History, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
+use std::{
+    f64::consts::FRAC_PI_2,
+    ops::Range,
+    path::{Path, PathBuf},
+    time::SystemTime,
 };
-
-use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 use hifitime::{Duration, Unit};
+use indicatif::{ProgressDrawTarget, ProgressStyle};
+use itertools::izip;
 use lazy_static::lazy_static;
+use log::trace;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
     TableRecord,
@@ -25,24 +25,17 @@ use super::{
     error::{BadArrayShape, MeasurementSetWriteError},
     VisWrite,
 };
+use crate::{
+    average_chunk_f64, c32,
+    io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
+    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
+    num_complex::Complex,
+    precession::precess_time,
+    History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic, UVW,
+};
 
-use indicatif::{ProgressDrawTarget, ProgressStyle};
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "mwalib")] {
-        use std::{
-            ops::Range,
-            time::SystemTime,
-            f64::consts::FRAC_PI_2,
-        };
-
-        use log::trace;
-        use itertools::izip;
-        use mwalib::CorrelatorContext;
-
-        use crate::{precession::precess_time, Jones, UVW};
-    }
-}
+#[cfg(feature = "mwalib")]
+use mwalib::CorrelatorContext;
 
 lazy_static! {
     static ref DEFAULT_TABLES_GZ: &'static [u8] =
@@ -1920,7 +1913,7 @@ mod tests {
     use super::*;
 
     use approx::abs_diff_eq;
-    use hifitime::{Duration, Epoch};
+    use hifitime::Epoch;
     use itertools::izip;
     use lexical::parse;
     use regex::Regex;
@@ -1930,7 +1923,7 @@ mod tests {
     use crate::{
         c64,
         ndarray::{s, Array, Array4},
-        XyzGeocentric, ENH,
+        Jones, VisSelection, XyzGeocentric, ENH,
     };
 
     cfg_if::cfg_if! {
@@ -1941,7 +1934,6 @@ mod tests {
                     COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
                 },
                 ndarray::array,
-                VisSelection,
             };
         }
     }
@@ -1953,6 +1945,7 @@ mod tests {
             "tests/data/1254670392_avg/1254670392.cotter.none.avg_4s_80khz.trunc.ms".into();
     }
 
+    #[cfg(feature = "mwalib")]
     fn encode_flags(weights: ArrayView3<f32>, flags: ArrayView3<bool>) -> Array3<f32> {
         let mut new_weights = weights.to_owned();
         for (weight, &flag) in izip!(new_weights.iter_mut(), flags.iter()) {
@@ -3252,6 +3245,7 @@ mod tests {
         [-211.53, -211.53],
     ];
 
+    #[cfg(feature = "mwalib")]
     const COTTER_HISTORY: History<'static> = History {
         application: Some("Cotter MWA preprocessor"),
         cmd_line: Some(
@@ -4844,6 +4838,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "mwalib")]
     const REPRODUCIBLE_TABLE_COLNAMES: &[(&str, &[&str])] = &[
         (
             "",

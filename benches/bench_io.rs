@@ -4,6 +4,9 @@
 
 //! Benchmarks
 
+#[cfg(not(all(feature = "mwalib", feature = "ms")))]
+compile_error!("Benchmarks require the \"mwalib\" and \"ms\" features");
+
 use std::{
     cmp::min,
     env,
@@ -14,10 +17,8 @@ use criterion::*;
 use glob::glob;
 use hifitime::Duration;
 use marlu::{
-    io::{ms::MeasurementSetWriter, UvfitsWriter, VisWrite},
-    mwalib,
-    ndarray::Array3,
-    Complex, Jones, MwaObsContext, ObsContext, VisContext, VisSelection,
+    ms::MeasurementSetWriter, mwalib, ndarray::Array3, uvfits::UvfitsWriter, Complex, Jones,
+    MwaObsContext, ObsContext, VisContext, VisSelection, VisWrite,
 };
 use mwalib::CorrelatorContext;
 use tempfile::tempdir;

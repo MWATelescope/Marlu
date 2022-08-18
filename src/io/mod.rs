@@ -3,28 +3,39 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 pub mod error;
-pub mod ms;
-pub mod uvfits;
+use ndarray::prelude::*;
 
-// re-exports
-pub use error::{MeasurementSetWriteError, UvfitsWriteError};
-pub use ms::MeasurementSetWriter;
-pub use uvfits::UvfitsWriter;
+use crate::{context::VisContext, Jones};
+use error::IOError;
 
-use crate::context::VisContext;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "cfitsio")] {
+        pub mod uvfits;
+
+        pub use error::UvfitsWriteError;
+        pub use uvfits::UvfitsWriter;
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "ms")] {
+        pub mod ms;
+
+        pub use error::MeasurementSetWriteError;
+        pub use ms::MeasurementSetWriter;
+    }
+}
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         use std::ops::Range;
-
-        use crate::{mwalib::CorrelatorContext, Jones};
-        use ndarray::{ArrayView3, ArrayViewMut3};
-        use self::error::IOError;
+        use mwalib::CorrelatorContext;
     }
 }
 
 /// The container has visibilities which can be read by passing in a mwalib
 /// context and the range of values to read.
+#[cfg(feature = "mwalib")]
 pub trait VisRead: Sync + Send {
     /// Read the visibilities and weights for the selected timesteps, coarse
     /// channels and baselines into the provided arrays.
@@ -33,7 +44,6 @@ pub trait VisRead: Sync + Send {
     ///
     /// Can throw `IOError` if there is an issue reading.
     ///
-    #[cfg(feature = "mwalib")]
     fn read_vis_mwalib(
         &self,
         jones_array: ArrayViewMut3<Jones<f32>>,

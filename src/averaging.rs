@@ -7,12 +7,9 @@
 use crate::Complex;
 use itertools::izip;
 use ndarray::prelude::*;
-// {Array3, Array4, ArrayView3, ArrayView4, Axis};
 use thiserror::Error;
 
 use crate::Jones;
-
-// use rubbl_casatables::CasacoreError;
 
 #[derive(Error, Debug)]
 pub enum AveragingError {

@@ -38,8 +38,14 @@ pub mod pos;
 pub mod selection;
 pub mod sexagesimal;
 
-#[cfg(feature = "io")]
 pub mod io;
+#[cfg(feature = "ms")]
+pub use io::ms;
+#[cfg(feature = "cfitsio")]
+pub use io::uvfits;
+#[cfg(feature = "mwalib")]
+pub use io::VisRead;
+pub use io::VisWrite;
 
 #[cfg(feature = "cuda")]
 pub mod cuda;
@@ -83,11 +89,14 @@ cfg_if::cfg_if! {
     }
 }
 
-// If "io" is enabled, re-export rubbl_casatables here.
+#[cfg(feature = "cfitsio")]
+pub use io::{UvfitsWriteError, UvfitsWriter};
+
+// If "ms" is enabled, re-export rubbl_casatables here.
 cfg_if::cfg_if! {
-    if #[cfg(feature = "io")] {
+    if #[cfg(feature = "ms")] {
         pub use rubbl_casatables;
-        pub use io::{MeasurementSetWriter, UvfitsWriter, VisWrite, UvfitsWriteError};
+        pub use io::MeasurementSetWriter;
     }
 }
 

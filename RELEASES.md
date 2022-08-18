@@ -2,6 +2,11 @@
 
 # Unreleased
 
+- `cargo` feature changes:
+  - `io` no longer exists
+  - `cfitsio` now exists. uvfits writing is possible with just `cfitsio`, and
+    `mwalib` depends on `cfitsio`.
+  - `ms` now exists. Measurement Set writing is only possible with `ms`.
 - Support DUT1 usage:
   - The precession API has changed
   - `UvfitsWriter` reports the DUT1 with `UT1UTC`

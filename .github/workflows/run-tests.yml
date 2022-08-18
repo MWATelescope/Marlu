@@ -73,6 +73,27 @@ jobs:
     - name: Run tests, no default features
       run: cargo test --no-default-features
 
+    - name: Run tests, no default features but cfitsio
+      run: cargo test --no-default-features --features=cfitsio
+
+    - name: Run tests, no default features but mwalib
+      run: cargo test --no-default-features --features=mwalib
+
+    - name: Run tests, no default features but ms
+      run: cargo test --no-default-features --features=ms
+
+    - name: Run tests, no default features but approx
+      run: cargo test --no-default-features --features=approx
+
+    - name: Run tests, no default features but mwalib and ms
+      run: cargo test --no-default-features --features=mwalib,ms
+
+    - name: Run tests, no default features but mwalib and approx
+      run: cargo test --no-default-features --features=mwalib,approx
+
+    - name: Run tests, no default features but ms and approx
+      run: cargo test --no-default-features --features=ms,approx
+
     - name: Minimum-specified Rust version works
       run: |
         MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')

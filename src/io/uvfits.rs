@@ -13,16 +13,15 @@ use crate::{
     average_chunk_f64,
     constants::VEL_C,
     erfa_sys::{eraGst06a, ERFA_DJM0},
-    fitsio::errors::check_status as fits_check_status,
-    fitsio_sys,
     hifitime::{Duration, Epoch},
     io::error::BadArrayShape,
-    mwalib::fitsio,
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
     History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
+use fitsio::errors::check_status as fits_check_status;
+use fitsio_sys;
 use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::{izip, Itertools};
 use log::trace;
@@ -698,7 +697,7 @@ impl UvfitsWriter {
     /// be updated to add visibilities to an existing uvfits row.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    #[cfg(test)]
+    #[cfg(all(test, feature = "mwalib"))]
     fn write_vis_row(
         &mut self,
         uvw: UVW,
@@ -1059,30 +1058,29 @@ pub(super) enum FitsioOrCStringError {
     Nul(#[from] std::ffi::NulError),
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "mwalib"))]
 mod tests {
     use std::io::Read;
 
-    use super::*;
+    use approx::{abs_diff_eq, assert_abs_diff_eq};
     use fitsio::{
         hdu::{FitsHdu, HduInfo},
         FitsFile,
     };
+    use mwalib::{
+        _get_fits_col, _get_required_fits_key, _open_fits, _open_hdu, fits_open, fits_open_hdu,
+        get_fits_col, get_required_fits_key, CorrelatorContext,
+    };
     use tempfile::NamedTempFile;
 
+    use super::*;
     use crate::{
         constants::{
             COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
         },
-        mwalib::{
-            _get_fits_col, _get_required_fits_key, _open_fits, _open_hdu, fits_open, fits_open_hdu,
-            get_fits_col, get_required_fits_key, CorrelatorContext,
-        },
         selection::VisSelection,
         ENH,
     };
-
-    use approx::{abs_diff_eq, assert_abs_diff_eq};
 
     macro_rules! assert_short_string_keys_eq {
         ($keys:expr, $left_fptr:expr, $left_hdu:expr, $right_fptr:expr, $right_hdu:expr) => {
@@ -1107,7 +1105,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_short_string_keys_eq;
 
     macro_rules! assert_f32_string_keys_eq {
         ($keys:expr, $left_fptr:expr, $left_hdu:expr, $right_fptr:expr, $right_hdu:expr) => {
@@ -1138,7 +1135,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_f32_string_keys_eq;
 
     macro_rules! assert_table_column_descriptions_match {
         ( $left_fptr:expr, $left_hdu:expr, $right_fptr:expr, $right_hdu:expr ) => {
@@ -1173,7 +1169,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_table_column_descriptions_match;
 
     macro_rules! assert_table_string_column_values_match {
         ( $col_names:expr, $left_fptr:expr, $left_hdu:expr, $right_fptr:expr, $right_hdu:expr ) => {
@@ -1197,7 +1192,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_table_string_column_values_match;
 
     macro_rules! assert_table_f64_column_values_match {
         ( $col_names:expr, $left_fptr:expr, $left_hdu:expr, $right_fptr:expr, $right_hdu:expr ) => {
@@ -1223,7 +1217,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_table_f64_column_values_match;
 
     macro_rules! assert_table_vector_f64_column_values_match {
         ( $col_descriptions:expr, $col_info:expr, $row_len:expr, $left_fptr:expr, $left_hdu:expr, $right_fptr:expr, $right_hdu:expr ) => {
@@ -1284,7 +1277,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_table_vector_f64_column_values_match;
 
     #[allow(dead_code)]
     pub(crate) fn assert_uvfits_primary_header_eq(
@@ -1372,7 +1364,7 @@ mod tests {
     pub(crate) fn get_group_column_description(
         fptr: &mut FitsFile,
         hdu: &FitsHdu,
-    ) -> Result<Vec<String>, crate::mwalib::FitsError> {
+    ) -> Result<Vec<String>, mwalib::FitsError> {
         let pcount: usize = get_required_fits_key!(fptr, hdu, "PCOUNT")?;
         let mut result = Vec::with_capacity(pcount);
         for p in 0..pcount {
@@ -1408,7 +1400,6 @@ mod tests {
             }
         };
     }
-    pub(crate) use assert_group_column_descriptions_match;
 
     #[allow(dead_code)]
     pub(crate) fn assert_uvfits_vis_table_eq(left_fptr: &mut FitsFile, right_fptr: &mut FitsFile) {
