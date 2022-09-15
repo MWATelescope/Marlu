@@ -15,14 +15,37 @@ use super::lmn::LMN;
 
 /// A struct containing a Right Ascension and Declination. All units are in
 /// radians.
+///
+/// Note that the serialised units are degrees and are automatically converted
+/// when serialising/deserialising.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[allow(clippy::upper_case_acronyms)]
 pub struct RADec {
     /// Right ascension \[radians\]
     // TODO: Should RA always be positive?
+    #[cfg_attr(feature = "serde", serde(serialize_with = "radians_to_degrees"))]
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "degrees_to_radians"))]
     pub ra: f64,
+
     /// Declination \[radians\]
+    #[cfg_attr(feature = "serde", serde(serialize_with = "radians_to_degrees"))]
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "degrees_to_radians"))]
     pub dec: f64,
+}
+
+#[cfg(feature = "serde")]
+fn radians_to_degrees<S: serde::Serializer>(num: &f64, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_f64(num.to_degrees())
+}
+
+#[cfg(feature = "serde")]
+fn degrees_to_radians<'de, D>(d: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let num: f64 = serde::Deserialize::deserialize(d)?;
+    Ok(num.to_radians())
 }
 
 impl RADec {
@@ -320,5 +343,49 @@ mod tests {
         let radec = RADec { ra: 0.0, dec: 0.0 };
         let result = format!("{}", radec);
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_serde() {
+        let radec = RADec::new_degrees(60.0, -30.0);
+        let result = serde_json::to_string(&radec);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let json = result.unwrap();
+
+        let result = serde_json::from_str(&json);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let radec2 = result.unwrap();
+
+        assert_abs_diff_eq!(radec, radec2);
+
+        // No issue with the pretty renderer.
+        let result = serde_json::to_string_pretty(&radec);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let json = result.unwrap();
+
+        let result = serde_json::from_str(&json);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let radec2 = result.unwrap();
+
+        assert_abs_diff_eq!(radec, radec2);
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_deserialise_json() {
+        let json = "{\"ra\": 1.23, \"dec\": -0.57}";
+
+        let result = serde_json::from_str(&json);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let radec: RADec = result.unwrap();
+
+        assert_abs_diff_eq!(
+            radec,
+            RADec {
+                ra: 0.021467549799530253,
+                dec: -0.009948376736367677
+            }
+        );
     }
 }

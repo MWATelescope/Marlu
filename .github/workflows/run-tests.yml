@@ -94,6 +94,9 @@ jobs:
     - name: Run tests, no default features but ms and approx
       run: cargo test --no-default-features --features=ms,approx
 
+    - name: Run tests, no default features but serde
+      run: cargo test --no-default-features --features=serde
+
     - name: Minimum-specified Rust version works
       run: |
         MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
