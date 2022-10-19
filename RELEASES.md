@@ -2,6 +2,9 @@
 
 # Version 0.9.0 (unreleased)
 
+- Rename coordinate "new" methods to "from", e.g. `RADec::new` is now
+  `RADec::from_radians`
+- Rename `LatLngHeight::new_mwa` to `LatLngHeight::mwa`
 - Use the newest version of hifitime
 
 # Version 0.8.0 (2022-08-22)
@@ -29,6 +32,7 @@
 - Add an optional `approx` feature that exposes trait implementations like
   `approx::AbsDiffEq` on each of the coordinate types (e.g. `UVW`).
 - Make `Jones` `#[repr(transparent)]`
+
 # Version 0.7.2 (2022-08-04)
 
 - Expose Marlu version in `built_info`

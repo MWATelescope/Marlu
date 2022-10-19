@@ -138,7 +138,7 @@ fn aber_radec_rad(eq: f64, mjd: f64, radec: RADec) -> RADec {
         pal::palDcc2s(v2.as_mut_ptr(), &mut ra2, &mut dec2);
         ra2 = pal::palDranrm(ra2);
 
-        RADec::new(ra2, dec2)
+        RADec::from_radians(ra2, dec2)
     }
 }
 
@@ -188,7 +188,7 @@ fn hadec_j2000(
 ) -> HADecJ2000 {
     let (new_lmst, new_lat) = rotate_radec(rotation_matrix, lmst, lat_rad);
     HADecJ2000 {
-        hadec: HADec::new(pal::palDranrm(new_lmst - radec.ra), radec.dec),
+        hadec: HADec::from_radians(pal::palDranrm(new_lmst - radec.ra), radec.dec),
         latitude: new_lat,
         lmst: new_lmst,
     }
@@ -276,7 +276,7 @@ mod tests {
         // https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_dates_and_J2000
         let j2000_epoch = Epoch::from_str("2000-01-01T11:58:55.816 UTC").unwrap();
 
-        let phase_centre = RADec::new_degrees(0.0, -27.0);
+        let phase_centre = RADec::from_degrees(0.0, -27.0);
         let eor0 = precess_time(
             MWA_LONG_RAD,
             MWA_LAT_RAD,
@@ -300,7 +300,7 @@ mod tests {
 
         assert_abs_diff_eq!(eor0.lmst, 0.6433259676052971, epsilon = 1e-4);
 
-        let phase_centre = RADec::new_degrees(60.0, -30.0);
+        let phase_centre = RADec::from_degrees(60.0, -30.0);
         let eor1 = precess_time(
             MWA_LONG_RAD,
             MWA_LAT_RAD,
@@ -339,7 +339,7 @@ mod tests {
         // https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_dates_and_J2000
         let j2000_epoch = Epoch::from_str("2000-01-01T11:58:55.816 UTC").unwrap();
 
-        let phase_centre = RADec::new_degrees(0.0, -27.0);
+        let phase_centre = RADec::from_degrees(0.0, -27.0);
         let eor0 = precess_time(
             MWA_LONG_RAD,
             MWA_LAT_RAD,
@@ -363,7 +363,7 @@ mod tests {
 
         assert_abs_diff_eq!(eor0.lmst, 0.6433259676052971, epsilon = 1e-4);
 
-        let phase_centre = RADec::new_degrees(60.0, -30.0);
+        let phase_centre = RADec::from_degrees(60.0, -30.0);
         let eor1 = precess_time(
             MWA_LONG_RAD,
             MWA_LAT_RAD,
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn test_precess_1065880128_to_j2000() {
         let epoch = Epoch::from_gpst_seconds(1065880128.0);
-        let phase_centre = RADec::new_degrees(0.0, -27.0);
+        let phase_centre = RADec::from_degrees(0.0, -27.0);
 
         let p = precess_time(
             MWA_LONG_RAD,
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn test_precess_1099334672_to_j2000() {
         let epoch = Epoch::from_gpst_seconds(1099334672.0);
-        let phase_centre = RADec::new_degrees(60.0, -30.0);
+        let phase_centre = RADec::from_degrees(60.0, -30.0);
 
         let p = precess_time(
             MWA_LONG_RAD,
@@ -471,7 +471,7 @@ mod tests {
         // Test values have changed from the test above, due to the DUT1.
 
         let epoch = Epoch::from_gpst_seconds(1099334672.0);
-        let phase_centre = RADec::new_degrees(60.0, -30.0);
+        let phase_centre = RADec::from_degrees(60.0, -30.0);
 
         let p = precess_time(
             MWA_LONG_RAD,

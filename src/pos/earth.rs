@@ -36,13 +36,19 @@ pub enum Ellipsoid {
 }
 
 impl LatLngHeight {
-    /// Provide a new [`LatLngHeight`] at the MWA's position.
-    pub fn new_mwa() -> LatLngHeight {
+    /// Get a [`LatLngHeight`] at the MWA's position.
+    pub fn mwa() -> LatLngHeight {
         Self {
             longitude_rad: MWA_LONG_RAD,
             latitude_rad: MWA_LAT_RAD,
             height_metres: MWA_HEIGHT_M,
         }
+    }
+
+    /// Provide a new [`LatLngHeight`] at the MWA's position.
+    #[deprecated = "use `LatLngHeight::mwa` instead"]
+    pub fn new_mwa() -> LatLngHeight {
+        Self::mwa()
     }
 
     /// Convert to [`XyzGeocentric`] via [`erfa_sys::eraGd2gc`] with the specified
@@ -179,6 +185,6 @@ mod tests {
             height_metres: MWA_HEIGHT_M * 0.9999999999,
         };
 
-        assert_abs_diff_eq!(latlngheight, LatLngHeight::new_mwa(), epsilon = 1e-7);
+        assert_abs_diff_eq!(latlngheight, LatLngHeight::mwa(), epsilon = 1e-7);
     }
 }

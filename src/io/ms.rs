@@ -1961,11 +1961,11 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         // the subfolder doesn't exist
         let table_path = temp_dir.path().join("subfolder").join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -1983,11 +1983,11 @@ mod tests {
         let naughty_file = temp_dir.path().join("test.ms");
         std::fs::File::create(&naughty_file).unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2009,11 +2009,11 @@ mod tests {
         let naughty_file = temp_dir.path().join("subfolder");
         std::fs::File::create(&naughty_file).unwrap();
         let table_path = temp_dir.path().join("subfolder").join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2306,11 +2306,11 @@ mod tests {
     fn test_decompress_default_tables() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2506,11 +2506,11 @@ mod tests {
     fn test_add_source_table() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2541,11 +2541,11 @@ mod tests {
     fn test_add_cotter_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2576,11 +2576,11 @@ mod tests {
     fn test_add_mwa_mods() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2633,11 +2633,11 @@ mod tests {
     fn test_write_spectral_window_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2701,11 +2701,11 @@ mod tests {
     fn test_write_spectral_window_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2753,11 +2753,11 @@ mod tests {
     fn handle_bad_spw_chan_info() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -2791,11 +2791,11 @@ mod tests {
     fn test_write_data_description_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
             &table_path,
             phase_centre,
-            LatLngHeight::new_mwa(),
+            LatLngHeight::mwa(),
             vec![],
             Duration::from_total_nanoseconds(0),
         );
@@ -3297,8 +3297,8 @@ mod tests {
     fn test_write_antenna_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3371,8 +3371,8 @@ mod tests {
     fn test_write_antenna_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3448,8 +3448,8 @@ mod tests {
     fn test_write_polarization_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3500,8 +3500,8 @@ mod tests {
     fn handle_bad_pol_small_corr_type() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3545,8 +3545,8 @@ mod tests {
     fn handle_bad_pol_big_corr_product() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3590,8 +3590,8 @@ mod tests {
     fn test_write_source_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3666,8 +3666,8 @@ mod tests {
     fn test_write_field_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3742,8 +3742,8 @@ mod tests {
     fn test_write_field_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3807,8 +3807,8 @@ mod tests {
     fn handle_bad_field_shape() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3863,8 +3863,8 @@ mod tests {
     fn test_write_observation_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -3936,8 +3936,8 @@ mod tests {
     fn test_write_observation_row_mwa() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -4010,8 +4010,8 @@ mod tests {
     fn test_write_history_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -4104,8 +4104,8 @@ mod tests {
     fn test_write_feed_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -4190,8 +4190,8 @@ mod tests {
     fn test_write_mwa_tile_pointing_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -4251,8 +4251,8 @@ mod tests {
     fn test_write_mwa_subband_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
@@ -4718,8 +4718,8 @@ mod tests {
     fn test_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
-        let phase_centre = RADec::new(0., -0.47123889803846897);
-        let array_pos = LatLngHeight::new_mwa();
+        let phase_centre = RADec::from_radians(0., -0.47123889803846897);
+        let array_pos = LatLngHeight::mwa();
         let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS

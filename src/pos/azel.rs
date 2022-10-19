@@ -19,6 +19,23 @@ pub struct AzEl {
 
 impl AzEl {
     /// Make a new [`AzEl`] struct from values in radians.
+    pub fn from_radians(az_rad: f64, el_rad: f64) -> AzEl {
+        Self {
+            az: az_rad,
+            el: el_rad,
+        }
+    }
+
+    /// Make a new [`AzEl`] struct from values in degrees.
+    pub fn from_degrees(az_deg: f64, el_deg: f64) -> AzEl {
+        Self {
+            az: az_deg.to_radians(),
+            el: el_deg.to_radians(),
+        }
+    }
+
+    /// Make a new [`AzEl`] struct from values in radians.
+    #[deprecated = "use `AzEl::from_radians` instead"]
     pub fn new(az_rad: f64, el_rad: f64) -> AzEl {
         Self {
             az: az_rad,
@@ -27,8 +44,9 @@ impl AzEl {
     }
 
     /// Make a new [`AzEl`] struct from values in degrees.
+    #[deprecated = "use `AzEl::from_degrees` instead"]
     pub fn new_degrees(az_deg: f64, el_deg: f64) -> AzEl {
-        Self::new(az_deg.to_radians(), el_deg.to_radians())
+        Self::from_degrees(az_deg, el_deg)
     }
 
     /// Get the zenith angle in radians.
@@ -44,7 +62,7 @@ impl AzEl {
         let mut ha = 0.0;
         let mut dec = 0.0;
         unsafe { erfa_sys::eraAe2hd(self.az, self.el, latitude_rad, &mut ha, &mut dec) }
-        HADec::new(ha, dec)
+        HADec::from_radians(ha, dec)
     }
 
     /// Convert the horizon coordinates to equatorial coordinates (Hour Angle
@@ -112,23 +130,23 @@ mod tests {
 
     #[test]
     fn to_hadec() {
-        let ae = AzEl::new_degrees(45.0, 30.0);
+        let ae = AzEl::from_degrees(45.0, 30.0);
         let result = ae.to_hadec(-0.497600);
-        let expected = HADec::new(-0.6968754873551053, 0.3041176697804004);
+        let expected = HADec::from_radians(-0.6968754873551053, 0.3041176697804004);
         assert_abs_diff_eq!(result, expected, epsilon = 1e-10);
     }
 
     #[test]
     fn to_hadec2() {
-        let ae = AzEl::new(0.261700, 0.785400);
+        let ae = AzEl::from_radians(0.261700, 0.785400);
         let result = ae.to_hadec(-0.897600);
-        let expected = HADec::new(-0.185499449332533, -0.12732312479328656);
+        let expected = HADec::from_radians(-0.185499449332533, -0.12732312479328656);
         assert_abs_diff_eq!(result, expected, epsilon = 1e-10);
     }
 
     #[test]
     fn test_za() {
-        let ae = AzEl::new(0.261700, 0.785400);
+        let ae = AzEl::from_radians(0.261700, 0.785400);
         let za = ae.za();
         assert_abs_diff_eq!(za, 0.7853963268, epsilon = 1e-10);
     }

@@ -41,14 +41,14 @@ fn misc(c: &mut Criterion) {
     c.bench_function("xyzs_to_uvws", |b| {
         // The values are irrelevant.
         let xyzs = vec![XyzGeodetic::default(); 8128];
-        let phase_centre = HADec::new(0.0, -27.0);
+        let phase_centre = HADec::from_degrees(0.0, -27.0);
         b.iter(|| xyz::xyzs_to_uvws(&xyzs, phase_centre))
     });
 
     c.bench_function("xyzs_to_uvws_parallel", |b| {
         // The values are irrelevant.
         let xyzs = vec![XyzGeodetic::default(); 8128];
-        let phase_centre = HADec::new(0.0, -27.0);
+        let phase_centre = HADec::from_degrees(0.0, -27.0);
         b.iter(|| xyz::xyzs_to_uvws_parallel(&xyzs, phase_centre))
     });
 

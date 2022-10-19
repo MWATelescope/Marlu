@@ -92,7 +92,7 @@ impl ObsContext {
             observer: Some(meta_ctx.creator.clone()),
             phase_centre: RADec::from_mwalib_phase_or_pointing(meta_ctx),
             pointing_centre: Some(RADec::from_mwalib_tile_pointing(meta_ctx)),
-            array_pos: LatLngHeight::new_mwa(),
+            array_pos: LatLngHeight::mwa(),
             ant_positions_enh,
             ant_names,
         }

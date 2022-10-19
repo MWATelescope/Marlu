@@ -50,16 +50,28 @@ where
 
 impl RADec {
     /// Make a new [`RADec`] struct from values in radians.
-    pub fn new(ra_rad: f64, dec_rad: f64) -> RADec {
-        Self {
-            ra: ra_rad,
-            dec: dec_rad,
-        }
+    pub fn from_radians(ra: f64, dec: f64) -> RADec {
+        Self { ra, dec }
     }
 
     /// Make a new [`RADec`] struct from values in degrees.
+    pub fn from_degrees(ra: f64, dec: f64) -> RADec {
+        Self {
+            ra: ra.to_radians(),
+            dec: dec.to_radians(),
+        }
+    }
+
+    /// Make a new [`RADec`] struct from values in radians.
+    #[deprecated = "use `RADec::from_radians` instead"]
+    pub fn new(ra_rad: f64, dec_rad: f64) -> RADec {
+        Self::from_radians(ra_rad, dec_rad)
+    }
+
+    /// Make a new [`RADec`] struct from values in degrees.
+    #[deprecated = "use `RADec::from_degrees` instead"]
     pub fn new_degrees(ra_deg: f64, dec_deg: f64) -> RADec {
-        Self::new(ra_deg.to_radians(), dec_deg.to_radians())
+        Self::from_degrees(ra_deg, dec_deg)
     }
 
     /// Given a local sidereal time, make a new [`HADec`] struct from a [`RADec`].
@@ -128,7 +140,7 @@ impl RADec {
             dec_sum += c.dec * w;
             weight_sum += w;
         }
-        let mut weighted_pos = Self::new(ra_sum / weight_sum, dec_sum / weight_sum);
+        let mut weighted_pos = Self::from_radians(ra_sum / weight_sum, dec_sum / weight_sum);
         // Keep the RA positive.
         if weighted_pos.ra < 0.0 {
             weighted_pos.ra += TAU;
@@ -169,7 +181,7 @@ impl RADec {
             context.ra_phase_center_degrees,
             context.dec_phase_center_degrees,
         ) {
-            (Some(ra), Some(dec)) => Some(RADec::new_degrees(ra, dec)),
+            (Some(ra), Some(dec)) => Some(RADec::from_degrees(ra, dec)),
             (..) => None,
         }
     }
@@ -178,7 +190,7 @@ impl RADec {
     /// `(ra|dec)_tile_pointing_degrees`.
     #[cfg(feature = "mwalib")]
     pub fn from_mwalib_tile_pointing(context: &mwalib::MetafitsContext) -> RADec {
-        RADec::new_degrees(
+        RADec::from_degrees(
             context.ra_tile_pointing_degrees,
             context.dec_tile_pointing_degrees,
         )
@@ -254,8 +266,8 @@ mod tests {
 
     #[test]
     fn test_to_lmn() {
-        let radec = RADec::new_degrees(62.0, -27.5);
-        let phase_centre = RADec::new_degrees(60.0, -27.0);
+        let radec = RADec::from_degrees(62.0, -27.5);
+        let phase_centre = RADec::from_degrees(60.0, -27.0);
         let lmn = radec.to_lmn(phase_centre);
         let expected = LMN {
             l: 0.03095623164758603,
@@ -271,9 +283,9 @@ mod tests {
         // used when constructing `RankedSource`.
 
         // Simple case: both components have a weight of 1.0.
-        let c1 = RADec::new_degrees(10.0, 9.0);
+        let c1 = RADec::from_degrees(10.0, 9.0);
         let w1 = 1.0;
-        let c2 = RADec::new_degrees(11.0, 10.0);
+        let c2 = RADec::from_degrees(11.0, 10.0);
         let w2 = 1.0;
         let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
         assert!(result.is_some());
@@ -305,9 +317,9 @@ mod tests {
     #[test]
     // This time, make the coordinates go across the 360 degree branch cut.
     fn test_weighted_pos2() {
-        let c1 = RADec::new_degrees(10.0, 9.0);
+        let c1 = RADec::from_degrees(10.0, 9.0);
         let w1 = 1.0;
-        let c2 = RADec::new_degrees(359.0, 10.0);
+        let c2 = RADec::from_degrees(359.0, 10.0);
         let w2 = 1.0;
         let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
         assert!(result.is_some());
@@ -324,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_weighted_pos_single() {
-        let c = RADec::new(0.5, 0.75);
+        let c = RADec::from_radians(0.5, 0.75);
         let w = 1.0;
         let result = RADec::weighted_average(&[c], &[w]);
         assert!(result.is_some());
@@ -348,7 +360,7 @@ mod tests {
     #[test]
     #[cfg(feature = "serde")]
     fn test_serde() {
-        let radec = RADec::new_degrees(60.0, -30.0);
+        let radec = RADec::from_degrees(60.0, -30.0);
         let result = serde_json::to_string(&radec);
         assert!(result.is_ok(), "{:?}", result.err());
         let json = result.unwrap();

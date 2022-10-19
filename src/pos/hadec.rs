@@ -18,16 +18,28 @@ pub struct HADec {
 
 impl HADec {
     /// Make a new [`HADec`] struct from values in radians.
-    pub fn new(ha_rad: f64, dec_rad: f64) -> HADec {
-        Self {
-            ha: ha_rad,
-            dec: dec_rad,
-        }
+    pub fn from_radians(ha: f64, dec: f64) -> HADec {
+        Self { ha, dec }
     }
 
     /// Make a new [`HADec`] struct from values in degrees.
+    pub fn from_degrees(ha: f64, dec: f64) -> HADec {
+        Self {
+            ha: ha.to_radians(),
+            dec: dec.to_radians(),
+        }
+    }
+
+    /// Make a new [`HADec`] struct from values in radians.
+    #[deprecated = "use `HADec::from_radians` instead"]
+    pub fn new(ha_rad: f64, dec_rad: f64) -> HADec {
+        Self::from_radians(ha_rad, dec_rad)
+    }
+
+    /// Make a new [`HADec`] struct from values in degrees.
+    #[deprecated = "use `HADec::from_degrees` instead"]
     pub fn new_degrees(ha_deg: f64, dec_deg: f64) -> HADec {
-        Self::new(ha_deg.to_radians(), dec_deg.to_radians())
+        Self::from_degrees(ha_deg, dec_deg)
     }
 
     /// Given a local sidereal time, make a new [`RADec`] struct from a [`HADec`].
@@ -54,7 +66,7 @@ impl HADec {
         let mut az = 0.0;
         let mut el = 0.0;
         unsafe { erfa_sys::eraHd2ae(self.ha, self.dec, latitude_rad, &mut az, &mut el) }
-        AzEl::new(az, el)
+        AzEl::from_radians(az, el)
     }
 
     /// Convert the equatorial coordinates to horizon coordinates (azimuth and
@@ -141,48 +153,48 @@ mod tests {
 
     #[test]
     fn to_azel() {
-        let hd = HADec::new_degrees(1.0, -35.0);
+        let hd = HADec::from_degrees(1.0, -35.0);
         let result = hd.to_azel_mwa();
-        let expected = AzEl::new(3.240305654530152, 1.425221581624331);
+        let expected = AzEl::from_radians(3.240305654530152, 1.425221581624331);
         assert_abs_diff_eq!(result, expected, epsilon = 1e-10);
     }
 
     #[test]
     fn to_azel2() {
-        let hd = HADec::new_degrees(23.0, -35.0);
+        let hd = HADec::from_degrees(23.0, -35.0);
         let result = hd.to_azel_mwa();
-        let expected = AzEl::new(4.215504972991079, 1.1981324538790032);
+        let expected = AzEl::from_radians(4.215504972991079, 1.1981324538790032);
         assert_abs_diff_eq!(result, expected, epsilon = 1e-10);
     }
 
     #[test]
     fn separation() {
-        let hd1 = HADec::new_degrees(1.0, -35.0);
-        let hd2 = HADec::new_degrees(23.0, -35.0);
+        let hd1 = HADec::from_degrees(1.0, -35.0);
+        let hd2 = HADec::from_degrees(23.0, -35.0);
         let result = hd1.separation(hd2);
         assert_abs_diff_eq!(result, 0.31389018251593337, epsilon = 1e-10);
     }
 
     #[test]
     fn separation2() {
-        let hd1 = HADec::new_degrees(1.0, -35.0);
-        let hd2 = HADec::new_degrees(1.1, -35.0);
+        let hd1 = HADec::from_degrees(1.0, -35.0);
+        let hd2 = HADec::from_degrees(1.1, -35.0);
         let result = hd1.separation(hd2);
         assert_abs_diff_eq!(result, 0.0014296899650293985, epsilon = 1e-10);
     }
 
     #[test]
     fn separation3() {
-        let hd1 = HADec::new_degrees(1.0, -35.0);
-        let hd2 = HADec::new_degrees(4.0, 35.0);
+        let hd1 = HADec::from_degrees(1.0, -35.0);
+        let hd2 = HADec::from_degrees(4.0, 35.0);
         let result = hd1.separation(hd2);
         assert_abs_diff_eq!(result, 1.222708915934097, epsilon = 1e-10);
     }
 
     #[test]
     fn separation4() {
-        let hd1 = HADec::new_degrees(2.0, -35.0);
-        let hd2 = HADec::new_degrees(2.0, -35.0);
+        let hd1 = HADec::from_degrees(2.0, -35.0);
+        let hd2 = HADec::from_degrees(2.0, -35.0);
         let result = hd1.separation(hd2);
         assert_abs_diff_eq!(result, 0.0, epsilon = 1e-10);
     }

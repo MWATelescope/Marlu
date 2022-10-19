@@ -102,7 +102,7 @@ impl XyzGeodetic {
     /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`], using the MWA's
     /// location.
     pub fn to_geocentric_mwa(self) -> Result<XyzGeocentric, ErfaError> {
-        self.to_geocentric(LatLngHeight::new_mwa())
+        self.to_geocentric(LatLngHeight::mwa())
     }
 
     /// For each tile listed in an [`mwalib::MetafitsContext`], calculate a
@@ -328,7 +328,7 @@ impl XyzGeocentric {
     /// [`MWA_LAT_RAD`](crate::constants::MWA_LAT_RAD) and
     /// [`MWA_HEIGHT_M`](crate::constants::MWA_HEIGHT_M).
     pub fn get_geocentric_vector_mwa() -> Result<XyzGeocentric, ErfaError> {
-        Self::get_geocentric_vector(LatLngHeight::new_mwa())
+        Self::get_geocentric_vector(LatLngHeight::mwa())
     }
 
     /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`].
@@ -369,7 +369,7 @@ impl XyzGeocentric {
     /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`], using the MWA's
     /// location.
     pub fn to_geodetic_mwa(self) -> Result<XyzGeodetic, ErfaError> {
-        self.to_geodetic(LatLngHeight::new_mwa())
+        self.to_geodetic(LatLngHeight::mwa())
     }
 
     /// Convert a [`XyzGeocentric`] coordinate to [`LatLngHeight`] using the
@@ -558,7 +558,7 @@ mod tests {
                 z: 665.2348852011041,
             },
         ];
-        let phase = HADec::new(6.0163, -0.453121);
+        let phase = HADec::from_radians(6.0163, -0.453121);
         let result: Vec<UVW> = xyzs_to_uvws(&xyzs, phase);
         let expected = UVW {
             u: 102.04605530570603,
@@ -588,7 +588,7 @@ mod tests {
             XyzGeodetic::default(),
             XyzGeodetic::default(),
         ];
-        let phase = HADec::new(6.0163, -0.453121);
+        let phase = HADec::from_radians(6.0163, -0.453121);
         let serial_result: Vec<UVW> = xyzs_to_uvws(&xyzs, phase);
         let parallel_result: Vec<UVW> = xyzs_to_uvws_parallel(&xyzs, phase);
         assert_eq!(serial_result.len(), 15);
@@ -609,7 +609,7 @@ mod tests {
                 z: 665.2348852011041,
             },
         ];
-        let phase = HADec::new(6.0163, -0.453121);
+        let phase = HADec::from_radians(6.0163, -0.453121);
         let result: Vec<UVW> = xyzs_to_cross_uvws(&xyzs, phase);
         let expected = UVW {
             u: 102.04605530570603,
@@ -640,7 +640,7 @@ mod tests {
             XyzGeodetic::default(),
             XyzGeodetic::default(),
         ];
-        let phase = HADec::new(6.0163, -0.453121);
+        let phase = HADec::from_radians(6.0163, -0.453121);
         let serial_result: Vec<UVW> = xyzs_to_cross_uvws(&xyzs, phase);
         let parallel_result: Vec<UVW> = xyzs_to_cross_uvws_parallel(&xyzs, phase);
         assert_eq!(serial_result.len(), 10);
