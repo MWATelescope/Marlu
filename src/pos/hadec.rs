@@ -4,6 +4,8 @@
 
 //! Handle (hour angle, declination) coordinates.
 
+use erfa::aliases::{eraHd2ae, eraHd2pa, eraSeps};
+
 use crate::{constants::MWA_LAT_RAD, AzEl, RADec};
 
 /// A struct containing an Hour Angle and Declination. All units are in radians.
@@ -60,12 +62,8 @@ impl HADec {
 
     /// Convert the equatorial coordinates to horizon coordinates (azimuth and
     /// elevation), given the local latitude on Earth.
-    ///
-    /// Uses ERFA.
     pub fn to_azel(self, latitude_rad: f64) -> AzEl {
-        let mut az = 0.0;
-        let mut el = 0.0;
-        unsafe { erfa_sys::eraHd2ae(self.ha, self.dec, latitude_rad, &mut az, &mut el) }
+        let (az, el) = eraHd2ae(self.ha, self.dec, latitude_rad);
         AzEl::from_radians(az, el)
     }
 
@@ -78,27 +76,21 @@ impl HADec {
     }
 
     /// Calculate the distance between two sets of coordinates.
-    ///
-    /// Uses ERFA.
     pub fn separation(self, b: Self) -> f64 {
-        unsafe { erfa_sys::eraSeps(self.ha, self.dec, b.ha, b.dec) }
+        eraSeps(self.ha, self.dec, b.ha, b.dec)
     }
 
     /// Get the [parallactic
     /// angle](https://en.wikipedia.org/wiki/Parallactic_angle) at a latitude.
-    ///
-    /// Uses ERFA.
     pub fn get_parallactic_angle(self, latitude_rad: f64) -> f64 {
-        unsafe { erfa_sys::eraHd2pa(self.ha, self.dec, latitude_rad) }
+        eraHd2pa(self.ha, self.dec, latitude_rad)
     }
 
     /// Get the [parallactic
     /// angle](https://en.wikipedia.org/wiki/Parallactic_angle) at the MWA's
     /// latitude.
-    ///
-    /// Uses ERFA.
     pub fn get_parallactic_angle_mwa(self) -> f64 {
-        unsafe { erfa_sys::eraHd2pa(self.ha, self.dec, MWA_LAT_RAD) }
+        self.get_parallactic_angle(MWA_LAT_RAD)
     }
 }
 

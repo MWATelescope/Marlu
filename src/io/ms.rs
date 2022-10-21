@@ -3299,7 +3299,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3373,7 +3373,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3450,7 +3450,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3502,7 +3502,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3547,7 +3547,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3592,7 +3592,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3668,7 +3668,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3744,7 +3744,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3809,7 +3809,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3865,7 +3865,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -3938,7 +3938,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -4012,7 +4012,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -4106,7 +4106,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -4192,7 +4192,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -4253,7 +4253,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -4316,7 +4316,7 @@ mod tests {
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -4720,7 +4720,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let array_pos = LatLngHeight::mwa();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -5007,7 +5007,7 @@ mod tests {
         let corr_ctx = get_mwa_avg_context();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -5109,7 +5109,7 @@ mod tests {
         let corr_ctx = get_mwa_avg_context();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()
@@ -5250,7 +5250,7 @@ mod tests {
         let corr_ctx = get_mwa_avg_context();
 
         let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos).unwrap();
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
         let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
         let antenna_positions = ANT_POSITIONS
             .iter()

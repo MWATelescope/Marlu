@@ -31,14 +31,6 @@ jobs:
     - name: Install Dependencies
       run: |
         cd /tmp
-        curl -L "https://github.com/liberfa/erfa/releases/download/v2.0.0/erfa-2.0.0.tar.gz" -o erfa-2.0.0.tar.gz
-        tar -xf erfa-2.0.0.tar.gz
-        rm erfa-2.0.0.tar.gz
-        cd erfa-2.0.0
-        ./configure --prefix=/usr/local
-        sudo make install
-        cd ..
-
         curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-3.49.tar.gz" -o cfitsio.tar.gz
         tar -xf cfitsio.tar.gz
         rm cfitsio.tar.gz

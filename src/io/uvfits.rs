@@ -12,7 +12,6 @@ use std::{
 use crate::{
     average_chunk_f64,
     constants::VEL_C,
-    erfa_sys::{eraGst06a, ERFA_DJM0},
     hifitime::{Duration, Epoch},
     io::error::BadArrayShape,
     ndarray::{ArrayView3, Axis},
@@ -20,6 +19,7 @@ use crate::{
     precession::precess_time,
     History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
+use erfa::{aliases::eraGst06a, constants::ERFA_DJM0};
 use fitsio::errors::check_status as fits_check_status;
 use fitsio_sys;
 use indicatif::{ProgressDrawTarget, ProgressStyle};
@@ -466,7 +466,7 @@ impl UvfitsWriter {
         }
         fits_check_status(status)?;
 
-        let array_xyz = self.array_pos.to_geocentric_wgs84()?;
+        let array_xyz = self.array_pos.to_geocentric_wgs84();
 
         fits_write_double(self.fptr, "ARRAYX", array_xyz.x, None)?;
         fits_write_double(self.fptr, "ARRAYY", array_xyz.y, None)?;
@@ -479,7 +479,7 @@ impl UvfitsWriter {
 
         // Get the Greenwich apparent sidereal time from ERFA.
         let mjd = self.start_epoch.to_mjd_utc_days();
-        let gst = unsafe { eraGst06a(ERFA_DJM0, mjd.floor(), ERFA_DJM0, mjd.floor()) }.to_degrees();
+        let gst = eraGst06a(ERFA_DJM0, mjd.floor(), ERFA_DJM0, mjd.floor()).to_degrees();
         fits_write_double(self.fptr, "GSTIA0", gst, None)?;
         fits_write_double(self.fptr, "DEGPDY", 3.60985e2, None)?; // Earth's rotation rate
 

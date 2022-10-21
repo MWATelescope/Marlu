@@ -90,10 +90,6 @@ pub enum UvfitsWriteError {
         total: usize,
     },
 
-    /// An error associated with ERFA.
-    #[error(transparent)]
-    Erfa(#[from] crate::pos::ErfaError),
-
     /// An error associated with fitsio.
     #[error(transparent)]
     Fitsio(#[from] fitsio::errors::Error),

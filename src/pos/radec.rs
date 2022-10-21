@@ -6,6 +6,7 @@
 
 use std::f64::consts::{FRAC_PI_4, PI, TAU};
 
+use erfa::aliases::eraSeps;
 use log::warn;
 
 use crate::sexagesimal::{degrees_to_sexagesimal_dms, degrees_to_sexagesimal_hms};
@@ -166,10 +167,8 @@ impl RADec {
     }
 
     /// Calculate the distance between two sets of coordinates \[radians\].
-    ///
-    /// Uses ERFA.
     pub fn separation(&self, b: Self) -> f64 {
-        unsafe { erfa_sys::eraSeps(self.ra, self.dec, b.ra, b.dec) }
+        eraSeps(self.ra, self.dec, b.ra, b.dec)
     }
 
     /// Given an [`mwalib::MetafitsContext`], make an [`Option<RADec>`] from the

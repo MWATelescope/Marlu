@@ -7,12 +7,12 @@
 use std::f64::consts::PI;
 
 /// Speed of light \[metres/second\]
-pub const VEL_C: f64 = erfa_sys::ERFA_CMPS;
+pub const VEL_C: f64 = erfa::constants::ERFA_CMPS;
 
 /// Seconds per day (86400)
-pub const DAYSEC: f64 = erfa_sys::ERFA_DAYSEC;
+pub const DAYSEC: f64 = erfa::constants::ERFA_DAYSEC;
 /// Seconds of time to radians (7.272205216643039903848712e-5).
-pub const DS2R: f64 = erfa_sys::ERFA_DS2R;
+pub const DS2R: f64 = erfa::constants::ERFA_DS2R;
 /// Hour angle to radians (15 / 180 * PI).
 pub const DH2R: f64 = 15.0 / 180.0 * PI;
 /// Ratio of a solar day to a sidereal day (24/23.9344696 = 1.002737909).

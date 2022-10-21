@@ -5,8 +5,11 @@
 //! Handle (azimuth, elevation) coordinates (also known as horizontal
 //! coordinates).
 
-use super::hadec::HADec;
 use std::f64::consts::FRAC_PI_2;
+
+use erfa::aliases::eraAe2hd;
+
+use super::hadec::HADec;
 
 /// A struct containing an Azimuth and Elevation. All units are in radians.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -56,19 +59,13 @@ impl AzEl {
 
     /// Convert the horizon coordinates to equatorial coordinates (Hour Angle
     /// and Declination), given the local latitude on Earth.
-    ///
-    /// Uses ERFA.
     pub fn to_hadec(self, latitude_rad: f64) -> HADec {
-        let mut ha = 0.0;
-        let mut dec = 0.0;
-        unsafe { erfa_sys::eraAe2hd(self.az, self.el, latitude_rad, &mut ha, &mut dec) }
+        let (ha, dec) = eraAe2hd(self.az, self.el, latitude_rad);
         HADec::from_radians(ha, dec)
     }
 
     /// Convert the horizon coordinates to equatorial coordinates (Hour Angle
     /// and Declination) for the MWA's location.
-    ///
-    /// Uses ERFA.
     pub fn to_hadec_mwa(self) -> HADec {
         self.to_hadec(crate::constants::MWA_LAT_RAD)
     }

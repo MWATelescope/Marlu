@@ -12,10 +12,12 @@
 #![allow(non_snake_case)]
 #![allow(clippy::excessive_precision)]
 
-use erfa_sys::{
-    eraAnp, eraC2s, eraEpj, eraEpj2jd, eraEpv00, eraGmst06, eraIr, eraP06e, eraPdp, eraPmat06,
-    eraPn, eraPnm06a, eraRx, eraRxp, eraRxpv, eraRxr, eraRz, eraS2c, ERFA_AULT, ERFA_DAYSEC,
-    ERFA_DJM0,
+use erfa::{
+    aliases::{
+        eraAnp, eraC2s, eraEpj, eraEpj2jd, eraEpv00, eraGmst06, eraP06e, eraPdp, eraPmat06, eraPn,
+        eraPnm06a, eraRx, eraRxp, eraRxpv, eraRxr, eraRz, eraS2c,
+    },
+    constants::{ERFA_AULT, ERFA_DAYSEC, ERFA_DJM0},
 };
 
 /// Greenwich mean sidereal time (consistent with IAU 2006 precession)
@@ -35,7 +37,7 @@ use erfa_sys::{
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L1332>
 pub fn palGmst(ut1: f64) -> f64 {
-    unsafe { eraGmst06(ERFA_DJM0, ut1, ERFA_DJM0, ut1) }
+    eraGmst06(ERFA_DJM0, ut1, ERFA_DJM0, ut1)
 }
 
 /// Spherical coordinates to direction cosines
@@ -61,7 +63,9 @@ pub fn palGmst(ut1: f64) -> f64 {
 ///
 /// v will be modified
 pub unsafe fn palDcs2c(a: f64, b: f64, v: *mut f64) {
-    eraS2c(a, b, v);
+    let v2 = eraS2c(a, b);
+    let v = std::slice::from_raw_parts_mut(v, 3);
+    v.iter_mut().zip(v2).for_each(|(v, v2)| *v = v2);
 }
 
 /// Cartesian to spherical coordinates
@@ -87,7 +91,10 @@ pub unsafe fn palDcs2c(a: f64, b: f64, v: *mut f64) {
 ///
 /// `a` and `b` will be modified.
 pub unsafe fn palDcc2s(v: *mut f64, a: &mut f64, b: &mut f64) {
-    eraC2s(v, a, b);
+    let v = std::slice::from_raw_parts(v, 3).try_into().unwrap();
+    let (a2, b2) = eraC2s(v);
+    *a = a2;
+    *b = b2;
 }
 
 /// Normalize angle into range 0-2 pi
@@ -104,7 +111,7 @@ pub unsafe fn palDcc2s(v: *mut f64, a: &mut f64, b: &mut f64) {
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L766>
 pub fn palDranrm(angle: f64) -> f64 {
-    unsafe { eraAnp(angle) }
+    eraAnp(angle)
 }
 
 /// Normalizes a 3-vector also giving the modulus
@@ -128,7 +135,11 @@ pub fn palDranrm(angle: f64) -> f64 {
 ///
 /// `uv` and `vm` will be modified.
 pub unsafe fn palDvn(v: *mut f64, uv: *mut f64, vm: *mut f64) {
-    eraPn(v, vm, uv);
+    let v = std::slice::from_raw_parts(v, 3).try_into().unwrap();
+    let uv = std::slice::from_raw_parts_mut(uv, 3);
+    let (m, uv2) = eraPn(v);
+    *vm = m;
+    uv.iter_mut().zip(uv2).for_each(|(uv, uv2)| *uv = uv2);
 }
 
 /// Scalar product of two 3-vectors
@@ -147,6 +158,8 @@ pub unsafe fn palDvn(v: *mut f64, uv: *mut f64, vm: *mut f64) {
 /// [`erfa_sys::eraPdp`] requires `va` and `vb` to be mutable, even though
 /// they are not mutated.
 pub unsafe fn palDvdv(va: *mut f64, vb: *mut f64) -> f64 {
+    let va: [f64; 3] = std::slice::from_raw_parts(va, 3).try_into().unwrap();
+    let vb: [f64; 3] = std::slice::from_raw_parts(vb, 3).try_into().unwrap();
     eraPdp(va, vb)
 }
 
@@ -166,7 +179,11 @@ pub unsafe fn palDvdv(va: *mut f64, vb: *mut f64) -> f64 {
 ///
 /// `dp` will be modified.
 pub unsafe fn palDmxv(dm: *mut [f64; 3], va: *mut f64, vb: *mut f64) {
-    eraRxp(dm, va, vb);
+    let dm: [[f64; 3]; 3] = std::slice::from_raw_parts(dm, 3).try_into().unwrap();
+    let va: [f64; 3] = std::slice::from_raw_parts(va, 3).try_into().unwrap();
+    let vb = std::slice::from_raw_parts_mut(vb, 3);
+    let vb2 = eraRxp(dm, va);
+    vb.iter_mut().zip(vb2).for_each(|(vb, vb2)| *vb = vb2);
 }
 
 /// Barycentric and heliocentric velocity and position of the Earth.
@@ -202,25 +219,22 @@ pub unsafe fn palEvp(
     dvh: *mut f64,
     dph: *mut f64,
 ) {
-    /* Local Variables; */
-    let mut pvh = [[0.0; 3]; 2];
-    let mut pvb = [[0.0; 3]; 2];
-    let mut d1 = 0.0;
-    let mut d2 = 0.0;
-    let mut r = [[0.0; 3]; 3];
-
     /* BCRS PV-vectors. */
-    eraEpv00(2400000.5, date, pvh.as_mut_ptr(), pvb.as_mut_ptr());
+    // CHJ: PAL suppresses a warning indicated by eraEpv00, if the date is not
+    // within 1900-2100.
+    let (_, mut pvh, mut pvb) = eraEpv00(2400000.5, date);
 
     /* Was precession to another equinox requested? */
     if deqx > 0.0 {
         /* Yes: compute precession matrix from J2000.0 to deqx. */
-        eraEpj2jd(deqx, &mut d1, &mut d2);
-        eraPmat06(d1, d2, r.as_mut_ptr());
+        let (d1, d2) = eraEpj2jd(deqx);
+        let r = eraPmat06(d1, d2);
 
         /* Rotate the PV-vectors. */
-        eraRxpv(r.as_mut_ptr(), pvh.as_mut_ptr(), pvh.as_mut_ptr());
-        eraRxpv(r.as_mut_ptr(), pvb.as_mut_ptr(), pvb.as_mut_ptr());
+        let pvh2 = eraRxpv(r, pvh);
+        pvh = pvh2;
+        let pvb2 = eraRxpv(r, pvb);
+        pvb = pvb2;
     }
 
     /* Return the required vectors. */
@@ -260,63 +274,32 @@ pub unsafe fn palEvp(
 ///
 /// `epoch`, `date`, and `rmatpn` will be modified.
 pub unsafe fn palPrenut(epoch: f64, date: f64, rmatpn: *mut [f64; 3]) {
-    /* Local Variables: */
-    let mut bpa = 0.0;
-    let mut bpia = 0.0;
-    let mut bqa = 0.0;
-    let mut chia = 0.0;
-    let mut d1 = 0.0;
-    let mut d2 = 0.0;
-    let mut eps0 = 0.0;
-    let mut epsa = 0.0;
-    let mut gam = 0.0;
-    let mut oma = 0.0;
-    let mut pa = 0.0;
-    let mut phi = 0.0;
-    let mut pia = 0.0;
-    let mut psi = 0.0;
-    let mut psia = 0.0;
-    let mut r1 = [[0.0; 3]; 3];
-    let mut r2 = [[0.0; 3]; 3];
-    let mut thetaa = 0.0;
-    let mut za = 0.0;
-    let mut zetaa = 0.0;
-
     /* Specified Julian epoch as a 2-part JD. */
-    eraEpj2jd(epoch, &mut d1, &mut d2);
+    let (d1, d2) = eraEpj2jd(epoch);
 
     /* P matrix, from specified epoch to J2000.0. */
-    eraP06e(
-        d1,
-        d2,
-        &mut eps0,
-        &mut psia,
-        &mut oma,
-        &mut bpa,
-        &mut bqa,
-        &mut pia,
-        &mut bpia,
-        &mut epsa,
-        &mut chia,
-        &mut za,
-        &mut zetaa,
-        &mut thetaa,
-        &mut pa,
-        &mut gam,
-        &mut phi,
-        &mut psi,
-    );
-    eraIr(r1.as_mut_ptr());
-    eraRz(-chia, r1.as_mut_ptr());
-    eraRx(oma, r1.as_mut_ptr());
-    eraRz(psia, r1.as_mut_ptr());
-    eraRx(-eps0, r1.as_mut_ptr());
+    let (eps0, psia, oma, _, _, _, _, _, chia, _, _, _, _, _, _, _) = eraP06e(d1, d2);
+    let mut r1 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    eraRz(-chia, &mut r1);
+    eraRx(oma, &mut r1);
+    eraRz(psia, &mut r1);
+    eraRx(-eps0, &mut r1);
 
     /* NPB matrix, from J2000.0 to date. */
-    eraPnm06a(ERFA_DJM0, date, r2.as_mut_ptr());
+    let r2 = eraPnm06a(ERFA_DJM0, date);
 
     /* NPB matrix, from specified epoch to date. */
-    eraRxr(r2.as_mut_ptr(), r1.as_mut_ptr(), rmatpn);
+    let rmatpn2 = eraRxr(r2, r1);
+    let rmatpn = std::slice::from_raw_parts_mut(rmatpn, 3);
+    rmatpn[0][0] = rmatpn2[0][0];
+    rmatpn[0][1] = rmatpn2[0][1];
+    rmatpn[0][2] = rmatpn2[0][2];
+    rmatpn[1][0] = rmatpn2[1][0];
+    rmatpn[1][1] = rmatpn2[1][1];
+    rmatpn[1][2] = rmatpn2[1][2];
+    rmatpn[2][0] = rmatpn2[2][0];
+    rmatpn[2][1] = rmatpn2[2][1];
+    rmatpn[2][2] = rmatpn2[2][2];
 }
 
 /// Compute parameters needed by palAmpqk and palMapqk.
@@ -357,9 +340,6 @@ pub unsafe fn palMappa(eq: f64, date: f64, amprms: *mut f64) {
     let mut ebd = [0.0; 3];
     let mut ehd = [0.0; 3];
     let mut eh = [0.0; 3];
-    let mut e = 0.0;
-    let mut vn = [0.0; 3];
-    let mut vm = 0.0;
 
     /* Initialise so that unsused values are returned holding zero */
     let amprms = std::slice::from_raw_parts_mut(amprms, 21);
@@ -379,7 +359,10 @@ pub unsafe fn palMappa(eq: f64, date: f64, amprms: *mut f64) {
     );
 
     /* Heliocentric direction of Earth (normalized) and modulus. */
-    eraPn(eh.as_mut_ptr(), &mut e, &mut amprms[4]);
+    let (e, amprms_from_4) = eraPn(eh);
+    amprms[4] = amprms_from_4[0];
+    amprms[5] = amprms_from_4[1];
+    amprms[6] = amprms_from_4[2];
 
     /* Light deflection parameter */
     amprms[7] = gr2 / e;
@@ -388,7 +371,7 @@ pub unsafe fn palMappa(eq: f64, date: f64, amprms: *mut f64) {
     for i in 0..3 {
         amprms[i + 8] = ebd[i] * ERFA_AULT;
     }
-    eraPn(&mut amprms[8], &mut vm, vn.as_mut_ptr());
+    let (vm, _) = eraPn(amprms[8..11].try_into().unwrap());
     amprms[11] = (1.0 - vm * vm).sqrt();
 
     /* NPB matrix. */

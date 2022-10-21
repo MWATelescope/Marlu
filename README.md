@@ -23,14 +23,6 @@ etc.
 
   https://www.rust-lang.org/tools/install
 
-- [ERFA](https://github.com/liberfa/erfa)
-  - Ubuntu: `liberfa-dev`
-  - Arch: AUR package `erfa`
-  - The library dir can be specified manually with `ERFA_LIB`
-  - If not specified, `pkg-config` is used to find the library.
-  - Use `--features=erfa-static` to build the library automatically. Requires a
-    C compiler and `autoconf`.
-
 ### Optional prerequisites
 If using the `mwalib` feature (true by default):
 
@@ -54,9 +46,9 @@ If using the `cuda` feature (false by default):
     [searched](https://github.com/rust-cuda/cuda-sys/blob/3a973786b3482e3fdfd783cd692fbc3c665d5c11/cuda-config/src/lib.rs#L19-L46).
   - If `CUDA` is available, use `--features=cuda-static` to link it statically.
 
-To link a system-provided static library, use e.g. `ERFA_STATIC=1`. To link all
-system-provided static libraries, use `PKG_CONFIG_ALL_STATIC=1`. To build all C
-libraries and link statically, use the `all-static` feature.
+To link a system-provided static library, use e.g. `CFITSIO_STATIC=1`. To link
+all system-provided static libraries, use `PKG_CONFIG_ALL_STATIC=1`. To build
+all C libraries and link statically, use the `all-static` feature.
 
 ## Acknowledgement
 

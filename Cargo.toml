@@ -38,14 +38,13 @@ approx = ["dep:approx"]
 serde = ["dep:serde"]
 
 # Compile various C libraries statically.
-erfa-static = ["erfa-sys/static"]
 cfitsio-static = ["mwalib/cfitsio-static"]
 cuda-static = []
-all-static = ["erfa-static", "cfitsio-static", "cuda-static"]
+all-static = ["cfitsio-static", "cuda-static"]
 
 [dependencies]
 cfg-if = "1.0.0"
-erfa-sys = "0.2.0"
+erfa = "0.2.1"
 hifitime = "3.6.0"
 indicatif = { version = "0.17.0", features = ["rayon"] }
 itertools = "0.10.0"

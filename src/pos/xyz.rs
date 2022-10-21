@@ -15,13 +15,13 @@
 // TODO: Account for northing and eastings. Australia drifts by ~7cm/year, and
 // the ellipsoid model probably need to be changed too!
 
+use erfa::Ellipsoid;
 use rayon::prelude::*;
 
-use super::ErfaError;
 use crate::{
     constants::MWA_LAT_RAD,
     math::{baseline_to_tiles, cross_correlation_baseline_to_tiles},
-    Ellipsoid, HADec, LatLngHeight, ENH, UVW,
+    HADec, LatLngHeight, ENH, UVW,
 };
 
 /// The geodetic (x,y,z) coordinates of an antenna (a.k.a. tile or station). All
@@ -67,15 +67,10 @@ impl XyzGeodetic {
     }
 
     /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`].
-    pub fn to_geocentric(self, earth_pos: LatLngHeight) -> Result<XyzGeocentric, ErfaError> {
+    pub fn to_geocentric(self, earth_pos: LatLngHeight) -> XyzGeocentric {
         let (sin_longitude, cos_longitude) = earth_pos.longitude_rad.sin_cos();
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos)?;
-        Ok(XyzGeodetic::to_geocentric_inner(
-            self,
-            geocentric_vector,
-            sin_longitude,
-            cos_longitude,
-        ))
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos);
+        XyzGeodetic::to_geocentric_inner(self, geocentric_vector, sin_longitude, cos_longitude)
     }
 
     /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`]. This function is
@@ -101,7 +96,7 @@ impl XyzGeodetic {
 
     /// Convert a [`XyzGeodetic`] coordinate to [`XyzGeocentric`], using the MWA's
     /// location.
-    pub fn to_geocentric_mwa(self) -> Result<XyzGeocentric, ErfaError> {
+    pub fn to_geocentric_mwa(self) -> XyzGeocentric {
         self.to_geocentric(LatLngHeight::mwa())
     }
 
@@ -295,31 +290,21 @@ pub struct XyzGeocentric {
 
 impl XyzGeocentric {
     /// Get a geocentric coordinate vector with the given geodetic coordinates
-    /// (longitude, latitude and height). The ellipsoid model is WGS84.
-    pub fn get_geocentric_vector(earth_pos: LatLngHeight) -> Result<XyzGeocentric, ErfaError> {
-        let mut geocentric_vector: [f64; 3] = [0.0; 3];
-        let status = unsafe {
-            erfa_sys::eraGd2gc(
-                erfa_sys::ERFA_WGS84,           // ellipsoid identifier (Note 1)
-                earth_pos.longitude_rad,        // longitude (radians, east +ve)
-                earth_pos.latitude_rad,         // latitude (geodetic, radians, Note 3)
-                earth_pos.height_metres,        // height above ellipsoid (geodetic, Notes 2,3)
-                geocentric_vector.as_mut_ptr(), // geocentric vector (Note 2)
-            )
-        };
-        if status != 0 {
-            return Err(ErfaError {
-                source_file: file!(),
-                source_line: line!(),
-                status,
-                function: "eraGd2gc",
-            });
-        }
-        Ok(XyzGeocentric {
+    /// (longitude, latitude and height). The ellipsoid model is
+    /// [`Ellipsoid::WGS84`].
+    pub fn get_geocentric_vector(earth_pos: LatLngHeight) -> XyzGeocentric {
+        let geocentric_vector = erfa::transform::geodetic_to_geocentric(
+            Ellipsoid::WGS84,
+            earth_pos.longitude_rad,
+            earth_pos.latitude_rad,
+            earth_pos.height_metres,
+        )
+        .expect("latitude should be between -pi/2 and pi/2");
+        XyzGeocentric {
             x: geocentric_vector[0],
             y: geocentric_vector[1],
             z: geocentric_vector[2],
-        })
+        }
     }
 
     /// Get a geocentric coordinate vector with the MWA's location. This
@@ -327,17 +312,15 @@ impl XyzGeocentric {
     /// [`MWA_LONG_RAD`](crate::constants::MWA_LONG_RAD),
     /// [`MWA_LAT_RAD`](crate::constants::MWA_LAT_RAD) and
     /// [`MWA_HEIGHT_M`](crate::constants::MWA_HEIGHT_M).
-    pub fn get_geocentric_vector_mwa() -> Result<XyzGeocentric, ErfaError> {
+    pub fn get_geocentric_vector_mwa() -> XyzGeocentric {
         Self::get_geocentric_vector(LatLngHeight::mwa())
     }
 
     /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`].
-    pub fn to_geodetic(self, earth_pos: LatLngHeight) -> Result<XyzGeodetic, ErfaError> {
-        let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos)?;
+    pub fn to_geodetic(self, earth_pos: LatLngHeight) -> XyzGeodetic {
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(earth_pos);
         let (sin_longitude, cos_longitude) = earth_pos.longitude_rad.sin_cos();
-        let geodetic =
-            XyzGeocentric::to_geodetic_inner(self, geocentric_vector, sin_longitude, cos_longitude);
-        Ok(geodetic)
+        XyzGeocentric::to_geodetic_inner(self, geocentric_vector, sin_longitude, cos_longitude)
     }
 
     /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`]. This function
@@ -368,42 +351,25 @@ impl XyzGeocentric {
 
     /// Convert a [`XyzGeocentric`] coordinate to [`XyzGeodetic`], using the MWA's
     /// location.
-    pub fn to_geodetic_mwa(self) -> Result<XyzGeodetic, ErfaError> {
+    pub fn to_geodetic_mwa(self) -> XyzGeodetic {
         self.to_geodetic(LatLngHeight::mwa())
     }
 
     /// Convert a [`XyzGeocentric`] coordinate to [`LatLngHeight`] using the
     /// specified [`Ellipsoid`]. If in doubt, use [`Ellipsoid::WGS84`] (i.e. the
     /// latest one that's typically used).
-    pub fn to_earth(self, ellipsoid: Ellipsoid) -> Result<LatLngHeight, ErfaError> {
-        let mut earth = LatLngHeight {
-            longitude_rad: 0.0,
-            latitude_rad: 0.0,
-            height_metres: 0.0,
-        };
-        unsafe {
-            let status = erfa_sys::eraGc2gd(
-                ellipsoid as i32,
-                [self.x, self.y, self.z].as_mut_ptr(),
-                &mut earth.longitude_rad,
-                &mut earth.latitude_rad,
-                &mut earth.height_metres,
-            );
-            if status != 0 {
-                return Err(ErfaError {
-                    source_file: file!(),
-                    source_line: line!(),
-                    status,
-                    function: "eraGc2gd",
-                });
-            }
+    pub fn to_earth(self, ellipsoid: Ellipsoid) -> LatLngHeight {
+        let pos = erfa::transform::geocentric_to_geodetic(ellipsoid, [self.x, self.y, self.z]);
+        LatLngHeight {
+            longitude_rad: pos[0],
+            latitude_rad: pos[1],
+            height_metres: pos[2],
         }
-        Ok(earth)
     }
 
     /// Convert a [`XyzGeocentric`] coordinate to [`LatLngHeight`] using the
     /// ellipsoid [`Ellipsoid::WGS84`].
-    pub fn to_earth_wgs84(self) -> Result<LatLngHeight, ErfaError> {
+    pub fn to_earth_wgs84(self) -> LatLngHeight {
         self.to_earth(Ellipsoid::WGS84)
     }
 }
@@ -482,13 +448,11 @@ mod tests {
         assert_abs_diff_eq!(result, expected);
 
         // Do everything automatically.
-        let result = geocentric
-            .to_geodetic(LatLngHeight {
-                longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
-                latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
-                height_metres: COTTER_MWA_HEIGHT_METRES,
-            })
-            .unwrap();
+        let result = geocentric.to_geodetic(LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        });
         assert_abs_diff_eq!(result, expected);
     }
 
@@ -510,9 +474,7 @@ mod tests {
         };
 
         // Check the conversion of geocentric to geodetic.
-        let result = ms_xyz.to_geodetic_mwa();
-        assert!(result.is_ok());
-        let local_xyz = result.unwrap();
+        let local_xyz = ms_xyz.to_geodetic_mwa();
 
         // cotter's MWA coordinates are a little off of what is in mwalib.
         // Verify that the transformation isn't quite right.
@@ -524,23 +486,17 @@ mod tests {
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
         };
-        let result = ms_xyz.to_geodetic(cotter_earth_pos);
-        assert!(result.is_ok());
-        let local_xyz = result.unwrap();
+        let local_xyz = ms_xyz.to_geodetic(cotter_earth_pos);
         assert_abs_diff_eq!(uvfits_xyz, local_xyz, epsilon = 1e-6);
 
         // Now check the conversion of geodetic to geocentric.
-        let result = uvfits_xyz.to_geocentric_mwa();
-        assert!(result.is_ok());
-        let geocentric_xyz = result.unwrap();
+        let geocentric_xyz = uvfits_xyz.to_geocentric_mwa();
         // cotter's MWA coordinates are a little off of what is in mwalib.
         // Verify that the transformation isn't quite right.
         assert_abs_diff_eq!(ms_xyz, geocentric_xyz, epsilon = 1e0);
 
         // Now verify cotter's ms XYZ with the constants it uses.
-        let result = uvfits_xyz.to_geocentric(cotter_earth_pos);
-        assert!(result.is_ok());
-        let geocentric_xyz = result.unwrap();
+        let geocentric_xyz = uvfits_xyz.to_geocentric(cotter_earth_pos);
         assert_abs_diff_eq!(ms_xyz, geocentric_xyz, epsilon = 1e-6);
     }
 
@@ -687,8 +643,8 @@ mod tests {
             y: 5095372.144,
             z: -2849057.185,
         };
-        let earth = xyz.to_earth_wgs84().unwrap();
-        let xyz2 = earth.to_geocentric_wgs84().unwrap();
+        let earth = xyz.to_earth_wgs84();
+        let xyz2 = earth.to_geocentric_wgs84();
         assert_abs_diff_eq!(xyz, xyz2, epsilon = 1e-9);
     }
 }

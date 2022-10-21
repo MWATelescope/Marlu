@@ -55,7 +55,7 @@ pub use context::{History, MwaObsContext, ObsContext, VisContext};
 pub use jones::Jones;
 pub use pos::{
     azel::AzEl,
-    earth::{Ellipsoid, LatLngHeight},
+    earth::LatLngHeight,
     enh::ENH,
     hadec::HADec,
     lmn::{LmnRime, LMN},
@@ -66,7 +66,7 @@ pub use pos::{
 };
 pub use selection::{SelectionError, VisSelection};
 
-pub use erfa_sys;
+pub use erfa;
 pub use hifitime;
 pub use ndarray;
 pub use num_complex;

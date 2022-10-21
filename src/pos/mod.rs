@@ -14,16 +14,3 @@ pub mod precession;
 pub mod radec;
 pub mod uvw;
 pub mod xyz;
-
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-#[error(
-    "{source_file}:{source_line} Call to ERFA function {function} returned status code {status}"
-)]
-pub struct ErfaError {
-    source_file: &'static str,
-    source_line: u32,
-    status: i32,
-    function: &'static str,
-}

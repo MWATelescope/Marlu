@@ -108,7 +108,6 @@ impl ObsContext {
         self.ant_positions_enh.iter().map(|enh| {
             enh.to_xyz(self.array_pos.latitude_rad)
                 .to_geocentric(self.array_pos)
-                .unwrap()
         })
     }
 
