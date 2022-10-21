@@ -34,7 +34,7 @@ use super::{
 /// From a `hifitime` [`Epoch`], get a formatted date string with the hours,
 /// minutes and seconds set to 0.
 fn get_truncated_date_string(epoch: Epoch) -> String {
-    let (year, month, day, _, _, _, _) = epoch.as_gregorian_utc();
+    let (year, month, day, _, _, _, _) = epoch.to_gregorian_utc();
     format!(
         "{year}-{month:02}-{day:02}T00:00:00.0",
         year = year,
@@ -266,7 +266,7 @@ impl UvfitsWriter {
                 fits_write_double(
                     fptr,
                     &format!("PZERO{}", ii),
-                    start_epoch.as_jde_utc_days().floor() + 0.5,
+                    start_epoch.to_jde_utc_days().floor() + 0.5,
                     None,
                 )?;
             } else {
@@ -478,7 +478,7 @@ impl UvfitsWriter {
         fits_write_string(self.fptr, "FRAME", "ITRF", None)?;
 
         // Get the Greenwich apparent sidereal time from ERFA.
-        let mjd = self.start_epoch.as_mjd_utc_days();
+        let mjd = self.start_epoch.to_mjd_utc_days();
         let gst = unsafe { eraGst06a(ERFA_DJM0, mjd.floor(), ERFA_DJM0, mjd.floor()) }.to_degrees();
         fits_write_double(self.fptr, "GSTIA0", gst, None)?;
         fits_write_double(self.fptr, "DEGPDY", 3.60985e2, None)?; // Earth's rotation rate
@@ -491,7 +491,7 @@ impl UvfitsWriter {
         fits_write_double(
             self.fptr,
             "UT1UTC",
-            self.dut1.in_seconds(),
+            self.dut1.to_seconds(),
             Some("UT1 - UTC, a.k.a. DUT1"),
         )?;
         fits_write_double(self.fptr, "DATUTC", 0.0, None)?;
@@ -713,8 +713,8 @@ impl UvfitsWriter {
             });
         }
 
-        let jd_trunc = self.start_epoch.as_jde_utc_days().floor() + 0.5;
-        let jd_frac = epoch.as_jde_utc_days() - jd_trunc;
+        let jd_trunc = self.start_epoch.to_jde_utc_days().floor() + 0.5;
+        let jd_frac = epoch.to_jde_utc_days() - jd_trunc;
 
         self.buffer.extend_from_slice(&[
             (uvw.u / VEL_C) as f32,
@@ -838,14 +838,14 @@ impl VisWrite for UvfitsWriter {
         let mut avg_flag: bool;
         let mut avg_jones: Jones<f32>;
 
-        let jd_trunc = self.start_epoch.as_jde_utc_days().floor() + 0.5;
+        let jd_trunc = self.start_epoch.to_jde_utc_days().floor() + 0.5;
 
         for (avg_centroid_timestamp, jones_chunk, weight_chunk) in izip!(
             vis_ctx.timeseries(true, true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
-            let jd_frac = (avg_centroid_timestamp.as_jde_utc_days() - jd_trunc) as f32;
+            let jd_frac = (avg_centroid_timestamp.to_jde_utc_days() - jd_trunc) as f32;
             let prec_info = precess_time(
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,

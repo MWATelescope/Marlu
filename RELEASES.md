@@ -1,5 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.9.0 (unreleased)
+
+- Use the newest version of hifitime
+
 # Version 0.8.0 (2022-08-22)
 
 - Bump dependency versions.

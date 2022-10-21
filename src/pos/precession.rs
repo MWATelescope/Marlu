@@ -74,7 +74,7 @@ impl PrecessionInfo {
 /// isn't known, then a [`Duration`] of 0 seconds can be used; the results are
 /// wrong by up to 0.9 seconds.
 pub fn get_lmst(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
-    let ut1 = (time + dut1).as_mjd_utc_days();
+    let ut1 = (time + dut1).to_mjd_utc_days();
     let gmst = pal::palGmst(ut1);
     (gmst + array_longitude_rad) % TAU
 }
@@ -97,7 +97,7 @@ pub fn precess_time(
     let lmst = get_lmst(array_longitude_rad, time, dut1);
 
     let j2000 = 2000.0;
-    let mjd = (time + dut1).as_mjd_utc_days();
+    let mjd = (time + dut1).to_mjd_utc_days();
     let radec_aber = aber_radec_rad(j2000, mjd, phase_centre);
     let mut rotation_matrix = [[0.0; 3]; 3];
     unsafe { pal::palPrenut(j2000, mjd, rotation_matrix.as_mut_ptr()) };

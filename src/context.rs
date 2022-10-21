@@ -393,7 +393,7 @@ impl VisContext {
     /// value is a multiple of the frequency resolution (relative to 10kHz), and
     /// the time averaging factor (relative to 1s).
     pub fn weight_factor(&self) -> f64 {
-        self.int_time.in_seconds() / crate::constants::TIME_WEIGHT_FACTOR * self.freq_resolution_hz
+        self.int_time.to_seconds() / crate::constants::TIME_WEIGHT_FACTOR * self.freq_resolution_hz
             / crate::constants::FREQ_WEIGHT_FACTOR
     }
 }

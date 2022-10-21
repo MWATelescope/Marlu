@@ -302,7 +302,7 @@ impl MeasurementSetWriter {
         meas_info.put_field("type", &"epoch".to_string())?;
         meas_info.put_field(
             "Ref",
-            &if self.dut1.in_seconds().abs() > f64::EPSILON {
+            &if self.dut1.to_seconds().abs() > f64::EPSILON {
                 "UT1"
             } else {
                 "UTC"
@@ -381,7 +381,7 @@ impl MeasurementSetWriter {
         meas_info.put_field("type", &"epoch".to_string())?;
         meas_info.put_field(
             "Ref",
-            &if self.dut1.in_seconds().abs() > f64::EPSILON {
+            &if self.dut1.to_seconds().abs() > f64::EPSILON {
                 "UT1"
             } else {
                 "UTC"
@@ -1271,7 +1271,7 @@ impl MeasurementSetWriter {
         obs_table.put_cell(
             "MWA_GPS_TIME",
             0,
-            &(sched_start_timestamp.as_gpst_seconds() as f64),
+            &(sched_start_timestamp.to_gpst_seconds() as f64),
         )?;
         obs_table.put_cell("MWA_FILENAME", 0, name.as_ref().unwrap_or(&"".into()))?;
         obs_table.put_cell("MWA_OBSERVATION_MODE", 0, &mwa_ctx.mode)?;
@@ -1283,7 +1283,7 @@ impl MeasurementSetWriter {
         obs_table.put_cell(
             "MWA_DATE_REQUESTED",
             0,
-            &sched_start_timestamp.as_mjd_utc_seconds(),
+            &sched_start_timestamp.to_mjd_utc_seconds(),
         )?;
 
         // ///////////////// //
@@ -1302,8 +1302,8 @@ impl MeasurementSetWriter {
         self.write_mwa_tile_pointing_row(
             &mut point_table,
             0,
-            avg_centroid_start.as_mjd_utc_seconds(),
-            avg_centroid_end.as_mjd_utc_seconds(),
+            avg_centroid_start.to_mjd_utc_seconds(),
+            avg_centroid_end.to_mjd_utc_seconds(),
             &delays,
             phase_centre.ra,
             phase_centre.dec,
@@ -1368,7 +1368,7 @@ impl MeasurementSetWriter {
         meas_info.put_field("type", &"epoch".to_string())?;
         meas_info.put_field(
             "Ref",
-            &if self.dut1.in_seconds().abs() > f64::EPSILON {
+            &if self.dut1.to_seconds().abs() > f64::EPSILON {
                 "UT1"
             } else {
                 "UTC"
@@ -1488,7 +1488,7 @@ impl MeasurementSetWriter {
             0,
             obs_ctx.field_name.as_ref().unwrap_or(&"".into()),
             "",
-            obs_ctx.sched_start_timestamp.as_mjd_utc_seconds(),
+            obs_ctx.sched_start_timestamp.to_mjd_utc_seconds(),
             &dir_info,
             -1,
             false,
@@ -1505,8 +1505,8 @@ impl MeasurementSetWriter {
             &mut source_table,
             0,
             0,
-            sel_midpoint_timestamp.as_mjd_utc_seconds(),
-            sel_duration.in_unit(Unit::Millisecond),
+            sel_midpoint_timestamp.to_mjd_utc_seconds(),
+            sel_duration.to_unit(Unit::Millisecond),
             0,
             0,
             obs_ctx.field_name.as_ref().unwrap_or(&"".into()),
@@ -1529,8 +1529,8 @@ impl MeasurementSetWriter {
             0,
             "MWA",
             (
-                sched_start_centroid.as_mjd_utc_seconds(),
-                sched_end_centroid.as_mjd_utc_seconds(),
+                sched_start_centroid.to_mjd_utc_seconds(),
+                sched_end_centroid.to_mjd_utc_seconds(),
             ),
             obs_ctx.observer.as_ref().unwrap_or(&"".into()),
             "MWA",
@@ -1590,8 +1590,8 @@ impl MeasurementSetWriter {
                 idx as _,
                 0,
                 -1,
-                sel_midpoint_timestamp.as_mjd_utc_seconds(),
-                sel_duration.in_unit(Unit::Millisecond),
+                sel_midpoint_timestamp.to_mjd_utc_seconds(),
+                sel_duration.to_unit(Unit::Millisecond),
                 2,
                 -1,
                 &array![[0., 0.], [0., 0.]],
@@ -1705,11 +1705,11 @@ impl MeasurementSetWriter {
             .map(|weights_pol_view| weights_pol_view.sum())
             .collect::<Vec<f32>>();
 
-        table.put_cell("TIME", idx, &(time + self.dut1.in_seconds()))?;
+        table.put_cell("TIME", idx, &(time + self.dut1.to_seconds()))?;
         table.put_cell(
             "TIME_CENTROID",
             idx,
-            &(time_centroid + self.dut1.in_seconds()),
+            &(time_centroid + self.dut1.to_seconds()),
         )?;
         table.put_cell("ANTENNA1", idx, &antenna1)?;
         table.put_cell("ANTENNA2", idx, &antenna2)?;
@@ -1805,7 +1805,7 @@ impl VisWrite for MeasurementSetWriter {
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
-            let scan_centroid_mjd_utc_s = avg_centroid_timestamp.as_mjd_utc_seconds();
+            let scan_centroid_mjd_utc_s = avg_centroid_timestamp.to_mjd_utc_seconds();
 
             let prec_info = precess_time(
                 self.array_pos.longitude_rad,
@@ -1878,7 +1878,7 @@ impl VisWrite for MeasurementSetWriter {
                     *ant2_idx as _,
                     0,
                     &uvw_tmp,
-                    vis_ctx.avg_int_time().in_seconds(),
+                    vis_ctx.avg_int_time().to_seconds(),
                     -1,
                     1,
                     -1,
@@ -5367,7 +5367,7 @@ mod tests {
         let vis_ctx = VisContext {
             num_sel_timesteps: vis_sel.timestep_range.len(),
             start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            int_time: Duration::from_f64(1., Unit::Second),
+            int_time: Duration::from_seconds(1.),
             num_sel_chans: vis_sel.coarse_chan_range.len() * fine_chans_per_coarse,
             start_freq_hz: 192000000.,
             freq_resolution_hz: 10000.,
