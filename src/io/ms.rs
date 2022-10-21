@@ -94,7 +94,7 @@ impl MeasurementSetWriter {
             if entry.exists() {
                 if !entry.is_dir() {
                     return Err(MeasurementSetWriteError::NotADirectory {
-                        path: format!("{:?}", entry),
+                        path: format!("{entry:?}"),
                     });
                 };
                 break;
@@ -124,10 +124,8 @@ impl MeasurementSetWriter {
 
     /// Add additional columns / tables / keywords from `cotter::MSWriter::initialize()`
     pub fn add_cotter_mods(&self, num_channels: usize) -> Result<(), MeasurementSetWriteError> {
-        let comment = format!(
-            "added by {} {}, emulating cotter::MSWriter::initialize()",
-            PKG_VERSION, PKG_NAME
-        );
+        let comment =
+            format!("added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MSWriter::initialize()");
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
         // TODO: why isn't it let data_shape = [4, num_channels as _];
         let data_shape = [num_channels as _, 4];
@@ -149,7 +147,7 @@ impl MeasurementSetWriter {
         )?;
 
         let source_table_path = self.path.join("SOURCE");
-        let mut source_table = Table::open(&source_table_path, TableOpenMode::ReadWrite)?;
+        let mut source_table = Table::open(source_table_path, TableOpenMode::ReadWrite)?;
         source_table.add_array_column(
             GlueDataType::TpDouble,
             "REST_FREQUENCY",
@@ -179,12 +177,11 @@ impl MeasurementSetWriter {
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWAAntennaFields()`
     pub fn add_mwa_ant_mods(&self) -> Result<(), MeasurementSetWriteError> {
         let comment = format!(
-            "added by {} {}, emulating cotter::MWAMS::addMWAAntennaFields()",
-            PKG_VERSION, PKG_NAME
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MWAMS::addMWAAntennaFields()"
         );
 
         let ant_table_path = self.path.join("ANTENNA");
-        let mut ant_table = Table::open(&ant_table_path, TableOpenMode::ReadWrite)?;
+        let mut ant_table = Table::open(ant_table_path, TableOpenMode::ReadWrite)?;
         ant_table.add_array_column(
             GlueDataType::TpInt,
             "MWA_INPUT",
@@ -230,12 +227,11 @@ impl MeasurementSetWriter {
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWAFieldFields()`
     pub fn add_mwa_field_mods(&self) -> Result<(), MeasurementSetWriteError> {
         let comment = format!(
-            "added by {} {}, emulating cotter::MWAMS::addMWAFieldFields()",
-            PKG_VERSION, PKG_NAME
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MWAMS::addMWAFieldFields()"
         );
 
         let field_table_path = self.path.join("FIELD");
-        let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite)?;
+        let mut field_table = Table::open(field_table_path, TableOpenMode::ReadWrite)?;
         field_table.add_scalar_column(
             GlueDataType::TpBool,
             "MWA_HAS_CALIBRATOR",
@@ -250,12 +246,11 @@ impl MeasurementSetWriter {
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWAObservationFields()`
     pub fn add_mwa_obs_mods(&self) -> Result<(), MeasurementSetWriteError> {
         let comment = format!(
-            "added by {} {}, emulating cotter::MWAMS::addMWAObservationFields()",
-            PKG_VERSION, PKG_NAME
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MWAMS::addMWAObservationFields()"
         );
 
         let obs_table_path = self.path.join("OBSERVATION");
-        let mut obs_table = Table::open(&obs_table_path, TableOpenMode::ReadWrite)?;
+        let mut obs_table = Table::open(obs_table_path, TableOpenMode::ReadWrite)?;
         obs_table.add_scalar_column(
             GlueDataType::TpDouble,
             "MWA_GPS_TIME",
@@ -318,12 +313,10 @@ impl MeasurementSetWriter {
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWASpectralWindowFields()`
     pub fn add_mwa_spw_mods(&self) -> Result<(), MeasurementSetWriteError> {
         let comment = format!(
-            "added by {} {}, emulating cotter::MWAMS::addMWASpectralWindowFields()",
-            PKG_VERSION, PKG_NAME
-        );
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MWAMS::addMWASpectralWindowFields()");
 
         let spw_table_path = self.path.join("SPECTRAL_WINDOW");
-        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite)?;
+        let mut spw_table = Table::open(spw_table_path, TableOpenMode::ReadWrite)?;
         spw_table.add_scalar_column(
             GlueDataType::TpInt,
             "MWA_CENTRE_SUBBAND_NR",
@@ -338,14 +331,12 @@ impl MeasurementSetWriter {
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWATilePointingFields()`
     pub fn add_mwa_pointing_mods(&self) -> Result<(), MeasurementSetWriteError> {
         let comment = format!(
-            "added by {} {}, emulating cotter::MWAMS::addMWATilePointingFields()",
-            PKG_VERSION, PKG_NAME
-        );
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MWAMS::addMWATilePointingFields()");
 
         let mut pointing_table_desc =
             TableDesc::new("MWA_TILE_POINTING", TableDescCreateMode::TDM_SCRATCH)?;
 
-        // let mut pointing_table = Table::open(&pointing_table_path, TableOpenMode::ReadWrite)?;
+        // let mut pointing_table = Table::open(pointing_table_path, TableOpenMode::ReadWrite)?;
         pointing_table_desc.add_array_column(
             GlueDataType::TpDouble,
             "INTERVAL",
@@ -408,8 +399,7 @@ impl MeasurementSetWriter {
     /// Add additional columns / tables / keywords from `cotter::MWAMS::addMWASubbandFields()`
     pub fn add_mwa_subband_mods(&self) -> Result<(), MeasurementSetWriteError> {
         let comment = format!(
-            "added by {} {}, emulating cotter::MWAMS::addMWASubbandFields()",
-            PKG_VERSION, PKG_NAME
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MWAMS::addMWASubbandFields()"
         );
 
         let mut subband_table_desc =
@@ -499,7 +489,7 @@ impl MeasurementSetWriter {
                     argument: "chan_info",
                     function: "write_spectral_window_row",
                     expected: "[n, 4]".into(),
-                    received: format!("{:?}", sh),
+                    received: format!("{sh:?}"),
                 }))
             }
         }
@@ -706,8 +696,8 @@ impl MeasurementSetWriter {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
                     argument: "corr_product",
                     function: "write_polarization_row",
-                    expected: format!("[n, 2] (where n = corr_type.len() = {})", num_corr_type),
-                    received: format!("{:?}", sh),
+                    expected: format!("[n, 2] (where n = corr_type.len() = {num_corr_type})"),
+                    received: format!("{sh:?}"),
                 }))
             }
         }
@@ -809,7 +799,7 @@ impl MeasurementSetWriter {
                     argument: "dir_info",
                     function: "write_field_row",
                     expected: "[3, p, 2] (where p is highest polynomial order)".into(),
-                    received: format!("{:?}", sh),
+                    received: format!("{sh:?}"),
                 }))
             }
         }
@@ -1216,7 +1206,7 @@ impl MeasurementSetWriter {
         // MWA Antennae //
         // //////////// //
 
-        let mut ant_table = Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite)?;
+        let mut ant_table = Table::open(self.path.join("ANTENNA"), TableOpenMode::ReadWrite)?;
         for (idx, input, number, receiver, slot, length) in izip!(
             0..,
             mwa_ctx.ant_inputs.outer_iter(),
@@ -1240,7 +1230,7 @@ impl MeasurementSetWriter {
             ant_table.put_cell(
                 "MWA_CABLE_LENGTH",
                 idx as _,
-                &vec![length[[0]] as f64, length[[1]] as f64],
+                &vec![length[[0]], length[[1]]],
             )?;
         }
 
@@ -1249,7 +1239,7 @@ impl MeasurementSetWriter {
         // /////////////////// //
 
         let mut spw_table =
-            Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite)?;
+            Table::open(self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite)?;
         let num_sel_coarse_chans = coarse_chan_range.len();
         let centre_coarse_chan_idx = coarse_chan_range.start + (num_sel_coarse_chans / 2);
         let centre_coarse_chan_rec = mwa_ctx.coarse_chan_recs[centre_coarse_chan_idx];
@@ -1259,20 +1249,16 @@ impl MeasurementSetWriter {
         // MWA Field //
         // ///////// //
 
-        let mut field_table = Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite)?;
+        let mut field_table = Table::open(self.path.join("FIELD"), TableOpenMode::ReadWrite)?;
         field_table.put_cell("MWA_HAS_CALIBRATOR", 0, &mwa_ctx.has_calibrator)?;
 
         // /////////////// //
         // MWA Observation //
         // /////////////// //
 
-        let mut obs_table = Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite)?;
+        let mut obs_table = Table::open(self.path.join("OBSERVATION"), TableOpenMode::ReadWrite)?;
 
-        obs_table.put_cell(
-            "MWA_GPS_TIME",
-            0,
-            &(sched_start_timestamp.to_gpst_seconds() as f64),
-        )?;
+        obs_table.put_cell("MWA_GPS_TIME", 0, &sched_start_timestamp.to_gpst_seconds())?;
         obs_table.put_cell("MWA_FILENAME", 0, name.as_ref().unwrap_or(&"".into()))?;
         obs_table.put_cell("MWA_OBSERVATION_MODE", 0, &mwa_ctx.mode)?;
         obs_table.put_cell(
@@ -1291,7 +1277,7 @@ impl MeasurementSetWriter {
         // ///////////////// //
 
         let mut point_table = Table::open(
-            &self.path.join("MWA_TILE_POINTING"),
+            self.path.join("MWA_TILE_POINTING"),
             TableOpenMode::ReadWrite,
         )?;
         point_table.add_rows(1)?;
@@ -1314,7 +1300,7 @@ impl MeasurementSetWriter {
         // /////////// //
 
         let mut subband_table =
-            Table::open(&self.path.join("MWA_SUBBAND"), TableOpenMode::ReadWrite)?;
+            Table::open(self.path.join("MWA_SUBBAND"), TableOpenMode::ReadWrite)?;
         subband_table.add_rows(num_sel_coarse_chans)?;
         for i in 0..num_sel_coarse_chans {
             self.write_mwa_subband_row(&mut subband_table, i as _, i as _, 0 as _, false)?;
@@ -1385,13 +1371,13 @@ impl MeasurementSetWriter {
         // /////////////// //
 
         let mut spw_table =
-            Table::open(&self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite)?;
+            Table::open(self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite)?;
 
         let chan_info = Array2::from_shape_fn((num_avg_chans, 4), |(c, i)| {
             if i == 0 {
                 avg_fine_chan_freqs_hz[c]
             } else {
-                avg_chan_width_hz as f64
+                avg_chan_width_hz
             }
         });
 
@@ -1405,7 +1391,7 @@ impl MeasurementSetWriter {
             format!("MWA_BAND_{:.1}", center_freq_hz / 1_000_000.).as_str(),
             center_freq_hz,
             &chan_info,
-            avg_chan_width_hz as f64 * num_avg_chans as f64,
+            avg_chan_width_hz * num_avg_chans as f64,
             false,
         )?;
 
@@ -1413,10 +1399,8 @@ impl MeasurementSetWriter {
         // Data Description //
         // //////////////// //
 
-        let mut ddesc_table = Table::open(
-            &self.path.join("DATA_DESCRIPTION"),
-            TableOpenMode::ReadWrite,
-        )?;
+        let mut ddesc_table =
+            Table::open(self.path.join("DATA_DESCRIPTION"), TableOpenMode::ReadWrite)?;
 
         ddesc_table.add_rows(1)?;
         self.write_data_description_row(&mut ddesc_table, 0, 0, 0, false)?;
@@ -1425,7 +1409,7 @@ impl MeasurementSetWriter {
         // Antennae //
         // //////// //
 
-        let mut ant_table = Table::open(&self.path.join("ANTENNA"), TableOpenMode::ReadWrite)?;
+        let mut ant_table = Table::open(self.path.join("ANTENNA"), TableOpenMode::ReadWrite)?;
 
         ant_table.add_rows(obs_ctx.num_ants())?;
 
@@ -1455,7 +1439,7 @@ impl MeasurementSetWriter {
         // - YX (1, 0)
         // - YY (1, 1)
 
-        let mut pol_table = Table::open(&self.path.join("POLARIZATION"), TableOpenMode::ReadWrite)?;
+        let mut pol_table = Table::open(self.path.join("POLARIZATION"), TableOpenMode::ReadWrite)?;
 
         let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
         let corr_type = vec![9, 10, 11, 12];
@@ -1467,7 +1451,7 @@ impl MeasurementSetWriter {
         // Field //
         // ///// //
 
-        let mut field_table = Table::open(&self.path.join("FIELD"), TableOpenMode::ReadWrite)?;
+        let mut field_table = Table::open(self.path.join("FIELD"), TableOpenMode::ReadWrite)?;
 
         // TODO: get phase centre from self.phase_centre
         // TODO: is dir_info right?
@@ -1498,7 +1482,7 @@ impl MeasurementSetWriter {
         // Source //
         // ////// //
 
-        let mut source_table = Table::open(&self.path.join("SOURCE"), TableOpenMode::ReadWrite)?;
+        let mut source_table = Table::open(self.path.join("SOURCE"), TableOpenMode::ReadWrite)?;
 
         source_table.add_rows(1)?;
         self.write_source_row(
@@ -1520,7 +1504,7 @@ impl MeasurementSetWriter {
         // Observation //
         // /////////// //
 
-        let mut obs_table = Table::open(&self.path.join("OBSERVATION"), TableOpenMode::ReadWrite)?;
+        let mut obs_table = Table::open(self.path.join("OBSERVATION"), TableOpenMode::ReadWrite)?;
         obs_table.add_rows(1)?;
 
         // TODO: is it better to use sel_start_centroid and sel_end_centroid?
@@ -1543,7 +1527,7 @@ impl MeasurementSetWriter {
         // History //
         // /////// //
 
-        let mut hist_table = Table::open(&self.path.join("HISTORY"), TableOpenMode::ReadWrite)?;
+        let mut hist_table = Table::open(self.path.join("HISTORY"), TableOpenMode::ReadWrite)?;
 
         hist_table.add_rows(1)?;
 
@@ -1551,7 +1535,7 @@ impl MeasurementSetWriter {
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_millis() as f64
             / 1000.;
-        let default_message = format!("{} {}", PKG_NAME, PKG_VERSION);
+        let default_message = format!("{PKG_NAME} {PKG_VERSION}");
         let (cmd_line, application, message) = match history {
             Some(History {
                 cmd_line,
@@ -1579,7 +1563,7 @@ impl MeasurementSetWriter {
         // Feed //
         // //// //
 
-        let mut feed_table = Table::open(&self.path.join("FEED"), TableOpenMode::ReadWrite)?;
+        let mut feed_table = Table::open(self.path.join("FEED"), TableOpenMode::ReadWrite)?;
 
         feed_table.add_rows(obs_ctx.num_ants())?;
 
@@ -1675,7 +1659,7 @@ impl MeasurementSetWriter {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
                 argument: "sigma",
                 function: "write_main_row",
-                expected: format!("{}", num_pols),
+                expected: format!("{num_pols}"),
                 received: format!("{:?}", sigma.len()),
             }));
         }
@@ -1692,10 +1676,9 @@ impl MeasurementSetWriter {
                     argument: "data|flags|weights",
                     function: "write_main_row",
                     expected: format!(
-                        "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({})",
-                        num_pols
+                        "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({num_pols})"
                     ),
-                    received: format!("{:?}|{:?}|{:?}", dsh, fsh, wsh),
+                    received: format!("{dsh:?}|{fsh:?}|{wsh:?}"),
                 }))
             }
         }
@@ -1745,7 +1728,7 @@ impl VisWrite for MeasurementSetWriter {
             return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "vis",
                 function: "write_vis_marlu",
-                expected: format!("{:?}", sel_dims),
+                expected: format!("{sel_dims:?}"),
                 received: format!("{:?}", vis.dim()),
             }));
         }
@@ -1753,7 +1736,7 @@ impl VisWrite for MeasurementSetWriter {
             return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "weights",
                 function: "write_vis_marlu",
-                expected: format!("{:?}", sel_dims),
+                expected: format!("{sel_dims:?}"),
                 received: format!("{:?}", weights.dim()),
             }));
         }
@@ -1985,7 +1968,7 @@ mod tests {
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
-            &table_path,
+            table_path,
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
@@ -1995,7 +1978,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(MeasurementSetWriteError::NotADirectory { path }) => {
-                assert_eq!(path, format!("{:?}", naughty_file));
+                assert_eq!(path, format!("{naughty_file:?}"));
             }
             _ => panic!("expected MeasurementSetWriteError::NotADirectory"),
         }
@@ -2011,7 +1994,7 @@ mod tests {
         let table_path = temp_dir.path().join("subfolder").join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
         let ms_writer = MeasurementSetWriter::new(
-            &table_path,
+            table_path,
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
@@ -2021,7 +2004,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(MeasurementSetWriteError::NotADirectory { path }) => {
-                assert_eq!(path, format!("{:?}", naughty_file));
+                assert_eq!(path, format!("{naughty_file:?}"));
             }
             _ => panic!("expected MeasurementSetWriteError::NotADirectory"),
         }
@@ -2473,7 +2456,7 @@ mod tests {
                 ],
             ),
         ] {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             for col_name in col_names {
@@ -2492,8 +2475,7 @@ mod tests {
             &((1..=24)
                 .map(|i| {
                     format!(
-                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{:02}_00.fits",
-                        i
+                        "tests/data/1254670392_avg/1254670392_20191009153257_gpubox{i:02}_00.fits"
                     )
                 })
                 .collect::<Vec<_>>()),
@@ -2517,7 +2499,7 @@ mod tests {
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
 
-        let mut table = Table::open(&table_path.join("SOURCE"), TableOpenMode::Read).unwrap();
+        let mut table = Table::open(table_path.join("SOURCE"), TableOpenMode::Read).unwrap();
         let mut exp_table =
             Table::open(PATH_1254670392.join("SOURCE"), TableOpenMode::Read).unwrap();
         for col_name in [
@@ -2558,7 +2540,7 @@ mod tests {
             ("", vec!["DATA", "WEIGHT_SPECTRUM"]),
             ("SOURCE", vec!["REST_FREQUENCY"]),
         ] {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             for col_name in col_names {
@@ -2614,7 +2596,7 @@ mod tests {
             ("MWA_TILE_POINTING", vec!["INTERVAL", "DELAYS", "DIRECTION"]),
             ("MWA_SUBBAND", vec!["NUMBER", "GAIN", "FLAG_ROW"]),
         ] {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             for col_name in col_names {
@@ -2646,11 +2628,11 @@ mod tests {
         ms_writer.add_cotter_mods(768).unwrap();
 
         let chan_info = Array2::from_shape_fn((768, 4), |(c, i)| {
-            (if i == 0 {
+            if i == 0 {
                 167055000. + (c as f64) * 40000.
             } else {
                 40000.
-            }) as f64
+            }
         });
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
@@ -2715,11 +2697,11 @@ mod tests {
         ms_writer.add_mwa_mods().unwrap();
 
         let chan_info = Array2::from_shape_fn((768, 4), |(c, i)| {
-            (if i == 0 {
+            if i == 0 {
                 167055000. + (c as f64) * 40000.
             } else {
                 40000.
-            }) as f64
+            }
         });
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
         let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
@@ -2768,7 +2750,7 @@ mod tests {
         let chan_info = Array2::from_shape_fn((768, 3), |(_, _)| 40000.);
 
         let spw_table_path = table_path.join("SPECTRAL_WINDOW");
-        let mut spw_table = Table::open(&spw_table_path, TableOpenMode::ReadWrite).unwrap();
+        let mut spw_table = Table::open(spw_table_path, TableOpenMode::ReadWrite).unwrap();
 
         spw_table.add_rows(1).unwrap();
 
@@ -3313,7 +3295,7 @@ mod tests {
             })
             .collect();
         let ms_writer = MeasurementSetWriter::new(
-            &table_path,
+            table_path,
             phase_centre,
             array_pos,
             antenna_positions,
@@ -3387,7 +3369,7 @@ mod tests {
             })
             .collect();
         let ms_writer = MeasurementSetWriter::new(
-            &table_path,
+            table_path,
             phase_centre,
             array_pos,
             antenna_positions,
@@ -3530,7 +3512,7 @@ mod tests {
         let corr_type = vec![9, 10, 11];
 
         let pol_table_path = table_path.join("POLARIZATION");
-        let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
+        let mut pol_table = Table::open(pol_table_path, TableOpenMode::ReadWrite).unwrap();
 
         pol_table.add_rows(1).unwrap();
 
@@ -3575,7 +3557,7 @@ mod tests {
         let corr_type = vec![9, 10, 11, 12];
 
         let pol_table_path = table_path.join("POLARIZATION");
-        let mut pol_table = Table::open(&pol_table_path, TableOpenMode::ReadWrite).unwrap();
+        let mut pol_table = Table::open(pol_table_path, TableOpenMode::ReadWrite).unwrap();
 
         pol_table.add_rows(1).unwrap();
 
@@ -3834,7 +3816,7 @@ mod tests {
         ms_writer.add_cotter_mods(768).unwrap();
 
         let field_table_path = table_path.join("FIELD");
-        let mut field_table = Table::open(&field_table_path, TableOpenMode::ReadWrite).unwrap();
+        let mut field_table = Table::open(field_table_path, TableOpenMode::ReadWrite).unwrap();
 
         let dir_info = array![
             [[phase_centre.ra, phase_centre.dec]],
@@ -4523,7 +4505,7 @@ mod tests {
             //     ],
             // ),
         ] {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             if col_names.is_empty() {
@@ -4545,7 +4527,7 @@ mod tests {
             vis_sel.timestep_range.len() * vis_sel.baseline_idxs.len()
         );
 
-        let mut ant_table = Table::open(&table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
+        let mut ant_table = Table::open(table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
         let receivers: Vec<i32> = ant_table.get_col_as_vec("MWA_RECEIVER").unwrap();
         assert_eq!(
             receivers,
@@ -4652,7 +4634,7 @@ mod tests {
                             val.to_lowercase().parse().unwrap();
                     }
                     _ => {
-                        panic!("Unknown row type: {}", row_type);
+                        panic!("Unknown row type: {row_type}");
                     }
                 }
             }
@@ -4683,7 +4665,7 @@ mod tests {
             ),
             (None, None, Some(real), None) => (parse::<f32, _>(real.as_str()).unwrap(), 0.0),
             (None, None, None, Some(imag)) => (0.0, parse::<f32, _>(imag.as_str()).unwrap()),
-            _ => panic!("can't parse complex {}", cell),
+            _ => panic!("can't parse complex {cell}"),
         };
         Complex::new(real, imag)
     }
@@ -4707,7 +4689,7 @@ mod tests {
         }
 
         if !remaining_keys.is_empty() {
-            panic!("not all keys found: {:?}", remaining_keys);
+            panic!("not all keys found: {remaining_keys:?}");
         }
 
         indices
@@ -5079,7 +5061,7 @@ mod tests {
             .unwrap();
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
@@ -5216,7 +5198,7 @@ mod tests {
             .unwrap();
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table = Table::open(
                 PATH_1254670392_AVG_4S_80KHZ.join(table_name),
                 TableOpenMode::Read,
@@ -5335,7 +5317,7 @@ mod tests {
         }
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
-            let mut table = Table::open(&table_path.join(table_name), TableOpenMode::Read).unwrap();
+            let mut table = Table::open(table_path.join(table_name), TableOpenMode::Read).unwrap();
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
@@ -5400,7 +5382,7 @@ mod tests {
 
         let antenna_positions: Vec<_> = obs_ctx.ant_positions_geodetic().collect();
         let mut ms_writer = MeasurementSetWriter::new(
-            &table_path,
+            table_path,
             obs_ctx.phase_centre,
             obs_ctx.array_pos,
             antenna_positions,
@@ -5502,7 +5484,7 @@ mod tests {
 
         let antenna_positions: Vec<_> = obs_ctx.ant_positions_geodetic().collect();
         let mut ms_writer = MeasurementSetWriter::new(
-            &table_path,
+            table_path,
             obs_ctx.phase_centre,
             obs_ctx.array_pos,
             antenna_positions,

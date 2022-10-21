@@ -65,13 +65,11 @@ mod tests {
                 let (t1, t2) = cross_correlation_baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
-                    "Expected tile1 = {}, got {}. bl = {}",
-                    tile1, t1, bl_index
+                    "Expected tile1 = {tile1}, got {t1}. bl = {bl_index}"
                 );
                 assert_eq!(
                     tile2, t2,
-                    "Expected tile2 = {}, got {}. bl = {}",
-                    tile2, t2, bl_index
+                    "Expected tile2 = {tile2}, got {t2}. bl = {bl_index}"
                 );
                 bl_index += 1;
             }
@@ -85,13 +83,11 @@ mod tests {
                 let (t1, t2) = cross_correlation_baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
-                    "Expected tile1 = {}, got {}. bl = {}",
-                    tile1, t1, bl_index
+                    "Expected tile1 = {tile1}, got {t1}. bl = {bl_index}"
                 );
                 assert_eq!(
                     tile2, t2,
-                    "Expected tile2 = {}, got {}. bl = {}",
-                    tile2, t2, bl_index
+                    "Expected tile2 = {tile2}, got {t2}. bl = {bl_index}"
                 );
                 bl_index += 1;
             }
@@ -104,13 +100,11 @@ mod tests {
                 let (t1, t2) = cross_correlation_baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
-                    "Expected tile1 = {}, got {}. bl = {}",
-                    tile1, t1, bl_index
+                    "Expected tile1 = {tile1}, got {t1}. bl = {bl_index}"
                 );
                 assert_eq!(
                     tile2, t2,
-                    "Expected tile2 = {}, got {}. bl = {}",
-                    tile2, t2, bl_index
+                    "Expected tile2 = {tile2}, got {t2}. bl = {bl_index}"
                 );
                 bl_index += 1;
             }
@@ -128,13 +122,11 @@ mod tests {
                 let (t1, t2) = baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
-                    "Expected tile1 = {}, got {}. bl = {}",
-                    tile1, t1, bl_index
+                    "Expected tile1 = {tile1}, got {t1}. bl = {bl_index}"
                 );
                 assert_eq!(
                     tile2, t2,
-                    "Expected tile2 = {}, got {}. bl = {}",
-                    tile2, t2, bl_index
+                    "Expected tile2 = {tile2}, got {t2}. bl = {bl_index}"
                 );
                 bl_index += 1;
             }
@@ -148,13 +140,11 @@ mod tests {
                 let (t1, t2) = baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
-                    "Expected tile1 = {}, got {}. bl = {}",
-                    tile1, t1, bl_index
+                    "Expected tile1 = {tile1}, got {t1}. bl = {bl_index}"
                 );
                 assert_eq!(
                     tile2, t2,
-                    "Expected tile2 = {}, got {}. bl = {}",
-                    tile2, t2, bl_index
+                    "Expected tile2 = {tile2}, got {t2}. bl = {bl_index}"
                 );
                 bl_index += 1;
             }
@@ -167,13 +157,11 @@ mod tests {
                 let (t1, t2) = baseline_to_tiles(n, bl_index);
                 assert_eq!(
                     tile1, t1,
-                    "Expected tile1 = {}, got {}. bl = {}",
-                    tile1, t1, bl_index
+                    "Expected tile1 = {tile1}, got {t1}. bl = {bl_index}"
                 );
                 assert_eq!(
                     tile2, t2,
-                    "Expected tile2 = {}, got {}. bl = {}",
-                    tile2, t2, bl_index
+                    "Expected tile2 = {tile2}, got {t2}. bl = {bl_index}"
                 );
                 bl_index += 1;
             }

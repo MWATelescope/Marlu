@@ -144,7 +144,7 @@ mod tests {
             latitude_rad: 0.0,
             height_metres: 0.0,
         };
-        let result = format!("{}", latlngheight);
+        let result = format!("{latlngheight}");
         assert!(!result.is_empty());
     }
 

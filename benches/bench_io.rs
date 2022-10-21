@@ -197,10 +197,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
     );
 
     crt.bench_function(
-        &format!(
-            "MeasurementSetWriter::write_vis_marlu - mwax_half_1247842824 {:?}",
-            shape
-        ),
+        &format!("MeasurementSetWriter::write_vis_marlu - mwax_half_1247842824 {shape:?}"),
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
@@ -255,10 +252,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
     );
 
     crt.bench_function(
-        &format!(
-            "UvfitsWriter::write_vis_marlu - mwax_half_1247842824 {:?}",
-            shape
-        ),
+        &format!("UvfitsWriter::write_vis_marlu - mwax_half_1247842824 {shape:?}"),
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();

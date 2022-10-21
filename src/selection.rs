@@ -382,7 +382,7 @@ impl VisSelection {
             return Err(SelectionError::BadArrayShape {
                 argument: "jones_array".to_string(),
                 function: "VisSelection::read_mwalib".to_string(),
-                expected: format!("{:?}", shape),
+                expected: format!("{shape:?}"),
                 received: format!("{:?}", jones_array.dim()),
             });
         };
@@ -391,7 +391,7 @@ impl VisSelection {
             return Err(SelectionError::BadArrayShape {
                 argument: "flag_array".to_string(),
                 function: "VisSelection::read_mwalib".to_string(),
-                expected: format!("{:?}", shape),
+                expected: format!("{shape:?}"),
                 received: format!("{:?}", flag_array.dim()),
             });
         };
@@ -431,7 +431,7 @@ impl VisSelection {
                                 .progress_chars("=> "),
                         )
                         .with_position(0)
-                        .with_message(format!("coarse_chan {:03}", mwalib_coarse_chan_idx)),
+                        .with_message(format!("coarse_chan {mwalib_coarse_chan_idx:03}")),
                 );
                 channel_progress.set_position(0);
                 channel_progress

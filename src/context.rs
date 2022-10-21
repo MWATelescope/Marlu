@@ -131,9 +131,9 @@ impl<'a> History<'a> {
     /// Format history as a series of uvfits COMMENTs
     pub fn as_comments(&self) -> Vec<String> {
         [
-            self.application.map(|s| format!("Created by {}", s)),
-            self.cmd_line.map(|s| format!("CmdLine: {}", s)),
-            self.message.map(|s| format!("Msg: {}", s)),
+            self.application.map(|s| format!("Created by {s}")),
+            self.cmd_line.map(|s| format!("CmdLine: {s}")),
+            self.message.map(|s| format!("Msg: {s}")),
         ]
         .into_iter()
         .flatten()
@@ -211,10 +211,7 @@ impl MwaObsContext {
                 rf_x.rec_slot_number as usize,
                 rf_y.rec_slot_number as _
             ]);
-            length.assign(&array![
-                rf_x.electrical_length_m as f64,
-                rf_y.electrical_length_m as _
-            ]);
+            length.assign(&array![rf_x.electrical_length_m, rf_y.electrical_length_m]);
         }
 
         result

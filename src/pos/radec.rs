@@ -151,7 +151,7 @@ impl RADec {
     ///
     /// Derived using "Coordinate transformations" on page 388 of Synthesis
     /// Imaging in Radio Astronomy II.
-    pub fn to_lmn(&self, phase_centre: RADec) -> LMN {
+    pub fn to_lmn(self, phase_centre: RADec) -> LMN {
         let d_ra = self.ra - phase_centre.ra;
         let (s_d_ra, c_d_ra) = d_ra.sin_cos();
         let (s_dec, c_dec) = self.dec.sin_cos();
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn test_display_radec() {
         let radec = RADec { ra: 0.0, dec: 0.0 };
-        let result = format!("{}", radec);
+        let result = format!("{radec}");
         assert!(!result.is_empty());
     }
 

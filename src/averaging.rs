@@ -230,7 +230,7 @@ pub fn average_visibilities(
             argument: "weight_array".to_string(),
             function: "average_visibilities".to_string(),
             expected: format!("({}, {}, {}, 4)", jones_dims.0, jones_dims.1, jones_dims.2),
-            received: format!("{:?}", weight_dims),
+            received: format!("{weight_dims:?}"),
         });
     }
     let flag_dims = flag_array.dim();
@@ -239,7 +239,7 @@ pub fn average_visibilities(
             argument: "flag_array".to_string(),
             function: "average_visibilities".to_string(),
             expected: format!("({}, {}, {}, 4)", jones_dims.0, jones_dims.1, jones_dims.2),
-            received: format!("{:?}", flag_dims),
+            received: format!("{flag_dims:?}"),
         });
     }
     let averaged_dims = (

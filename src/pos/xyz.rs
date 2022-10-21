@@ -518,7 +518,7 @@ mod tests {
     #[cfg(feature = "mwalib")]
     fn test_get_tiles_mwa() {
         let context =
-            mwalib::MetafitsContext::new(&"tests/data/1254670392_avg/1254670392.metafits", None)
+            mwalib::MetafitsContext::new("tests/data/1254670392_avg/1254670392.metafits", None)
                 .unwrap();
         let tiles = XyzGeodetic::get_tiles_mwa(&context);
         assert_eq!(tiles.len(), 128);

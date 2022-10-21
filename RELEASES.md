@@ -2,6 +2,7 @@
 
 # Version 0.9.0 (unreleased)
 
+- Fix a heap of clippy lints
 - Remove CUDA convenience code for Rust callers
 - Use mwalib v0.16.0 and fitsio v0.20.0
 - Add the cargo-semver-checks action to CI

@@ -35,12 +35,7 @@ use super::{
 /// minutes and seconds set to 0.
 fn get_truncated_date_string(epoch: Epoch) -> String {
     let (year, month, day, _, _, _, _) = epoch.to_gregorian_utc();
-    format!(
-        "{year}-{month:02}-{day:02}T00:00:00.0",
-        year = year,
-        month = month,
-        day = day
-    )
+    format!("{year}-{month:02}-{day:02}T00:00:00.0")
 }
 
 /// Helper function to convert strings into pointers of C strings.
@@ -210,8 +205,8 @@ impl UvfitsWriter {
         let path = path.as_ref();
         // Delete any file that already exists.
         if path.exists() {
-            trace!("file {:?} exists, deleting", &path);
-            std::fs::remove_file(&path)?;
+            trace!("file {} exists, deleting", path.display());
+            std::fs::remove_file(path)?;
         }
 
         // Create a new fits file.
@@ -259,18 +254,18 @@ impl UvfitsWriter {
         // Set header names and scales.
         for (i, &param) in ["UU", "VV", "WW", "BASELINE", "DATE"].iter().enumerate() {
             let ii = i + 1;
-            fits_write_string(fptr, &format!("PTYPE{}", ii), param, None)?;
-            fits_write_double(fptr, &format!("PSCAL{}", ii), 1.0, None)?;
+            fits_write_string(fptr, &format!("PTYPE{ii}"), param, None)?;
+            fits_write_double(fptr, &format!("PSCAL{ii}"), 1.0, None)?;
             if param == "DATE" {
                 // Set the zero level for the DATE column.
                 fits_write_double(
                     fptr,
-                    &format!("PZERO{}", ii),
+                    &format!("PZERO{ii}"),
                     start_epoch.to_jde_utc_days().floor() + 0.5,
                     None,
                 )?;
             } else {
-                fits_write_double(fptr, &format!("PZERO{}", ii), 0.0, None)?;
+                fits_write_double(fptr, &format!("PZERO{ii}"), 0.0, None)?;
             }
         }
         fits_write_string(
@@ -782,7 +777,7 @@ impl VisWrite for UvfitsWriter {
             return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "vis",
                 function: "write_vis_marlu",
-                expected: format!("{:?}", sel_dims),
+                expected: format!("{sel_dims:?}"),
                 received: format!("{:?}", vis.dim()),
             }));
         }
@@ -790,7 +785,7 @@ impl VisWrite for UvfitsWriter {
             return Err(IOError::BadArrayShape(BadArrayShape {
                 argument: "weights",
                 function: "write_vis_marlu",
-                expected: format!("{:?}", sel_dims),
+                expected: format!("{sel_dims:?}"),
                 received: format!("{:?}", weights.dim()),
             }));
         }
@@ -1469,11 +1464,7 @@ mod tests {
             {
                 assert!(
                     abs_diff_eq!(*left_group_param, *right_group_param, epsilon = 1e-7),
-                    "cells don't match in param {}, row {}. {} != {}",
-                    param_name,
-                    row_idx,
-                    left_group_param,
-                    right_group_param
+                    "cells don't match in param {param_name}, row {row_idx}. {left_group_param} != {right_group_param}"
                 );
             }
 

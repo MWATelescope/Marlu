@@ -19,7 +19,7 @@ use hifitime::{Duration, Epoch};
 
 use crate::{pal, HADec, RADec, XyzGeodetic};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct PrecessionInfo {
     /// Bias procession rotation matrix.
     rotation_matrix: [[f64; 3]; 3],
