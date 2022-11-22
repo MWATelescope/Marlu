@@ -854,7 +854,7 @@ impl VisWrite for UvfitsWriter {
                 self.dut1,
             );
 
-            let tiles_xyz_precessed = prec_info.precess_xyz_parallel(&self.antenna_positions);
+            let tiles_xyz_precessed = prec_info.precess_xyz(&self.antenna_positions);
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter().copied(),

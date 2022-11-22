@@ -16,7 +16,6 @@
 use std::f64::consts::TAU;
 
 use hifitime::{Duration, Epoch};
-use rayon::prelude::*;
 
 use crate::{pal, HADec, RADec, XyzGeodetic};
 
@@ -40,12 +39,11 @@ pub struct PrecessionInfo {
 
 impl PrecessionInfo {
     // Blatently stolen from cotter.
-    pub fn precess_xyz_parallel(&self, xyzs: &[XyzGeodetic]) -> Vec<XyzGeodetic> {
+    pub fn precess_xyz(&self, xyzs: &[XyzGeodetic]) -> Vec<XyzGeodetic> {
         let (sep, cep) = self.lmst.sin_cos();
         let (s2000, c2000) = self.lmst_j2000.sin_cos();
-        let mut out = Vec::with_capacity(xyzs.len());
 
-        xyzs.par_iter()
+        xyzs.iter()
             .map(|xyz| {
                 // rotate to frame with x axis at zero RA
                 let xpr = cep * xyz.x - sep * xyz.y;
@@ -64,8 +62,12 @@ impl PrecessionInfo {
                     z: zpr2,
                 }
             })
-            .collect_into_vec(&mut out);
-        out
+            .collect()
+    }
+
+    #[deprecated = "use `PrecessionInfo::precess_xyz` instead"]
+    pub fn precess_xyz_parallel(&self, xyzs: &[XyzGeodetic]) -> Vec<XyzGeodetic> {
+        self.precess_xyz(xyzs)
     }
 }
 

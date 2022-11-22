@@ -2,6 +2,7 @@
 
 # Version 0.9.0 (unreleased)
 
+- Speed up XYZ related code
 - Use the pure-Rust erfa crate rather than erfa-sys
 - Rename coordinate "new" methods to "from", e.g. `RADec::new` is now
   `RADec::from_radians`

@@ -5,11 +5,15 @@
 //! Misc Benchmarks
 
 use criterion::*;
+use hifitime::{Duration, Epoch};
+
 use marlu::{
     c64,
+    constants::{MWA_LAT_RAD, MWA_LONG_RAD},
     ndarray::{Array1, Array3},
     pos::xyz,
-    HADec, Jones, XyzGeodetic,
+    precession::precess_time,
+    HADec, Jones, RADec, XyzGeodetic,
 };
 
 // /////////////////////// //
@@ -37,19 +41,29 @@ fn mul2(j1: &[c64; 4], j2: &[c64; 4]) -> [c64; 4] {
 }
 
 fn misc(c: &mut Criterion) {
-    // Is the parallel xyzs_to_uvws really worth it?
     c.bench_function("xyzs_to_uvws", |b| {
         // The values are irrelevant.
-        let xyzs = vec![XyzGeodetic::default(); 8128];
+        let xyzs = vec![XyzGeodetic::default(); 128];
         let phase_centre = HADec::from_degrees(0.0, -27.0);
         b.iter(|| xyz::xyzs_to_uvws(&xyzs, phase_centre))
     });
 
-    c.bench_function("xyzs_to_uvws_parallel", |b| {
+    c.bench_function("precess_xyz", |b| {
         // The values are irrelevant.
-        let xyzs = vec![XyzGeodetic::default(); 8128];
-        let phase_centre = HADec::from_degrees(0.0, -27.0);
-        b.iter(|| xyz::xyzs_to_uvws_parallel(&xyzs, phase_centre))
+        let xyzs = vec![XyzGeodetic::default(); 128];
+        let p = {
+            let epoch = Epoch::from_gpst_seconds(1099334672.0);
+            let phase_centre = RADec::from_degrees(60.0, -30.0);
+
+            precess_time(
+                MWA_LONG_RAD,
+                MWA_LAT_RAD,
+                phase_centre,
+                epoch,
+                Duration::from_seconds(-0.39623459),
+            )
+        };
+        b.iter(|| p.precess_xyz(&xyzs))
     });
 
     // Sanity check that allocating Jones<f64> has no overhead compared to [f64;
