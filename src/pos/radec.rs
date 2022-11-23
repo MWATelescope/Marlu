@@ -4,10 +4,9 @@
 
 //! Handle (right ascension, declination) coordinates.
 
-use std::f64::consts::{FRAC_PI_4, PI, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use erfa::aliases::eraSeps;
-use log::warn;
 
 use crate::sexagesimal::{degrees_to_sexagesimal_dms, degrees_to_sexagesimal_hms};
 
@@ -104,29 +103,27 @@ impl RADec {
         let mut any_between_90_270 = false;
         let mut any_greater_than_270 = false;
         for radec in radecs {
-            if (0.0..FRAC_PI_4).contains(&radec.ra) {
+            if (0.0..FRAC_PI_2).contains(&radec.ra) {
                 any_less_than_90 = true;
             }
-            if (FRAC_PI_4..3.0 * FRAC_PI_4).contains(&radec.ra) {
+            if (FRAC_PI_2..3.0 * FRAC_PI_2).contains(&radec.ra) {
                 any_between_90_270 = true;
             }
-            if (3.0 * FRAC_PI_4..TAU).contains(&radec.ra) {
+            if (3.0 * FRAC_PI_2..TAU).contains(&radec.ra) {
                 any_greater_than_270 = true;
             }
         }
 
         let new_cutoff = match (any_less_than_90, any_between_90_270, any_greater_than_270) {
-            // User is misusing the code!
-            (false, false, false) => return None,
+            // All true, this is the Danger Zone; we can't feasibly find the
+            // average RADec over a collection of coordinates that span the
+            // whole sky.
+            //
+            // All negative, there are no coordinates.
+            (true, true, true) | (false, false, false) => return None,
 
             // Surrounding 0 or 360.
             (true, false, true) => PI,
-
-            // Danger zone.
-            (true, true, true) => {
-                warn!("Attempting to find the average RADec over a collection of coordinates that span many RAs!");
-                0.0
-            }
 
             // Easy ones.
             _ => 0.0,
@@ -278,15 +275,14 @@ mod tests {
 
     #[test]
     fn test_weighted_pos() {
-        // Only the src variable matters here; the rest of the variables aren't
-        // used when constructing `RankedSource`.
-
         // Simple case: both components have a weight of 1.0.
-        let c1 = RADec::from_degrees(10.0, 9.0);
+        let radecs = [
+            RADec::from_degrees(10.0, 9.0),
+            RADec::from_degrees(11.0, 10.0),
+        ];
         let w1 = 1.0;
-        let c2 = RADec::from_degrees(11.0, 10.0);
         let w2 = 1.0;
-        let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
+        let result = RADec::weighted_average(&radecs, &[w1, w2]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
         assert_abs_diff_eq!(
@@ -300,7 +296,7 @@ mod tests {
 
         // Complex case: both components have different weights.
         let w1 = 3.0;
-        let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
+        let result = RADec::weighted_average(&radecs, &[w1, w2]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
         assert_abs_diff_eq!(
@@ -316,18 +312,58 @@ mod tests {
     #[test]
     // This time, make the coordinates go across the 360 degree branch cut.
     fn test_weighted_pos2() {
-        let c1 = RADec::from_degrees(10.0, 9.0);
-        let w1 = 1.0;
-        let c2 = RADec::from_degrees(359.0, 10.0);
-        let w2 = 1.0;
-        let result = RADec::weighted_average(&[c1, c2], &[w1, w2]);
+        let radecs = [
+            RADec::from_degrees(60.0, 9.0),
+            RADec::from_degrees(359.0, 10.0),
+        ];
+        let result = RADec::weighted_average(&radecs, &vec![1.0; radecs.len()]);
         assert!(result.is_some());
         let weighted_pos = result.unwrap();
         assert_abs_diff_eq!(
             weighted_pos,
             RADec {
-                ra: 4.5_f64.to_radians(),
+                ra: 29.5_f64.to_radians(),
                 dec: 9.5_f64.to_radians()
+            },
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    // This time, make the coordinates go from 0 to 260.
+    fn test_weighted_pos3() {
+        let radecs = [
+            RADec::from_degrees(0.0, 10.0),
+            RADec::from_degrees(260.0, 10.0),
+        ];
+        let result = RADec::weighted_average(&radecs, &vec![1.0; radecs.len()]);
+        assert!(result.is_some());
+        let weighted_pos = result.unwrap();
+        assert_abs_diff_eq!(
+            weighted_pos,
+            RADec {
+                ra: 310.0_f64.to_radians(),
+                dec: 10.0_f64.to_radians()
+            },
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    // This time, make the coordinates go from 100 to 359.
+    fn test_weighted_pos4() {
+        let radecs = [
+            RADec::from_degrees(100.0, 10.0),
+            RADec::from_degrees(359.0, 10.0),
+        ];
+        let result = RADec::weighted_average(&radecs, &vec![1.0; radecs.len()]);
+        assert!(result.is_some());
+        let weighted_pos = result.unwrap();
+        assert_abs_diff_eq!(
+            weighted_pos,
+            RADec {
+                ra: 229.5_f64.to_radians(),
+                dec: 10.0_f64.to_radians()
             },
             epsilon = 1e-10
         );
@@ -347,6 +383,17 @@ mod tests {
     fn test_weighted_pos_empty() {
         let arr: Vec<RADec> = vec![];
         assert!(RADec::weighted_average(&arr, &[1.0]).is_none());
+    }
+
+    #[test]
+    fn test_weighted_pos_all_sky() {
+        let radecs = [
+            RADec::from_degrees(10.0, 0.0),
+            RADec::from_degrees(80.0, 0.0),
+            RADec::from_degrees(150.0, 0.0),
+            RADec::from_degrees(280.0, 0.0),
+        ];
+        assert!(RADec::weighted_average(&radecs, &vec![1.0; radecs.len()]).is_none());
     }
 
     #[test]
