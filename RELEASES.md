@@ -2,6 +2,7 @@
 
 # Version 0.9.0 (unreleased)
 
+- Add the cargo-semver-checks action to CI
 - Fix a bug in `RADec::weighted_average`
 - Speed up XYZ related code
 - Use the pure-Rust erfa crate rather than erfa-sys

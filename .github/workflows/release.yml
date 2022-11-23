@@ -44,6 +44,9 @@ jobs:
           sudo ldconfig
         fi
 
+    - name: Check semver
+      uses: obi1kenobi/cargo-semver-checks-action@v1
+
     - run: cargo package --locked
     - uses: taiki-e/create-gh-release-action@v1
       with:
