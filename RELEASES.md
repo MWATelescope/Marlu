@@ -2,6 +2,7 @@
 
 # Version 0.9.0 (unreleased)
 
+- Use mwalib v0.16.0 and fitsio v0.20.0
 - Add the cargo-semver-checks action to CI
 - Fix a bug in `RADec::weighted_average`
 - Speed up XYZ related code

@@ -58,11 +58,11 @@ tar = "0.4.15"
 thiserror = "1.0.0"
 
 # "cfitsio" feature
-fitsio = { version = "0.19.0", optional = true }
+fitsio = { version = "0.20.0", optional = true }
 fitsio-sys = { version = "0.4.0", optional = true }
 
 # "mwalib" feature
-mwalib = { version = "0.15.1", optional = true }
+mwalib = { version = "0.16.0", optional = true }
 
 # "ms" feature
 failure = { version = "0.1.5", optional = true }
