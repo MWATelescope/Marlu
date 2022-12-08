@@ -4,9 +4,6 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "ms")]
-use rubbl_casatables::CasacoreError;
-
 #[derive(Error, Debug)]
 #[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
 pub struct BadArrayShape {
@@ -31,16 +28,14 @@ pub enum MeasurementSetWriteError {
         rows_total: usize,
     },
 
-    // TODO: https://github.com/pkgw/rubbl/pull/148
-    /// From Rubbl Casacore
-    #[error("Rubbl CASACore error {inner:?}")]
-    CasacoreError { inner: CasacoreError },
+    /// An error from within rubbl's casacore
+    #[error(transparent)]
+    Casacore(#[from] rubbl_casatables::CasacoreError),
 
-    /// From Rubbl
-    #[error("Rubbl error {inner:?}")]
-    RubblError { inner: failure::Error },
+    /// An error from a CASA table
+    #[error(transparent)]
+    Table(#[from] rubbl_casatables::TableError),
 
-    /// Tried to create a directory where a file already exists
     #[error("cannot create directory, path={path} already exists and is not a directory")]
     NotADirectory { path: String },
 
@@ -53,20 +48,6 @@ pub enum MeasurementSetWriteError {
 
     #[error(transparent)]
     SystemTimeError(#[from] std::time::SystemTimeError),
-}
-
-#[cfg(feature = "ms")]
-impl From<failure::Error> for MeasurementSetWriteError {
-    fn from(inner: failure::Error) -> Self {
-        Self::RubblError { inner }
-    }
-}
-
-#[cfg(feature = "ms")]
-impl From<CasacoreError> for MeasurementSetWriteError {
-    fn from(inner: CasacoreError) -> Self {
-        Self::CasacoreError { inner }
-    }
 }
 
 #[derive(Error, Debug)]
@@ -140,15 +121,7 @@ pub enum IOError {
     #[error(transparent)]
     BadArrayShape(#[from] BadArrayShape),
 
-    /// From Rubbl
-    #[error("Rubbl error {inner:?}")]
     #[cfg(feature = "ms")]
-    RubblError { inner: failure::Error },
-}
-
-#[cfg(feature = "ms")]
-impl From<failure::Error> for IOError {
-    fn from(inner: failure::Error) -> Self {
-        Self::RubblError { inner }
-    }
+    #[error(transparent)]
+    Table(#[from] rubbl_casatables::TableError),
 }

@@ -26,7 +26,7 @@ cfitsio = ["fitsio", "fitsio-sys"]
 mwalib = ["dep:mwalib", "cfitsio"]
 
 # Provide measurement set IO code.
-ms = ["rubbl_core", "rubbl_casatables", "failure", "flate2"]
+ms = ["rubbl_casatables", "flate2"]
 
 # Provide approx traits on data types
 approx = ["dep:approx"]
@@ -61,10 +61,8 @@ fitsio-sys = { version = "0.4.0", optional = true }
 mwalib = { version = "0.16.0", optional = true }
 
 # "ms" feature
-failure = { version = "0.1.5", optional = true }
 flate2 = { version = "1.0.13", optional = true }
-rubbl_casatables = { version = "0.6.0", optional = true }
-rubbl_core = { version = "0.3.0", optional = true }
+rubbl_casatables = { version = "0.7.0", optional = true }
 
 # "approx" feature
 approx = { version = "0.5.0", features = ["num-complex"], optional = true }
@@ -74,7 +72,7 @@ serde = { version = "1.0.100", features = ["derive"], optional = true }
 
 [dev-dependencies]
 approx = { version = "0.5.0", features = ["num-complex"] }
-criterion = "0.3.0"
+criterion = "0.4.0"
 csv = "1.1.0"
 glob = "0.3.0"
 lexical = "6.0.0"
