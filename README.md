@@ -1,4 +1,5 @@
 # Marlu
+
 <div class="bg-gray-dark" align="center" style="background-color:#24292e">
 <img src="img/marlu_logo.png" alt="marlu logo" height="200px"/>
 <br/>
@@ -14,6 +15,7 @@ Convenience Rust code that handles coordinate transformations, Jones matrices,
 etc.
 
 ## Prerequisites
+
 - A Rust compiler with a version >= 1.60.0
 
   ```bash
@@ -24,6 +26,7 @@ etc.
   https://www.rust-lang.org/tools/install
 
 ### Optional prerequisites
+
 If using the `mwalib` feature (true by default):
 
 - [cfitsio](https://heasarc.gsfc.nasa.gov/docs/software/fitsio/)
@@ -35,20 +38,10 @@ If using the `mwalib` feature (true by default):
   - Use `--features=cfitsio-static` to build the library automatically. Requires
     a C compiler and `autoconf`.
 
-If using the `cuda` feature (false by default):
-
-- [CUDA](https://docs.nvidia.com/cuda/index.html#installation-guides)
-  - Ubuntu: Follow the instructions [here](https://developer.nvidia.com/cuda-downloads)
-  - Arch: `cuda`
-  - The library directory can be specified manually with `CUDA_LIB`
-  - If not specified, `CUDA_LIBRARY_PATH` and the `/opt/cuda` and
-    `/usr/local/cuda` directories are
-    [searched](https://github.com/rust-cuda/cuda-sys/blob/3a973786b3482e3fdfd783cd692fbc3c665d5c11/cuda-config/src/lib.rs#L19-L46).
-  - If `CUDA` is available, use `--features=cuda-static` to link it statically.
-
 To link a system-provided static library, use e.g. `CFITSIO_STATIC=1`. To link
 all system-provided static libraries, use `PKG_CONFIG_ALL_STATIC=1`. To build
-all C libraries and link statically, use the `all-static` feature.
+all C libraries and link statically (currently only `cfitsio`), use the
+`all-static` feature.
 
 ## Acknowledgement
 

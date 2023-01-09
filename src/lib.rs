@@ -47,9 +47,6 @@ pub use io::uvfits;
 pub use io::VisRead;
 pub use io::VisWrite;
 
-#[cfg(feature = "cuda")]
-pub mod cuda;
-
 // Re-exports.
 pub use context::{History, MwaObsContext, ObsContext, VisContext};
 pub use jones::Jones;
@@ -99,10 +96,6 @@ cfg_if::cfg_if! {
         pub use io::MeasurementSetWriter;
     }
 }
-
-// If "cuda" is enabled, re-export cuda-runtime-sys here.
-#[cfg(feature = "cuda")]
-pub use cuda_runtime_sys;
 
 #[cfg(test)]
 #[test]

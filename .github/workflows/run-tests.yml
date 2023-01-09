@@ -5,10 +5,10 @@ name: Cross-platform tests
 on:
   push:
     tags-ignore:
-      - '**'
+      - "**"
     pull_request:
     branches:
-    - '**'
+      - "**"
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,124 +22,75 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-    - name: Checkout sources
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
 
-    - name: Install stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        override: true
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
 
-    - name: Install Dependencies
-      run: |
-        # The automake included with MacOS is seemingly old. Updating it fixes
-        # some issues.
-        if [[ "$OSTYPE" != "linux-gnu"* ]]; then
-          brew install automake
-        fi
+      - name: Install Dependencies
+        run: |
+          # The automake included with MacOS is seemingly old. Updating it fixes
+          # some issues.
+          if [[ "$OSTYPE" != "linux-gnu"* ]]; then
+            brew install automake
+          fi
 
-        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-4.1.0.tar.gz" -o cfitsio.tar.gz
-        tar -xf cfitsio.tar.gz
-        rm cfitsio.tar.gz
-        cd cfitsio-*
-        ./configure --prefix=/usr/local --enable-reentrant --disable-curl
-        sudo make shared
-        sudo make install
-        cd ..
+          curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-4.1.0.tar.gz" -o cfitsio.tar.gz
+          tar -xf cfitsio.tar.gz
+          rm cfitsio.tar.gz
+          cd cfitsio-*
+          ./configure --prefix=/usr/local --enable-reentrant --disable-curl
+          sudo make shared
+          sudo make install
+          cd ..
 
-        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-          sudo ldconfig
-        fi
+          if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            sudo ldconfig
+          fi
 
-    - name: Run tests
-      run: cargo test
+      - name: Run tests
+        run: cargo test
 
-    # Can't test CUDA here, so can't use --all-features
-    - name: Run tests, all-static feature
-      run: cargo test --features=all-static
+      - name: Run tests, no default features
+        run: cargo test --no-default-features
 
-    - name: Run tests, no default features
-      run: cargo test --no-default-features
+      - name: Run tests, all features
+        run: cargo test --all-features
 
-    - name: Run tests, no default features but cfitsio
-      run: cargo test --no-default-features --features=cfitsio
+      - name: Run tests, no default features but cfitsio
+        run: cargo test --no-default-features --features=cfitsio
 
-    - name: Run tests, no default features but mwalib
-      run: cargo test --no-default-features --features=mwalib
+      - name: Run tests, no default features but mwalib
+        run: cargo test --no-default-features --features=mwalib
 
-    - name: Run tests, no default features but ms
-      run: cargo test --no-default-features --features=ms
+      - name: Run tests, no default features but ms
+        run: cargo test --no-default-features --features=ms
 
-    - name: Run tests, no default features but approx
-      run: cargo test --no-default-features --features=approx
+      - name: Run tests, no default features but approx
+        run: cargo test --no-default-features --features=approx
 
-    - name: Run tests, no default features but mwalib and ms
-      run: cargo test --no-default-features --features=mwalib,ms
+      - name: Run tests, no default features but mwalib and ms
+        run: cargo test --no-default-features --features=mwalib,ms
 
-    - name: Run tests, no default features but mwalib and approx
-      run: cargo test --no-default-features --features=mwalib,approx
+      - name: Run tests, no default features but mwalib and approx
+        run: cargo test --no-default-features --features=mwalib,approx
 
-    - name: Run tests, no default features but ms and approx
-      run: cargo test --no-default-features --features=ms,approx
+      - name: Run tests, no default features but ms and approx
+        run: cargo test --no-default-features --features=ms,approx
 
-    - name: Run tests, no default features but serde
-      run: cargo test --no-default-features --features=serde
+      - name: Run tests, no default features but serde
+        run: cargo test --no-default-features --features=serde
 
-    - name: Minimum-specified Rust version works
-      run: |
-        MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
-        ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
-        cargo +${MIN_RUST} test --no-default-features
-        # Can't test CUDA here, so can't use --all-features
-        cargo +${MIN_RUST} test --features=all-static
-
-  test_with_cuda:
-    name: Test with CUDA
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-    - name: Checkout sources
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-
-    - name: Install stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        override: true
-
-    - name: Install Dependencies
-      run: |
-        curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-4.1.0.tar.gz" -o cfitsio.tar.gz
-        tar -xf cfitsio.tar.gz
-        rm cfitsio.tar.gz
-        cd cfitsio-*
-        ./configure --prefix=/usr/local --enable-reentrant --disable-curl
-        sudo make shared
-        sudo make install
-        cd ..
-
-        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-          sudo ldconfig
-        fi
-
-    - name: Install CUDA
-      uses: Jimver/cuda-toolkit@v0.2.5
-      with:
-        cuda: '11.5.1'
-
-    # We can't test because there's no GPU on CI.
-    - name: Build with all features
-      run: cargo build --all-features
-
-    - name: Minimum-specified Rust version works
-      run: |
-        MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
-        ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
-        cargo +${MIN_RUST} build --all-features
+      - name: Minimum-specified Rust version works
+        run: |
+          MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
+          ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
+          cargo +${MIN_RUST} test --no-default-features
+          cargo +${MIN_RUST} test --all-features
