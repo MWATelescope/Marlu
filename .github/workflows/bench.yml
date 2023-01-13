@@ -1,11 +1,12 @@
 # Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
 
-on: 
+on:
   push:
     tags-ignore:
-      - '**'
+      - "**"
+    pull_request:
     branches:
-      - 'main'
+      - "**"
 
 name: Benchmarks
 
