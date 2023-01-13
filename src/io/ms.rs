@@ -1619,6 +1619,9 @@ impl MeasurementSetWriter {
     /// According to <https://casa.nrao.edu/Memos/229.html#SECTION00061000000000000000>,
     /// midpoint and centroid time are different things? It doesn't explain how, and
     /// Cotter doesn't treat them differently either.
+    /// notes:
+    /// - `time` is written to both `TIME` and `TIME_CENTROID`
+    /// - `interval` is written to both `INTERVAL` and `EXPOSURE`
     #[allow(clippy::ptr_arg)]
     #[allow(clippy::too_many_arguments)]
     pub fn write_main_row(
@@ -1633,8 +1636,6 @@ impl MeasurementSetWriter {
         // TODO: take UVW
         uvw: &Vec<f64>,
         interval: f64,
-        // TODO: is this not just interval?
-        // exposure: f64,
         processor_id: i32,
         scan_number: i32,
         state_id: i32,
@@ -1713,6 +1714,146 @@ impl MeasurementSetWriter {
 
         Ok(())
     }
+
+    /// Write multiple rows into the main table.
+    ///
+    /// Array dimensions:
+    /// - `r` number of rows
+    /// - `c` number of channels,
+    /// - `p` number of polarizations
+    ///
+    /// Fields:
+    /// - `table` - [`rubbl_casatables::Table`] object to write to.
+    /// - `idx` - first row index to write to (ensure enough rows have been added)
+    /// - `times` - an `[r]` array of Modified Julian Day, at midpoint of scan
+    /// - `time_centroids` - an `[r]` array of Modified Julian Day, at centroid of scan
+    /// - `antenna1s` - an `[r]` array of ID of first antenna in interferometer
+    /// - `antenna2s` - an `[r]` array of ID of second antenna in interferometer
+    /// - `data_desc_ids` - an `[r]` array of The data description table index
+    /// - `uvws` - an `[r, 3]` array of uvw coordinates (in meters)
+    /// - `intervals` - an `[r]` array of sampling intervals (in seconds)
+    /// - `processor_ids` - an `[r]` array of Id for backend processor, index in PROCESSOR table
+    /// - `scan_numbers` - an `[r]` array of Sequential scan number from on-line system
+    /// - `state_ids` - an `[r]` array of IDs for this observing state
+    /// - `sigmas` - an `[r, c]` ndarray of Estimated rms noise for each channel with unity bandpass response
+    /// - `data` - an `[r, c, p]` ndarray of complex visibilities, where
+    /// - `flags` - an `[r, c, p]` shaped ndarray of boolean flags.
+    /// - `weights` - an `[r, c, p]` shaped ndarray of weights for each polarization
+    ///
+    /// notes:
+    /// - `times` is written to both `TIME` and `TIME_CENTROID`
+    /// - `intervals` is written to both `INTERVAL` and `EXPOSURE`
+    #[allow(clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_main_rows(
+        &self,
+        table: &mut Table,
+        idx: u64,
+        times: &Vec<f64>,
+        // time_centroids: &Vec<f64>,
+        antennas: &Array2<i32>,
+        // antenna1s: &Vec<i32>,
+        // antenna2s: &Vec<i32>,
+        data_desc_ids: &Vec<i32>,
+        // TODO: take UVW
+        uvws: &Array2<f64>,
+        intervals: &Vec<f64>,
+        // TODO: is this not just interval?
+        // exposure: f64,
+        processor_ids: &Vec<i32>,
+        scan_numbers: &Vec<i32>,
+        state_ids: &Vec<i32>,
+        sigmas: &Array2<f32>,
+        data: &Array3<c32>,
+        flags: &Array3<bool>,
+        weights: &Array3<f32>,
+        flag_rows: &Vec<bool>,
+    ) -> Result<(), MeasurementSetWriteError> {
+        let num_pols = 4;
+
+        let num_rows = data.shape()[0];
+        let num_chans = data.shape()[1];
+
+        if times.len() != num_rows {
+            return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                argument: "times",
+                function: "write_main_rows",
+                expected: format!("{:?}", num_rows),
+                received: format!("{:?}", times.len()),
+            }))
+        }
+
+        match antennas.shape() {
+            [r, 2] if r == &num_rows => {}
+            sh => {
+                return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                    argument: "antennas",
+                    function: "write_main_rows",
+                    expected: format!("[r, 2] where r=num_rows({num_rows})"),
+                    received: format!("{:?}", sh),
+                }))
+            }
+        }
+
+        match uvws.shape() {
+            [r, 3] if r == &num_rows => {}
+            sh => {
+                return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                    argument: "uvws",
+                    function: "write_main_row",
+                    expected: format!("[r, 3] where r=num_rows({num_rows})"),
+                    received: format!("{:?}", sh),
+                }))
+            }
+        }
+        match weights.shape() {
+            [r, c, p] if r == &num_rows && c == &num_chans && p == &num_pols => {}
+            sh => {
+                return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                    argument: "weights",
+                    function: "write_main_row",
+                    expected: format!("[r, c, p] where r={num_rows}, c={num_chans}, p={num_pols}"),
+                    received: format!("{:?}", sh),
+                }))
+            }
+        }
+        match flags.shape() {
+            [r, c, p] if r == &num_rows && c == &num_chans && p == &num_pols => {}
+            sh => {
+                return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                    argument: "flags",
+                    function: "write_main_row",
+                    expected: format!("[r, c, p] where r={num_rows}, c={num_chans}, p={num_pols}"),
+                    received: format!("{:?}", sh),
+                }))
+            }
+        }
+
+        // TODO: check other dimensions
+
+        let antenna1s = antennas.column(0).to_vec();
+        let antenna2s = antennas.column(1).to_vec();
+        let weight_pol = weights.sum_axis(Axis(1));
+        table.put_cells("TIME", idx, times)?;
+        table.put_cells("TIME_CENTROID", idx, times)?;
+        table.put_cells("ANTENNA1", idx, &antenna1s)?;
+        table.put_cells("ANTENNA2", idx, &antenna2s)?;
+        table.put_cells("DATA_DESC_ID", idx, data_desc_ids)?;
+        table.put_cells("UVW", idx, uvws)?;
+        table.put_cells("INTERVAL", idx, intervals)?;
+        table.put_cells("EXPOSURE", idx, intervals)?;
+        table.put_cells("PROCESSOR_ID", idx, processor_ids)?;
+        table.put_cells("SCAN_NUMBER", idx, scan_numbers)?;
+        table.put_cells("STATE_ID", idx, state_ids)?;
+        table.put_cells("SIGMA", idx, sigmas)?;
+        table.put_cells("DATA", idx, data)?;
+        table.put_cells("WEIGHT_SPECTRUM", idx, weights)?;
+        table.put_cells("WEIGHT", idx, &weight_pol)?;
+        table.put_cells("FLAG", idx, flags)?;
+        table.put_cells("FLAG_ROW", idx, flag_rows)?;
+
+        Ok(())
+    }
 }
 
 impl VisWrite for MeasurementSetWriter {
@@ -1744,7 +1885,9 @@ impl VisWrite for MeasurementSetWriter {
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
-        let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
+        let num_sel_baselines = vis_ctx.sel_baselines.len();
+        let num_avg_rows = num_avg_timesteps * num_sel_baselines;
+        let interval = vis_ctx.avg_int_time().to_seconds();
 
         // Progress bars
         let draw_target = if draw_progress {
@@ -1775,11 +1918,21 @@ impl VisWrite for MeasurementSetWriter {
             }));
         }
 
-        let mut uvw_tmp = vec![0.; 3];
-        let sigma_tmp = vec![1.; 4];
-        let mut data_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
-        let mut weights_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
-        let mut flags_tmp = Array2::from_elem((num_avg_chans, num_vis_pols), false);
+        // arrays for writing each timestep
+        let mut times_tmp = vec![0.; num_sel_baselines];
+        let mut ants_tmp = Array2::zeros((num_sel_baselines, 2));
+        // let mut ant2s_tmp = vec![0; num_sel_baselines];
+        let data_desc_ids_tmp = vec![0; num_sel_baselines];
+        let mut uvws_tmp = Array2::zeros((num_sel_baselines, 3));
+        let intervals_tmp = vec![interval; num_sel_baselines];
+        let processor_ids_tmp = vec![-1; num_sel_baselines];
+        let scan_numbers_tmp = vec![1; num_sel_baselines];
+        let state_ids_tmp = vec![-1; num_sel_baselines];
+        let sigmas_tmp = Array2::from_elem((num_sel_baselines, num_avg_chans), 1.);
+        let mut data_tmp = Array3::zeros((num_sel_baselines, num_avg_chans, num_vis_pols));
+        let mut weights_tmp = Array3::zeros((num_sel_baselines, num_avg_chans, num_vis_pols));
+        let mut flags_tmp = Array3::from_elem((num_sel_baselines, num_avg_chans, num_vis_pols), false);
+        let mut flag_rows_tmp = vec![false; num_sel_baselines];
         let mut avg_weight: f32;
         let mut avg_flag: bool;
 
@@ -1789,6 +1942,7 @@ impl VisWrite for MeasurementSetWriter {
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.to_mjd_utc_seconds();
+            times_tmp.fill(scan_centroid_mjd_utc_s);
 
             let prec_info = precess_time(
                 self.array_pos.longitude_rad,
@@ -1800,21 +1954,37 @@ impl VisWrite for MeasurementSetWriter {
 
             let tiles_xyz_precessed = prec_info.precess_xyz(&self.antenna_positions);
 
-            for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk) in izip!(
+            data_tmp.fill(Complex::default());
+            weights_tmp.fill(0.);
+            flags_tmp.fill(false);
+
+            for (
+                &(ant1_idx, ant2_idx),
+                vis_chunk,
+                weight_chunk,
+                mut ants_tmp,
+                mut uvw_tmp,
+                mut data_tmp,
+                mut weights_tmp,
+                mut flags_tmp,
+                flag_row_tmp,
+            ) in izip!(
                 vis_ctx.sel_baselines.iter(),
                 vis_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
+                ants_tmp.axis_iter_mut(Axis(0)),
+                uvws_tmp.axis_iter_mut(Axis(0)),
+                data_tmp.axis_iter_mut(Axis(0)),
+                weights_tmp.axis_iter_mut(Axis(0)),
+                flags_tmp.axis_iter_mut(Axis(0)),
+                flag_rows_tmp.iter_mut(),
             ) {
+                ants_tmp.assign(&array![ant1_idx as i32, ant2_idx as i32]);
+
                 let baseline_xyz_precessed =
-                    tiles_xyz_precessed[*ant1_idx] - tiles_xyz_precessed[*ant2_idx];
+                    tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
-
-                // copy values into temporary arrays to avoid heap allocs.
-                uvw_tmp.clone_from_slice(&[uvw.u, uvw.v, uvw.w]);
-
-                data_tmp.fill(Complex::default());
-                weights_tmp.fill(0.);
-                flags_tmp.fill(false);
+                uvw_tmp.assign(&array![uvw.u, uvw.v, uvw.w]);
 
                 // iterate through the channel dimension of the arrays in chunks of size `avg_freq`,
                 // averaging the chunks into the tmp arrays.
@@ -1851,31 +2021,30 @@ impl VisWrite for MeasurementSetWriter {
                     flags_tmp_view.fill(avg_flag);
                 }
 
-                let flag_row = flags_tmp.iter().all(|&x| x);
-                self.write_main_row(
-                    &mut main_table,
-                    self.main_row_idx as _,
-                    scan_centroid_mjd_utc_s,
-                    scan_centroid_mjd_utc_s,
-                    *ant1_idx as _,
-                    *ant2_idx as _,
-                    0,
-                    &uvw_tmp,
-                    vis_ctx.avg_int_time().to_seconds(),
-                    -1,
-                    1,
-                    -1,
-                    &sigma_tmp,
-                    &data_tmp,
-                    &flags_tmp,
-                    &weights_tmp,
-                    flag_row,
-                )?;
-
-                self.main_row_idx += 1;
-
-                write_progress.inc(1);
+                *flag_row_tmp = flags_tmp.iter().all(|&x| x);
             }
+
+            self.write_main_rows(
+                &mut main_table,
+                self.main_row_idx as _,
+                &times_tmp,
+                &ants_tmp,
+                &data_desc_ids_tmp,
+                &uvws_tmp,
+                &intervals_tmp,
+                &processor_ids_tmp,
+                &scan_numbers_tmp,
+                &state_ids_tmp,
+                &sigmas_tmp,
+                &data_tmp,
+                &flags_tmp,
+                &weights_tmp,
+                &flag_rows_tmp,
+            )?;
+
+            self.main_row_idx += num_sel_baselines;
+
+            write_progress.inc(num_sel_baselines as _);
         }
         write_progress.finish();
         Ok(())

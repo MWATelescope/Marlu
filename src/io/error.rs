@@ -53,6 +53,9 @@ pub enum MeasurementSetWriteError {
 
     #[error(transparent)]
     SystemTimeError(#[from] std::time::SystemTimeError),
+
+    #[error(transparent)]
+    TableError(#[from] rubbl_casatables::TableError),
 }
 
 #[cfg(feature = "ms")]
@@ -144,6 +147,9 @@ pub enum IOError {
     #[error("Rubbl error {inner:?}")]
     #[cfg(feature = "ms")]
     RubblError { inner: failure::Error },
+
+    #[error(transparent)]
+    TableError(#[from] rubbl_casatables::TableError),
 }
 
 #[cfg(feature = "ms")]
