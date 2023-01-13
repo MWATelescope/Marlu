@@ -73,12 +73,12 @@ fn bench_ms_init_mwax_half_1247842824(crt: &mut Criterion) {
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
-                let ms_path = tmp_dir.path().join("1254670392.none.ms");
+                let ms_path = tmp_dir.path().join("vis.ms");
                 let ms_writer = MeasurementSetWriter::new(
                     ms_path,
                     obs_ctx.phase_centre,
                     obs_ctx.array_pos,
-                    vec![],
+                    obs_ctx.ant_positions_geodetic().collect(),
                     Duration::from_total_nanoseconds(0),
                 );
                 ms_writer
@@ -126,7 +126,7 @@ fn bench_uvfits_init_mwax_half_1247842824(crt: &mut Criterion) {
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
-                let uvfits_path = tmp_dir.path().join("1254670392.none.uvfits");
+                let uvfits_path = tmp_dir.path().join("vis.uvfits");
                 let u = UvfitsWriter::from_marlu(
                     uvfits_path,
                     &vis_ctx,
@@ -134,8 +134,8 @@ fn bench_uvfits_init_mwax_half_1247842824(crt: &mut Criterion) {
                     obs_ctx.phase_centre,
                     Duration::from_total_nanoseconds(0),
                     obs_ctx.name.as_deref(),
-                    vec![],
-                    vec![],
+                    obs_ctx.ant_names.clone(),
+                    obs_ctx.ant_positions_geodetic().collect(),
                     None,
                 )
                 .unwrap();
@@ -201,12 +201,12 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
-                let ms_path = tmp_dir.path().join("1254670392.none.ms");
+                let ms_path = tmp_dir.path().join("vis.ms");
                 let mut ms_writer = MeasurementSetWriter::new(
                     ms_path,
                     obs_ctx.phase_centre,
                     obs_ctx.array_pos,
-                    vec![],
+                    obs_ctx.ant_positions_geodetic().collect(),
                     Duration::from_total_nanoseconds(0),
                 );
                 ms_writer
@@ -256,7 +256,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
         |bch| {
             bch.iter(|| {
                 let tmp_dir = tempdir().unwrap();
-                let uvfits_path = tmp_dir.path().join("1254670392.none.uvfits");
+                let uvfits_path = tmp_dir.path().join("vis.uvfits");
                 let mut uvfits_writer = UvfitsWriter::from_marlu(
                     uvfits_path,
                     &vis_ctx,
@@ -265,7 +265,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
                     Duration::from_total_nanoseconds(0),
                     obs_ctx.name.as_deref(),
                     obs_ctx.ant_names.clone(),
-                    vec![],
+                    obs_ctx.ant_positions_geodetic().collect(),
                     None,
                 )
                 .unwrap();
