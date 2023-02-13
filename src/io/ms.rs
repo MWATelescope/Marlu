@@ -295,15 +295,7 @@ impl MeasurementSetWriter {
 
         let mut meas_info = TableRecord::new()?;
         meas_info.put_field("type", &"epoch".to_string())?;
-        meas_info.put_field(
-            "Ref",
-            &if self.dut1.to_seconds().abs() > f64::EPSILON {
-                "UT1"
-            } else {
-                "UTC"
-            }
-            .to_string(),
-        )?;
+        meas_info.put_field("Ref", &"UTC".to_string())?;
 
         obs_table.put_column_keyword("MWA_DATE_REQUESTED", "MEASINFO", &meas_info)?;
 
@@ -370,15 +362,7 @@ impl MeasurementSetWriter {
 
         let mut meas_info = TableRecord::new()?;
         meas_info.put_field("type", &"epoch".to_string())?;
-        meas_info.put_field(
-            "Ref",
-            &if self.dut1.to_seconds().abs() > f64::EPSILON {
-                "UT1"
-            } else {
-                "UTC"
-            }
-            .to_string(),
-        )?;
+        meas_info.put_field("Ref", &"UTC".to_string())?;
 
         pointing_table_desc.put_column_keyword("INTERVAL", "MEASINFO", &meas_info)?;
 
@@ -441,6 +425,17 @@ impl MeasurementSetWriter {
         Ok(())
     }
 
+    /// Write out the DUT1 value as a UT1UTC key. This is not a standard key,
+    /// but we don't know of an equivalent!
+    pub fn add_dut1_value(&self) -> Result<(), MeasurementSetWriteError> {
+        // let comment = format!("UT1 - UTC value [seconds]");
+
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
+        main_table.put_keyword::<f64>("UT1UTC", &self.dut1.to_seconds())?;
+
+        Ok(())
+    }
+
     /// Add additional columns / tables / keywords from `cotter::MWAMS::InitializeMWAFields()`
     pub fn add_mwa_mods(&self) -> Result<(), MeasurementSetWriteError> {
         self.add_mwa_ant_mods()?;
@@ -449,6 +444,7 @@ impl MeasurementSetWriter {
         self.add_mwa_spw_mods()?;
         self.add_mwa_pointing_mods()?;
         self.add_mwa_subband_mods()?;
+        self.add_dut1_value()?;
         Ok(())
     }
 
@@ -1348,19 +1344,10 @@ impl MeasurementSetWriter {
         let num_avg_rows = num_avg_timesteps * num_sel_baselines;
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
 
-        // If the DUT1 is non zero, we assume we're tracking a UT1 reference
-        // frame. Otherwise, we assume its UTC.
+        // Use a UTC reference frame.
         let mut meas_info = TableRecord::new()?;
         meas_info.put_field("type", &"epoch".to_string())?;
-        meas_info.put_field(
-            "Ref",
-            &if self.dut1.to_seconds().abs() > f64::EPSILON {
-                "UT1"
-            } else {
-                "UTC"
-            }
-            .to_string(),
-        )?;
+        meas_info.put_field("Ref", &"UTC".to_string())?;
         main_table.put_column_keyword("TIME", "MEASINFO", &meas_info)?;
         main_table.put_column_keyword("TIME_CENTROID", "MEASINFO", &meas_info)?;
 
@@ -1688,12 +1675,8 @@ impl MeasurementSetWriter {
             .map(|weights_pol_view| weights_pol_view.sum())
             .collect::<Vec<f32>>();
 
-        table.put_cell("TIME", idx, &(time + self.dut1.to_seconds()))?;
-        table.put_cell(
-            "TIME_CENTROID",
-            idx,
-            &(time_centroid + self.dut1.to_seconds()),
-        )?;
+        table.put_cell("TIME", idx, &time)?;
+        table.put_cell("TIME_CENTROID", idx, &time_centroid)?;
         table.put_cell("ANTENNA1", idx, &antenna1)?;
         table.put_cell("ANTENNA2", idx, &antenna2)?;
         table.put_cell("DATA_DESC_ID", idx, &data_desc_id)?;
@@ -2564,7 +2547,7 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::from_seconds(3.141592653),
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods().unwrap();
@@ -2608,6 +2591,15 @@ mod tests {
         let main_table_keywords = main_table.table_keyword_names().unwrap();
         assert!(main_table_keywords.contains(&"MWA_TILE_POINTING".into()));
         assert!(main_table_keywords.contains(&"MWA_SUBBAND".into()));
+
+        approx::assert_abs_diff_eq!(
+            main_table
+                .get_keyword_record()
+                .unwrap()
+                .get_field::<f64>("UT1UTC")
+                .unwrap(),
+            3.141592653
+        );
     }
 
     #[test]

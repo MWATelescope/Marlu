@@ -2,6 +2,8 @@
 
 # Version 0.9.0 (unreleased)
 
+- Change measurement sets from conditionally writing UT1 or UTC reference frames
+  to always writing UTC frames. DUT1 is reported as the UT1UTC key.
 - Fix a heap of clippy lints
 - Remove CUDA convenience code for Rust callers
 - Use mwalib v0.16.0 and fitsio v0.20.0
