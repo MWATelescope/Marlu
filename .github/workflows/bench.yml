@@ -32,7 +32,7 @@ jobs:
           cargo bench
         env:
           LD_LIBRARY_PATH: /usr/local/lib/
-          MARLU_TEST_DIR: /mnt/data
+          MARLU_TEST_DIR: /home/runner/data
 
       - name: install zip
         run: |
