@@ -1,6 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
-# Version 0.9.0 (unreleased)
+# Version 0.9.1 (2023-02-28)
+
+- `RADec::weighted_average` was incorrect and has now been fixed.
+
+# Version 0.9.0 (2023-02-17)
 
 - Change measurement sets from conditionally writing UT1 or UTC reference frames
   to always writing UTC frames. DUT1 is reported as the UT1UTC key.

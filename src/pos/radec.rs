@@ -6,7 +6,10 @@
 
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use erfa::aliases::eraSeps;
+use erfa::{
+    aliases::eraSeps,
+    transform::{cartesian_to_spherical, spherical_to_cartesian},
+};
 
 use crate::sexagesimal::{degrees_to_sexagesimal_dms, degrees_to_sexagesimal_hms};
 
@@ -91,12 +94,21 @@ impl RADec {
     }
 
     /// From a collection of [`RADec`] coordinates and weights, find the average
-    /// [`RADec`] position. The lengths of both collection must be the same to get
-    /// sensible results. Not providing any [`RADec`] coordinates will make this
-    /// function return [`None`].
+    /// [`RADec`] position. The lengths of both collection must be the same to
+    /// get sensible results. Not providing any [`RADec`] coordinates will make
+    /// this function return `None`.
     ///
     /// This function accounts for Right Ascension coordinates that range over
-    /// 360 degrees.
+    /// 360 degrees. If the right ascension coordinates span a huge range (e.g.
+    /// 0, 90, 180, 270), `None` is returned.
+    ///
+    /// The average position is found by converting the [`RADec`] coordinates
+    /// ("spherical coordinates") to cartesian coordinates (direction cosines),
+    /// performing the average, then converting the average back to spherical.
+    /// The results have been verified with `scipy.optimize` (a sample program
+    /// is provided at the bottom of this file) and online calculators. When
+    /// coordinates are widely separated, the average can appear to have strange
+    /// values due to them falling on great circles.
     pub fn weighted_average(radecs: &[Self], weights: &[f64]) -> Option<Self> {
         // Accounting for the 360 degree branch cut.
         let mut any_less_than_90 = false;
@@ -129,22 +141,29 @@ impl RADec {
             _ => 0.0,
         };
 
-        let mut ra_sum = 0.0;
-        let mut dec_sum = 0.0;
+        let mut cart_sum = [0.0; 3];
         let mut weight_sum = 0.0;
-        for (c, w) in radecs.iter().zip(weights.iter()) {
-            let ra = if c.ra > new_cutoff { c.ra - TAU } else { c.ra };
-            ra_sum += ra * w;
-            dec_sum += c.dec * w;
+        for (&RADec { ra, dec }, w) in radecs.iter().zip(weights.iter()) {
+            let ra = if ra > new_cutoff { ra - TAU } else { ra };
+
+            let cart = spherical_to_cartesian(ra, dec);
+            cart_sum[0] += cart[0] * w;
+            cart_sum[1] += cart[1] * w;
+            cart_sum[2] += cart[2] * w;
             weight_sum += w;
         }
-        let mut weighted_pos = Self::from_radians(ra_sum / weight_sum, dec_sum / weight_sum);
+
+        cart_sum[0] /= weight_sum;
+        cart_sum[1] /= weight_sum;
+        cart_sum[2] /= weight_sum;
+        let (ra_average, dec_average) = cartesian_to_spherical(cart_sum);
+        let mut average = Self::from_radians(ra_average, dec_average);
         // Keep the RA positive.
-        if weighted_pos.ra < 0.0 {
-            weighted_pos.ra += TAU;
+        if average.ra < 0.0 {
+            average.ra += TAU;
         }
 
-        Some(weighted_pos)
+        Some(average)
     }
 
     /// Get the [LMN] direction cosines from an [`RADec`] and a phase centre.
@@ -288,8 +307,8 @@ mod tests {
         assert_abs_diff_eq!(
             weighted_pos,
             RADec {
-                ra: 10.5_f64.to_radians(),
-                dec: 9.5_f64.to_radians()
+                ra: 10.49926979_f64.to_radians(),
+                dec: 9.500355150_f64.to_radians()
             },
             epsilon = 1e-10
         );
@@ -302,8 +321,8 @@ mod tests {
         assert_abs_diff_eq!(
             weighted_pos,
             RADec {
-                ra: 10.25_f64.to_radians(),
-                dec: 9.25_f64.to_radians()
+                ra: 10.24944800_f64.to_radians(),
+                dec: 9.250254459_f64.to_radians()
             },
             epsilon = 1e-10
         );
@@ -322,8 +341,8 @@ mod tests {
         assert_abs_diff_eq!(
             weighted_pos,
             RADec {
-                ra: 29.5_f64.to_radians(),
-                dec: 9.5_f64.to_radians()
+                ra: 29.54928740_f64.to_radians(),
+                dec: 10.99095249_f64.to_radians()
             },
             epsilon = 1e-10
         );
@@ -343,7 +362,7 @@ mod tests {
             weighted_pos,
             RADec {
                 ra: 310.0_f64.to_radians(),
-                dec: 10.0_f64.to_radians()
+                dec: 15.33981450_f64.to_radians()
             },
             epsilon = 1e-10
         );
@@ -362,11 +381,23 @@ mod tests {
         assert_abs_diff_eq!(
             weighted_pos,
             RADec {
-                ra: 229.5_f64.to_radians(),
-                dec: 10.0_f64.to_radians()
+                ra: 49.5_f64.to_radians(),
+                dec: 15.49388365_f64.to_radians()
             },
             epsilon = 1e-10
         );
+    }
+
+    #[test]
+    fn test_weighted_pos5() {
+        let radecs = [
+            RADec::from_degrees(0.0, 0.0),
+            RADec::from_degrees(90.0, 0.0),
+            RADec::from_degrees(180.0, 0.0),
+            RADec::from_degrees(270.0, 0.0),
+        ];
+        let result = RADec::weighted_average(&radecs, &vec![1.0; radecs.len()]);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -447,3 +478,46 @@ mod tests {
         );
     }
 }
+
+/* Sample Python program to find the average RADec from a collection of RADecs.
+
+#!/usr/bin/env python
+
+import numpy as np
+from scipy.optimize import minimize
+from astropy.coordinates import SkyCoord
+from astropy import units as u
+
+# radecs = [(0.0, 0.0), (1.0, 0.0), (0.5, 0.5)]
+# guess = (0.5, 0.25)
+
+# radecs = [(0.0, 45.0), (10.0, 45.0)]
+# guess = (0.0, 75.0)
+
+# radecs = [(6.454873596315, -26.036398659571013),
+#           (6.45640148205, -26.043503854016866),
+#           (6.4706449552650005, -26.020419803182456),
+#           (6.4869815745, -26.04649083746405)
+#           ]
+# guess = (6.45, -26.0)
+
+radecs = [(0, 10), (10, 10)]
+guess = (np.mean([radec[0] for radec in radecs]), np.mean([radec[1] for radec in radecs]))
+
+print("radecs:", radecs)
+print("guess:", guess)
+
+def objective(x0):
+    cost = 0.0
+    average = SkyCoord(ra=x0[0]*u.deg, dec=x0[1]*u.deg)
+    for radec in radecs:
+        radec = SkyCoord(ra=radec[0]*u.deg, dec=radec[1]*u.deg)
+        sep = radec.separation(average).value**2
+        cost += sep
+    return cost
+
+result = minimize(objective, guess, tol=1e-10)
+# print(result)
+print(result.x)
+
+ */
