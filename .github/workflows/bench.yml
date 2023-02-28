@@ -34,11 +34,6 @@ jobs:
           LD_LIBRARY_PATH: /usr/local/lib/
           MARLU_TEST_DIR: /home/runner/data
 
-      - name: install zip
-        run: |
-          sudo apt-get update \
-          && sudo apt-get install -y zip
-
       - name: Zip benchmark results
         run: zip -r criterion.zip target/criterion/*
 
