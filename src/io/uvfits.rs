@@ -21,11 +21,9 @@ use super::{
     VisWrite,
 };
 use crate::{
-    average_chunk_f64,
     constants::VEL_C,
     hifitime::{Duration, Epoch, Unit},
     ndarray::{ArrayView3, Axis},
-    num_complex::Complex,
     precession::{get_lmst, precess_time},
     HADec, History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
@@ -950,16 +948,13 @@ impl VisWrite for UvfitsWriter {
         let i_date1 = i_date1.expect("is set");
         let i_date2 = i_date2.expect("is set");
 
-        let mut avg_weight: f32;
-        let mut avg_flag: bool;
         let mut avg_jones: Jones<f32>;
 
         let jd_trunc = Epoch::from_jde_utc(self.start_epoch.to_jde_utc_days().floor() + 0.5);
 
-        for (avg_centroid_timestamp, jones_chunk, weight_chunk) in izip!(
+        for (avg_centroid_timestamp, jones_chunk) in izip!(
             vis_ctx.timeseries(true, true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
-            weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
             let jd_frac = avg_centroid_timestamp - jd_trunc;
             let jd_frac_f32 = jd_frac.to_unit(Unit::Day) as f32;
@@ -991,10 +986,9 @@ impl VisWrite for UvfitsWriter {
                 (self.antenna_positions.as_slice().into(), hadec)
             };
 
-            for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
+            for ((ant1_idx, ant2_idx), jones_chunk) in izip!(
                 vis_ctx.sel_baselines.iter().copied(),
                 jones_chunk.axis_iter(Axis(2)),
-                weight_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyz = tile_xyzs[ant1_idx] - tile_xyzs[ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz, hadec) / VEL_C;
@@ -1007,24 +1001,12 @@ impl VisWrite for UvfitsWriter {
                 // MWA/CASA/AOFlagger visibility order is XX,XY,YX,YY
                 // UVFits visibility order is XX,YY,XY,YX
 
-                for (jones_chunk, weight_chunk, vis_chunk) in izip!(
+                for (jones_chunk, vis_chunk) in izip!(
                     jones_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     self.buffer[num_group_params..]
                         .chunks_exact_mut(NUM_FLOATS_PER_POL * num_vis_pols),
                 ) {
-                    avg_weight = weight_chunk[[0, 0]];
                     avg_jones = jones_chunk[[0, 0]];
-
-                    if !vis_ctx.trivial_averaging() {
-                        average_chunk_f64!(
-                            jones_chunk,
-                            weight_chunk,
-                            avg_jones,
-                            avg_weight,
-                            avg_flag
-                        );
-                    }
 
                     // vis_chunk has 12 elements if num_vis_pols is 4, but, it
                     // is possible that this is 2 instead. By iterating over the
@@ -1032,20 +1014,7 @@ impl VisWrite for UvfitsWriter {
                     // polarisations for however long vis_chunk actually is.
                     vis_chunk
                         .iter_mut()
-                        .zip([
-                            avg_jones[0].re,
-                            avg_jones[0].im,
-                            avg_weight,
-                            avg_jones[3].re,
-                            avg_jones[3].im,
-                            avg_weight,
-                            avg_jones[1].re,
-                            avg_jones[1].im,
-                            avg_weight,
-                            avg_jones[2].re,
-                            avg_jones[2].im,
-                            avg_weight,
-                        ])
+                        .zip([avg_jones[0].re, avg_jones[0].im])
                         .for_each(|(vis_chunk_element, vis)| {
                             *vis_chunk_element = vis;
                         });

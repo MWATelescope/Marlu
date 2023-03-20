@@ -1639,7 +1639,7 @@ impl MeasurementSetWriter {
         weights: &Array2<f32>,
         flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
-        let num_pols = 4;
+        let num_pols = 1;
 
         if uvw.len() != 3 {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
@@ -2602,7 +2602,7 @@ mod tests {
                 .unwrap()
                 .get_field::<f64>("UT1UTC")
                 .unwrap(),
-            3.141592653
+            1.2345678
         );
     }
 
