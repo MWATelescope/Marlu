@@ -15,6 +15,7 @@ use hifitime::{Duration, Unit};
 use itertools::izip;
 use lazy_static::lazy_static;
 use log::trace;
+use ndarray::prelude::*;
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
     TableRecord,
@@ -28,7 +29,6 @@ use super::{
 use crate::{
     average_chunk_f64, c32,
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
-    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
     precession::{get_lmst, precess_time},
     HADec, History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
@@ -72,6 +72,9 @@ pub struct MeasurementSetWriter {
 
     /// Are we going to write out precessed UVWs?
     precess_uvws: bool,
+
+    /// The number of polarisations
+    pols: usize,
 }
 
 impl MeasurementSetWriter {
@@ -82,6 +85,7 @@ impl MeasurementSetWriter {
         antenna_positions: Vec<XyzGeodetic>,
         dut1: Duration,
         precess_uvws: bool,
+        pols: usize,
     ) -> Self {
         MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
@@ -91,6 +95,7 @@ impl MeasurementSetWriter {
             antenna_positions,
             dut1,
             precess_uvws,
+            pols,
         }
     }
 
@@ -135,8 +140,7 @@ impl MeasurementSetWriter {
         let comment =
             format!("added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MSWriter::initialize()");
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
-        // TODO: why isn't it let data_shape = [4, num_channels as _];
-        let data_shape = [num_channels as _, 4];
+        let data_shape = [num_channels as _, self.pols as _];
         main_table.add_array_column(
             GlueDataType::TpComplex,
             "DATA",
@@ -485,14 +489,14 @@ impl MeasurementSetWriter {
         // TODO: fix all these unwraps after https://github.com/pkgw/rubbl/pull/148
 
         match chan_info.shape() {
-            [num_chans, 4] => {
+            [num_chans, cols] if (2..=4).contains(cols) => {
                 table.put_cell("NUM_CHAN", idx, &(*num_chans as i32))?;
             }
             sh => {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
                     argument: "chan_info",
                     function: "write_spectral_window_row",
-                    expected: "[n, 4]".into(),
+                    expected: "[n, c], 2<=c<=4".into(),
                     received: format!("{sh:?}"),
                 }))
             }
@@ -520,7 +524,7 @@ impl MeasurementSetWriter {
     /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
-    /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
+    /// - `chan_info` - A two-dimensional array of shape (n, p), containing the
     ///     following for each channel:
     ///     - `CHAN_FREQ` - the center frequencies
     ///     - `CHAN_WIDTH` - channel widths,
@@ -1368,7 +1372,8 @@ impl MeasurementSetWriter {
         let mut spw_table =
             Table::open(self.path.join("SPECTRAL_WINDOW"), TableOpenMode::ReadWrite)?;
 
-        let chan_info = Array2::from_shape_fn((num_avg_chans, 4), |(c, i)| {
+        let freq_bandwidth_eff_res = 4; // no, this is not the number of pols, it's the number of columns
+        let chan_info = Array2::from_shape_fn((num_avg_chans, freq_bandwidth_eff_res), |(c, i)| {
             if i == 0 {
                 avg_fine_chan_freqs_hz[c]
             } else {
@@ -1429,15 +1434,18 @@ impl MeasurementSetWriter {
         // //////////// //
         //
         // MWA always has the following polarizations (feeds):
-        // - XX (0, 0)
-        // - XY (0, 1)
-        // - YX (1, 0)
-        // - YY (1, 1)
+        // - XX (0, 0) 9
+        // - XY (0, 1) 10
+        // - YX (1, 0) 11
+        // - YY (1, 1) 12
 
         let mut pol_table = Table::open(self.path.join("POLARIZATION"), TableOpenMode::ReadWrite)?;
 
-        let corr_product = array![[0, 0], [0, 1], [1, 0], [1, 1]];
-        let corr_type = vec![9, 10, 11, 12];
+        let (corr_product, corr_type) = match self.pols {
+            1 => (array![[0, 0]], vec![9]),
+            4 => (array![[0, 0], [0, 1], [1, 0], [1, 1]], vec![9, 10, 11, 12]),
+            _ => panic!("Unsupported number of polarizations: {}", self.pols),
+        };
         pol_table.add_rows(1)?;
 
         self.write_polarization_row(&mut pol_table, 0, &corr_type, &corr_product, false)?;
@@ -1562,6 +1570,18 @@ impl MeasurementSetWriter {
 
         feed_table.add_rows(obs_ctx.num_ants())?;
 
+        let feed_pol_response = match self.pols {
+            1 => array![
+                [c32::new(0., 0.), c32::new(0., 0.)],
+                [c32::new(0., 0.), c32::new(0., 0.)],
+            ],
+            4 => array![
+                [c32::new(1., 0.), c32::new(0., 0.)],
+                [c32::new(0., 0.), c32::new(1., 0.)]
+            ],
+            _ => panic!("Invalid number of polarizations {}", self.pols),
+        };
+
         for idx in 0..obs_ctx.num_ants() {
             self.write_feed_row(
                 &mut feed_table,
@@ -1575,10 +1595,7 @@ impl MeasurementSetWriter {
                 -1,
                 &array![[0., 0.], [0., 0.]],
                 &vec!["X".into(), "Y".into()],
-                &array![
-                    [c32::new(1., 0.), c32::new(0., 0.)],
-                    [c32::new(0., 0.), c32::new(1., 0.)]
-                ],
+                &feed_pol_response,
                 &vec![0., 0., 0.],
                 &vec![0., FRAC_PI_2],
             )?;
@@ -1639,8 +1656,6 @@ impl MeasurementSetWriter {
         weights: &Array2<f32>,
         flag_row: bool,
     ) -> Result<(), MeasurementSetWriteError> {
-        let num_pols = 1;
-
         if uvw.len() != 3 {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
                 argument: "uvw",
@@ -1650,11 +1665,11 @@ impl MeasurementSetWriter {
             }));
         }
 
-        if sigma.len() != num_pols {
+        if sigma.len() != self.pols {
             return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
                 argument: "sigma",
                 function: "write_main_row",
-                expected: format!("{num_pols}"),
+                expected: format!("{0}", self.pols),
                 received: format!("{:?}", sigma.len()),
             }));
         }
@@ -1663,15 +1678,16 @@ impl MeasurementSetWriter {
             ([d0, d1], [f0, f1], [w0, w1])
                 if d0 == f0
                     && f0 == w0
-                    && d1 == &num_pols
-                    && f1 == &num_pols
-                    && w1 == &num_pols => {}
+                    && d1 == &self.pols
+                    && f1 == &self.pols
+                    && w1 == &self.pols => {}
             (dsh, fsh, wsh) => {
                 return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
                     argument: "data|flags|weights",
                     function: "write_main_row",
                     expected: format!(
-                        "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({num_pols})"
+                        "[n, p]|[n, p]|[n, p] where n=num_chans, p=num_pols({0})",
+                        self.pols
                     ),
                     received: format!("{dsh:?}|{fsh:?}|{wsh:?}"),
                 }))
@@ -1735,6 +1751,7 @@ impl VisWrite for MeasurementSetWriter {
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
         let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
+        assert_eq!(num_vis_pols, self.pols);
 
         // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
@@ -1748,7 +1765,8 @@ impl VisWrite for MeasurementSetWriter {
         }
 
         let mut uvw_tmp = vec![0.; 3];
-        let sigma_tmp = vec![1.; 4];
+        let sigma_tmp = vec![1.; num_vis_pols];
+        let mut jones_tmp = Array2::zeros((num_avg_chans, 4));
         let mut data_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
         let mut weights_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
         let mut flags_tmp = Array2::from_elem((num_avg_chans, num_vis_pols), false);
@@ -1795,6 +1813,7 @@ impl VisWrite for MeasurementSetWriter {
                 // copy values into temporary arrays to avoid heap allocs.
                 uvw_tmp.clone_from_slice(&[uvw.u, uvw.v, uvw.w]);
 
+                jones_tmp.fill(Complex::default());
                 data_tmp.fill(Complex::default());
                 weights_tmp.fill(0.);
                 flags_tmp.fill(false);
@@ -1804,25 +1823,25 @@ impl VisWrite for MeasurementSetWriter {
                 for (
                     vis_chunk,
                     weight_chunk,
-                    mut data_tmp_view,
+                    mut jones_tmp,
                     mut weights_tmp_view,
                     mut flags_tmp_view,
                 ) in izip!(
                     vis_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    data_tmp.outer_iter_mut(),
+                    jones_tmp.outer_iter_mut(),
                     weights_tmp.outer_iter_mut(),
                     flags_tmp.outer_iter_mut()
                 ) {
                     avg_weight = weight_chunk[[0, 0]];
                     avg_flag = avg_weight.is_sign_negative();
                     if vis_ctx.trivial_averaging() {
-                        data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
+                        jones_tmp.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
                         average_chunk_f64!(
                             vis_chunk,
                             weight_chunk,
-                            data_tmp_view,
+                            jones_tmp,
                             avg_weight,
                             avg_flag
                         );
@@ -1833,6 +1852,8 @@ impl VisWrite for MeasurementSetWriter {
                     weights_tmp_view.fill(avg_weight);
                     flags_tmp_view.fill(avg_flag);
                 }
+
+                data_tmp.assign(&jones_tmp.slice(s!(.., 0..num_vis_pols)));
 
                 let flag_row = flags_tmp.iter().all(|&x| x);
                 self.write_main_row(
@@ -1932,6 +1953,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
@@ -1955,6 +1977,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         let result = ms_writer.decompress_default_tables();
         assert!(result.is_err());
@@ -1982,6 +2005,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         let result = ms_writer.decompress_default_tables();
         assert!(result.is_err());
@@ -2280,6 +2304,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
@@ -2480,6 +2505,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
@@ -2516,6 +2542,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2550,8 +2577,9 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_seconds(3.141592653),
+            Duration::from_seconds(1.2345678),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods().unwrap();
@@ -2619,6 +2647,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2688,6 +2717,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2741,6 +2771,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2780,6 +2811,7 @@ mod tests {
             vec![],
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3301,6 +3333,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3376,6 +3409,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3454,6 +3488,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3507,6 +3542,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3553,6 +3589,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3599,6 +3636,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3676,6 +3714,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3753,6 +3792,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3819,6 +3859,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3876,6 +3917,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3950,6 +3992,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4025,6 +4068,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4120,6 +4164,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4207,6 +4252,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4269,6 +4315,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4333,6 +4380,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
 
         vis_sel.timestep_range = 0..3;
@@ -4738,6 +4786,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -5026,6 +5075,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
 
         let vis_sel = VisSelection {
@@ -5129,6 +5179,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
 
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
@@ -5271,6 +5322,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
 
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
@@ -5407,6 +5459,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
@@ -5495,6 +5548,7 @@ mod tests {
             antenna_positions,
             Duration::default(),
             true,
+            4,
         );
         ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
