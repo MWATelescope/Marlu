@@ -108,6 +108,7 @@ impl MeasurementSetWriter {
         self.validate_path(&self.path)?;
         let tar = GzDecoder::new(&DEFAULT_TABLES_GZ[..]);
         let mut archive = Archive::new(tar);
+        archive.set_preserve_mtime(false);
         archive.unpack(&self.path)?;
         Ok(())
     }
@@ -117,6 +118,7 @@ impl MeasurementSetWriter {
         self.validate_path(&self.path)?;
         let tar = GzDecoder::new(&SOURCE_TABLE_GZ[..]);
         let mut archive = Archive::new(tar);
+        archive.set_preserve_mtime(false);
         let source_table_path = self.path.join("SOURCE");
         archive.unpack(&source_table_path)?;
         Ok(())

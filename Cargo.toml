@@ -42,7 +42,7 @@ all-static = ["cfitsio-static"]
 cfg-if = "1.0.0"
 erfa = "0.2.1"
 hifitime = "3.6.0"
-indicatif = { version = "0.17.0", features = ["rayon"] }
+indicatif = { version = "<=0.17.3", features = ["rayon"] } # subsequent versions have issues. see https://github.com/MWATelescope/Marlu/issues/25
 itertools = "0.10.0"
 lazy_static = "1.4.0"
 log = "0.4.14"
