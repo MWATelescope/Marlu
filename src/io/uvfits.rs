@@ -9,26 +9,24 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    average_chunk_f64,
-    constants::VEL_C,
-    hifitime::{Duration, Epoch},
-    io::error::BadArrayShape,
-    ndarray::{ArrayView3, Axis},
-    num_complex::Complex,
-    precession::precess_time,
-    History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
-};
 use erfa::{aliases::eraGst06a, constants::ERFA_DJM0};
 use fitsio::errors::check_status as fits_check_status;
 use fitsio_sys;
-use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::{izip, Itertools};
 use log::trace;
 
 use super::{
-    error::{IOError, UvfitsWriteError},
+    error::{BadArrayShape, IOError, UvfitsWriteError},
     VisWrite,
+};
+use crate::{
+    average_chunk_f64,
+    constants::VEL_C,
+    hifitime::{Duration, Epoch},
+    ndarray::{ArrayView3, Axis},
+    num_complex::Complex,
+    precession::precess_time,
+    History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
 
 /// From a `hifitime` [`Epoch`], get a formatted date string with the hours,
@@ -770,7 +768,6 @@ impl VisWrite for UvfitsWriter {
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
         vis_ctx: &VisContext,
-        draw_progress: bool,
     ) -> Result<(), IOError> {
         let sel_dims = vis_ctx.sel_dims();
         if vis.dim() != sel_dims {
@@ -794,24 +791,6 @@ impl VisWrite for UvfitsWriter {
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
         let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
-
-        // Progress bars
-        let draw_target = if draw_progress {
-            ProgressDrawTarget::stderr()
-        } else {
-            ProgressDrawTarget::hidden()
-        };
-        let write_progress =
-            indicatif::ProgressBar::with_draw_target(Some(num_avg_rows as u64), draw_target);
-        write_progress.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{msg:16}: [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent:3}% ({eta:5})",
-                )
-                .unwrap()
-                .progress_chars("=> "),
-        );
-        write_progress.set_message("write ms vis");
 
         trace!(
             "self.total_num_rows={}, self.current_num_rows={}, num_avg_rows (selected)={}",
@@ -913,11 +892,8 @@ impl VisWrite for UvfitsWriter {
                 }
 
                 Self::write_vis_row_inner(self.fptr, &mut self.current_num_rows, &mut self.buffer)?;
-                write_progress.inc(1);
             }
         }
-
-        write_progress.finish();
 
         Ok(())
     }
@@ -1872,12 +1848,7 @@ mod tests {
 
         // read visibilities out of the gpubox files
         vis_sel
-            .read_mwalib(
-                &corr_ctx,
-                jones_array.view_mut(),
-                flag_array.view_mut(),
-                false,
-            )
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
             .unwrap();
 
         weight_array
@@ -1887,7 +1858,7 @@ mod tests {
                 *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
-        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
+        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
             .unwrap();
 
         u.finalise().unwrap();
@@ -1976,12 +1947,7 @@ mod tests {
 
         // read visibilities out of the gpubox files
         vis_sel
-            .read_mwalib(
-                &corr_ctx,
-                jones_array.view_mut(),
-                flag_array.view_mut(),
-                false,
-            )
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
             .unwrap();
 
         weight_array
@@ -1991,7 +1957,7 @@ mod tests {
                 *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
-        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
+        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
             .unwrap();
 
         u.finalise().unwrap();
@@ -2086,12 +2052,7 @@ mod tests {
 
         // read visibilities out of the gpubox files
         vis_sel
-            .read_mwalib(
-                &corr_ctx,
-                jones_array.view_mut(),
-                flag_array.view_mut(),
-                false,
-            )
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
             .unwrap();
 
         weight_array
@@ -2101,7 +2062,7 @@ mod tests {
                 *w = if *f { -(*w).abs() } else { (*w).abs() };
             });
 
-        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
+        u.write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
             .unwrap();
 
         u.finalise().unwrap();

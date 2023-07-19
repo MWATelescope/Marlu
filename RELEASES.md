@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Unreleased
+
+- Remove progress bars
+- Remove mwalib-reading functions
+
 # Version 0.9.2 (2023-07-18)
 
 - update modtime when writing ms

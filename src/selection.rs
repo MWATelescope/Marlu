@@ -56,18 +56,8 @@ use thiserror::Error;
 
 use crate::{ndarray::Array3, num_traits::Zero, Jones};
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "mwalib")] {
-        use itertools::izip;
-        use log::warn;
-        use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
-        use crate::{
-            mwalib::{CorrelatorContext, MetafitsContext},
-            ndarray::{ArrayViewMut3, Axis},
-            rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
-        };
-    }
-}
+#[cfg(feature = "mwalib")]
+use mwalib::{CorrelatorContext, MetafitsContext};
 
 #[derive(Error, Debug)]
 pub enum SelectionError {
@@ -304,79 +294,20 @@ impl VisSelection {
         }
     }
 
-    /// Read the visibilities for this selection into the jones array using mwalib,
-    /// flag visiblities if they are not provided.
-    ///
-    /// # Errors
-    ///
-    /// Can raise [`SelectionError::BadArrayShape`] if `jones_array` or `flag_array` does not match the
-    /// expected shape of this selection.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use marlu::{mwalib::CorrelatorContext, VisSelection};
-    ///
-    /// // define our input files
-    /// let metafits_path = "tests/data/1297526432_mwax/1297526432.metafits";
-    /// let gpufits_paths = vec![
-    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_000.fits",
-    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch117_001.fits",
-    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_000.fits",
-    ///     "tests/data/1297526432_mwax/1297526432_20210216160014_ch118_001.fits",
-    /// ];
-    ///
-    /// // Create an mwalib::CorrelatorContext for accessing visibilities.
-    /// let corr_ctx = CorrelatorContext::new(metafits_path, &gpufits_paths).unwrap();
-    ///
-    /// // Determine which timesteps and coarse channels we want to use
-    /// let img_timestep_idxs = &corr_ctx.common_timestep_indices;
-    /// let good_timestep_idxs = &corr_ctx.common_good_timestep_indices;
-    ///
-    /// let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
-    /// vis_sel.timestep_range =
-    ///     *img_timestep_idxs.first().unwrap()..(*img_timestep_idxs.last().unwrap() + 1);
-    ///
-    /// // Create a blank array to store flags and visibilities
-    /// let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
-    /// let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
-    /// let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
-    ///
-    /// // read visibilities out of the gpubox files
-    /// vis_sel
-    ///     .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut(), false)
-    ///     .unwrap();
-    ///
-    /// let dims_common = jones_array.dim();
-    ///
-    /// // now try only with good timesteps
-    /// vis_sel.timestep_range =
-    ///     *good_timestep_idxs.first().unwrap()..(*good_timestep_idxs.last().unwrap() + 1);
-    ///
-    /// // read visibilities out of the gpubox files
-    /// let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
-    /// let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
-    /// vis_sel
-    ///     .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut(), false)
-    ///     .unwrap();
-    ///
-    /// let dims_good = jones_array.dim();
-    ///
-    /// // different selections have different sized arrays.
-    /// assert_ne!(dims_common, dims_good);
-    /// ```
-    #[cfg(feature = "mwalib")]
-    pub fn read_mwalib(
+    /// This is a legacy function only to be used for testing.
+    #[cfg(all(test, feature = "mwalib"))]
+    pub(crate) fn read_mwalib(
         &self,
         corr_ctx: &CorrelatorContext,
-        mut jones_array: ArrayViewMut3<Jones<f32>>,
-        mut flag_array: ArrayViewMut3<bool>,
-        draw_progress: bool,
+        mut jones_array: ndarray::ArrayViewMut3<Jones<f32>>,
+        mut flag_array: ndarray::ArrayViewMut3<bool>,
     ) -> Result<(), SelectionError> {
+        use itertools::izip;
+        use ndarray::prelude::*;
+        use rayon::prelude::*;
+
         let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
         let shape = self.get_shape(fine_chans_per_coarse);
-        let (num_timesteps, _, _) = shape;
-        let num_coarse_chans = self.coarse_chan_range.len();
 
         if jones_array.dim() != shape {
             return Err(SelectionError::BadArrayShape {
@@ -409,121 +340,65 @@ impl VisSelection {
         let floats_per_baseline = floats_per_chan * fine_chans_per_coarse;
         let floats_per_hdu = floats_per_baseline * corr_ctx.metafits_context.num_baselines;
 
-        // Progress bar draw target
-        let draw_target = if draw_progress {
-            ProgressDrawTarget::stderr()
-        } else {
-            ProgressDrawTarget::hidden()
-        };
-        // a progress bar containing the progress bars associated with this method
-        let multi_progress = MultiProgress::with_draw_target(draw_target);
-        // a vector of progress bars for the visibility reading progress of each channel.
-        let read_progress: Vec<ProgressBar> = self
-            .coarse_chan_range
-            .clone()
-            .map(|mwalib_coarse_chan_idx| {
-                let channel_progress = multi_progress.add(
-                    ProgressBar::new(num_timesteps as _)
-                        .with_style(
-                            ProgressStyle::default_bar()
-                                .template("{msg:16}: [{wide_bar:.blue}] {pos:4}/{len:4}")
-                                .unwrap()
-                                .progress_chars("=> "),
-                        )
-                        .with_position(0)
-                        .with_message(format!("coarse_chan {mwalib_coarse_chan_idx:03}")),
-                );
-                channel_progress.set_position(0);
-                channel_progress
-            })
-            .collect();
-        // The total reading progress bar.
-        let total_progress = multi_progress.add(
-            ProgressBar::new((num_timesteps * num_coarse_chans) as _)
-                .with_style(
-                    ProgressStyle::default_bar()
-                        .template(
-                            "{msg:16}: [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent:3}% ({eta:5})",
-                        )
-                        .unwrap()
-                        .progress_chars("=> "),
-                )
-                .with_position(0)
-                .with_message("loading hdus"),
-        );
-
         // Load HDUs from each coarse channel. arrays: [timestep][chan][baseline]
         jones_array
             .axis_chunks_iter_mut(Axis(1), fine_chans_per_coarse)
             .into_par_iter()
             .zip(flag_array.axis_chunks_iter_mut(Axis(1), fine_chans_per_coarse))
             .zip(self.coarse_chan_range.clone())
-            .zip(read_progress)
-            .try_for_each(
-                |(((mut jones_array, mut flag_array), coarse_chan_idx), progress)| {
-                    progress.set_position(0);
+            .try_for_each(|((mut jones_array, mut flag_array), coarse_chan_idx)| {
+                // buffer: [baseline][chan][pol][complex]
+                let mut hdu_buffer: Vec<f32> = vec![0.0; floats_per_hdu];
 
-                    // buffer: [baseline][chan][pol][complex]
-                    let mut hdu_buffer: Vec<f32> = vec![0.0; floats_per_hdu];
-
-                    // arrays: [chan][baseline]
-                    for (mut jones_array, mut flag_array, timestep_idx) in izip!(
-                        jones_array.outer_iter_mut(),
-                        flag_array.outer_iter_mut(),
-                        self.timestep_range.clone(),
+                // arrays: [chan][baseline]
+                for (mut jones_array, mut flag_array, timestep_idx) in izip!(
+                    jones_array.outer_iter_mut(),
+                    flag_array.outer_iter_mut(),
+                    self.timestep_range.clone(),
+                ) {
+                    match corr_ctx.read_by_baseline_into_buffer(
+                        timestep_idx,
+                        coarse_chan_idx,
+                        hdu_buffer.as_mut_slice(),
                     ) {
-                        match corr_ctx.read_by_baseline_into_buffer(
-                            timestep_idx,
-                            coarse_chan_idx,
-                            hdu_buffer.as_mut_slice(),
-                        ) {
-                            Ok(()) => {
-                                // arrays: [chan]
-                                for (mut jones_array, baseline_idx) in izip!(
-                                    jones_array.axis_iter_mut(Axis(1)),
-                                    self.baseline_idxs.iter()
+                        Ok(()) => {
+                            // arrays: [chan]
+                            for (mut jones_array, baseline_idx) in izip!(
+                                jones_array.axis_iter_mut(Axis(1)),
+                                self.baseline_idxs.iter()
+                            ) {
+                                // buffer: [chan][pol][complex]
+                                let hdu_baseline_chunk = &hdu_buffer
+                                    [baseline_idx * floats_per_baseline..][..floats_per_baseline];
+                                for (jones, hdu_chan_chunk) in izip!(
+                                    jones_array.iter_mut(),
+                                    hdu_baseline_chunk.chunks_exact(floats_per_chan)
                                 ) {
-                                    // buffer: [chan][pol][complex]
-                                    let hdu_baseline_chunk = &hdu_buffer
-                                        [baseline_idx * floats_per_baseline..]
-                                        [..floats_per_baseline];
-                                    for (jones, hdu_chan_chunk) in izip!(
-                                        jones_array.iter_mut(),
-                                        hdu_baseline_chunk.chunks_exact(floats_per_chan)
-                                    ) {
-                                        *jones = Jones::from([
-                                            hdu_chan_chunk[0],
-                                            hdu_chan_chunk[1],
-                                            hdu_chan_chunk[2],
-                                            hdu_chan_chunk[3],
-                                            hdu_chan_chunk[4],
-                                            hdu_chan_chunk[5],
-                                            hdu_chan_chunk[6],
-                                            hdu_chan_chunk[7],
-                                        ]);
-                                    }
+                                    *jones = Jones::from([
+                                        hdu_chan_chunk[0],
+                                        hdu_chan_chunk[1],
+                                        hdu_chan_chunk[2],
+                                        hdu_chan_chunk[3],
+                                        hdu_chan_chunk[4],
+                                        hdu_chan_chunk[5],
+                                        hdu_chan_chunk[6],
+                                        hdu_chan_chunk[7],
+                                    ]);
                                 }
                             }
-                            Err(mwalib::GpuboxError::NoDataForTimeStepCoarseChannel { .. }) => {
-                                warn!(
-                                    "Flagging missing HDU @ ts={}, cc={}",
-                                    timestep_idx, coarse_chan_idx
-                                );
-                                flag_array.fill(true);
-                            }
-                            Err(e) => return Err(e),
                         }
-
-                        progress.inc(1);
-                        total_progress.inc(1);
+                        Err(mwalib::GpuboxError::NoDataForTimeStepCoarseChannel { .. }) => {
+                            eprintln!(
+                                "Flagging missing HDU @ ts={}, cc={}",
+                                timestep_idx, coarse_chan_idx
+                            );
+                            flag_array.fill(true);
+                        }
+                        Err(e) => return Err(e),
                     }
-                    progress.finish();
-                    Ok(())
-                },
-            )?;
-
-        // We're done!
-        total_progress.finish();
+                }
+                Ok(())
+            })?;
 
         Ok(())
     }
@@ -598,12 +473,7 @@ mod tests {
         let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         // read visibilities out of the gpubox files
         vis_sel
-            .read_mwalib(
-                &corr_ctx,
-                jones_array.view_mut(),
-                flag_array.view_mut(),
-                false,
-            )
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
             .unwrap();
 
         // ts 0, chan 0, baseline 0
@@ -689,12 +559,7 @@ mod tests {
         let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         // read visibilities out of the gpubox files
         vis_sel
-            .read_mwalib(
-                &corr_ctx,
-                jones_array.view_mut(),
-                flag_array.view_mut(),
-                false,
-            )
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
             .unwrap();
 
         // ts 0, chan 0, baseline 0
@@ -786,12 +651,7 @@ mod tests {
         let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         // read visibilities out of the gpubox files
         vis_sel
-            .read_mwalib(
-                &corr_ctx,
-                jones_array.view_mut(),
-                flag_array.view_mut(),
-                false,
-            )
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
             .unwrap();
 
         // ts 0, chan 0, baseline 0

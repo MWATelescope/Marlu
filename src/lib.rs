@@ -43,8 +43,6 @@ pub mod io;
 pub use io::ms;
 #[cfg(feature = "cfitsio")]
 pub use io::uvfits;
-#[cfg(feature = "mwalib")]
-pub use io::VisRead;
 pub use io::VisWrite;
 
 // Re-exports.

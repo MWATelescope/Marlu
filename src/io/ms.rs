@@ -11,7 +11,6 @@ use std::{
 
 use flate2::read::GzDecoder;
 use hifitime::{Duration, Unit};
-use indicatif::{ProgressDrawTarget, ProgressStyle};
 use itertools::izip;
 use lazy_static::lazy_static;
 use log::trace;
@@ -1706,7 +1705,6 @@ impl VisWrite for MeasurementSetWriter {
         vis: ArrayView3<Jones<f32>>,
         weights: ArrayView3<f32>,
         vis_ctx: &VisContext,
-        draw_progress: bool,
     ) -> Result<(), IOError> {
         let sel_dims = vis_ctx.sel_dims();
         if vis.dim() != sel_dims {
@@ -1730,24 +1728,6 @@ impl VisWrite for MeasurementSetWriter {
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
         let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
-
-        // Progress bars
-        let draw_target = if draw_progress {
-            ProgressDrawTarget::stderr()
-        } else {
-            ProgressDrawTarget::hidden()
-        };
-        let write_progress =
-            indicatif::ProgressBar::with_draw_target(Some(num_avg_rows as u64), draw_target);
-        write_progress.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{msg:16}: [{elapsed_precise}] [{wide_bar:.cyan/blue}] {percent:3}% ({eta:5})",
-                )
-                .unwrap()
-                .progress_chars("=> "),
-        );
-        write_progress.set_message("write ms vis");
 
         // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
@@ -1858,11 +1838,8 @@ impl VisWrite for MeasurementSetWriter {
                 )?;
 
                 self.main_row_idx += 1;
-
-                write_progress.inc(1);
             }
         }
-        write_progress.finish();
         Ok(())
     }
 
@@ -5051,7 +5028,7 @@ mod tests {
         let weight_array = encode_flags(weight_array.view(), flag_array.view());
 
         ms_writer
-            .write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
+            .write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
             .unwrap();
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
@@ -5188,7 +5165,7 @@ mod tests {
 
         let weights = encode_flags(weight_array.view(), flag_array.view());
         ms_writer
-            .write_vis(jones_array.view(), weights.view(), &vis_ctx, false)
+            .write_vis(jones_array.view(), weights.view(), &vis_ctx)
             .unwrap();
 
         for (table_name, col_names) in REPRODUCIBLE_TABLE_COLNAMES {
@@ -5305,7 +5282,6 @@ mod tests {
                     jones_array_chunk.view(),
                     weight_array_chunk.view(),
                     &vis_ctx,
-                    false,
                 )
                 .unwrap();
         }
@@ -5389,12 +5365,7 @@ mod tests {
 
         // make sure it works normally first
         assert!(matches!(
-            ms_writer.write_vis(
-                good_jones_array.view(),
-                good_weight_array.view(),
-                &vis_ctx,
-                false,
-            ),
+            ms_writer.write_vis(good_jones_array.view(), good_weight_array.view(), &vis_ctx),
             Ok(..)
         ));
 
@@ -5408,22 +5379,12 @@ mod tests {
         let bad_weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
         assert!(matches!(
-            ms_writer.write_vis(
-                bad_jones_array.view(),
-                good_weight_array.view(),
-                &vis_ctx,
-                false,
-            ),
+            ms_writer.write_vis(bad_jones_array.view(), good_weight_array.view(), &vis_ctx),
             Err(IOError::BadArrayShape { .. })
         ));
 
         assert!(matches!(
-            ms_writer.write_vis(
-                good_jones_array.view(),
-                bad_weight_array.view(),
-                &vis_ctx,
-                false,
-            ),
+            ms_writer.write_vis(good_jones_array.view(), bad_weight_array.view(), &vis_ctx),
             Err(IOError::BadArrayShape { .. })
         ));
     }
@@ -5494,7 +5455,7 @@ mod tests {
         let weight_array = vis_sel.allocate_weights(fine_chans_per_coarse).unwrap();
 
         assert!(matches!(
-            ms_writer.write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false,),
+            ms_writer.write_vis(jones_array.view(), weight_array.view(), &vis_ctx),
             Err(IOError::MeasurementSetWriteError(MeasurementSetFull { .. }))
         ));
     }

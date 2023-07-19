@@ -219,7 +219,7 @@ fn bench_ms_write_mwax_part_1247842824(crt: &mut Criterion) {
                     )
                     .unwrap();
                 ms_writer
-                    .write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
+                    .write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
                     .unwrap();
             })
         },
@@ -270,7 +270,7 @@ fn bench_uvfits_write_mwax_part_1247842824(crt: &mut Criterion) {
                 )
                 .unwrap();
                 uvfits_writer
-                    .write_vis(jones_array.view(), weight_array.view(), &vis_ctx, false)
+                    .write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
                     .unwrap();
                 uvfits_writer.close().unwrap();
             })
