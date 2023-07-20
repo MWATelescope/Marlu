@@ -234,7 +234,7 @@ pub struct VisContext {
     pub num_sel_timesteps: usize,
     /// The timestamp at the start of the first selected pre-averaging timestep
     pub start_timestamp: Epoch,
-    /// Duration between each pre-averaging timestep [milliseconds]
+    /// Duration between each pre-averaging timestep
     pub int_time: Duration,
     /// The number of selected channels (Axis 1) in the accompanying visibility and weight ndarrays.
     pub num_sel_chans: usize,

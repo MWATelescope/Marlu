@@ -22,12 +22,15 @@ use super::{
 use crate::{
     average_chunk_f64,
     constants::VEL_C,
-    hifitime::{Duration, Epoch},
+    hifitime::{Duration, Epoch, Unit},
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
     precession::precess_time,
     History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
+
+const NUM_FLOATS_PER_POL: usize = 3;
+const GROUP_PARAMS: [&str; 7] = ["UU", "VV", "WW", "BASELINE", "DATE", "DATE", "INTTIM"];
 
 /// From a `hifitime` [`Epoch`], get a formatted date string with the hours,
 /// minutes and seconds set to 0.
@@ -138,6 +141,9 @@ pub struct UvfitsWriter {
     /// timesteps being written; this is pretty sensible, because the value
     /// should change very slowly (a few milliseconds over ~5 days?).
     dut1: Duration,
+
+    /// The time resolution \[seconds\].
+    time_res: Option<f64>,
 }
 
 impl UvfitsWriter {
@@ -161,6 +167,10 @@ impl UvfitsWriter {
     /// let first_gps_time = 1196175296.0;
     /// let start_epoch = Epoch::from_gpst_seconds(first_gps_time);
     /// ```
+    ///
+    /// `time_resolution` is an optional [`hifitime::Duration`] that specifies
+    /// the time resolution of *all* incoming visibilities. If specified, it is
+    /// used as the `INTTIM` group parameter, otherwise no `INTTIM` is written.
     ///
     /// `centre_freq_hz` is center frequency of the center fine channel of the
     /// spectral window being written to this file. \[Hz\]
@@ -189,6 +199,7 @@ impl UvfitsWriter {
         num_baselines: usize,
         num_chans: usize,
         start_epoch: Epoch,
+        time_resolution: Option<Duration>,
         fine_chan_width_hz: f64,
         centre_freq_hz: f64,
         centre_freq_chan: usize,
@@ -223,8 +234,8 @@ impl UvfitsWriter {
         fits_check_status(status)?;
 
         // Initialise the group header. Copied from cotter. -32 means FLOAT_IMG.
-        let mut naxes = [0, 3, 4, num_chans as i64, 1, 1];
-        let num_group_params = 5;
+        let num_group_params = GROUP_PARAMS.len() - if time_resolution.is_some() { 0 } else { 1 };
+        let mut naxes = [0, NUM_FLOATS_PER_POL as i64, 4, num_chans as i64, 1, 1];
         let total_num_rows = num_timesteps * num_baselines;
         assert!(
             total_num_rows > 0,
@@ -234,15 +245,15 @@ impl UvfitsWriter {
         unsafe {
             // ffphpr = fits_write_grphdr
             fitsio_sys::ffphpr(
-                fptr,                  /* I - FITS file pointer                        */
-                1,                     /* I - does file conform to FITS standard? 1/0  */
-                -32,                   /* I - number of bits per data value pixel      */
-                naxes.len() as _,      /* I - number of axes in the data array         */
-                naxes.as_mut_ptr(),    /* I - length of each data axis                 */
-                num_group_params,      /* I - number of group parameters (usually 0)   */
-                total_num_rows as i64, /* I - number of random groups (usually 1 or 0) */
-                1,                     /* I - may FITS file have extensions?           */
-                &mut status,           /* IO - error status                            */
+                fptr,                    /* I - FITS file pointer                        */
+                1,                       /* I - does file conform to FITS standard? 1/0  */
+                -32,                     /* I - number of bits per data value pixel      */
+                naxes.len() as _,        /* I - number of axes in the data array         */
+                naxes.as_mut_ptr(),      /* I - length of each data axis                 */
+                num_group_params as i64, /* I - number of group parameters (usually 0)   */
+                total_num_rows as i64,   /* I - number of random groups (usually 1 or 0) */
+                1,                       /* I - may FITS file have extensions?           */
+                &mut status,             /* IO - error status                            */
             );
         }
         fits_check_status(status)?;
@@ -250,20 +261,39 @@ impl UvfitsWriter {
         fits_write_double(fptr, "BSCALE", 1.0, None)?;
 
         // Set header names and scales.
-        for (i, &param) in ["UU", "VV", "WW", "BASELINE", "DATE"].iter().enumerate() {
-            let ii = i + 1;
-            fits_write_string(fptr, &format!("PTYPE{ii}"), param, None)?;
-            fits_write_double(fptr, &format!("PSCAL{ii}"), 1.0, None)?;
-            if param == "DATE" {
-                // Set the zero level for the DATE column.
-                fits_write_double(
-                    fptr,
-                    &format!("PZERO{ii}"),
-                    start_epoch.to_jde_utc_days().floor() + 0.5,
-                    None,
-                )?;
-            } else {
-                fits_write_double(fptr, &format!("PZERO{ii}"), 0.0, None)?;
+        let mut pzero_date_set = false;
+        for (i, &param) in GROUP_PARAMS.iter().enumerate() {
+            let i = i + 1;
+            match param {
+                "DATE" => {
+                    fits_write_string(fptr, &format!("PTYPE{i}"), param, None)?;
+                    fits_write_double(fptr, &format!("PSCAL{i}"), 1.0, None)?;
+                    // Don't set the PZERO for the second date.
+                    if pzero_date_set {
+                        fits_write_double(fptr, &format!("PZERO{i}"), 0.0, None)?;
+                    } else {
+                        // Set the zero level for the DATE column.
+                        fits_write_double(
+                            fptr,
+                            &format!("PZERO{i}"),
+                            start_epoch.to_jde_utc_days().floor() + 0.5,
+                            None,
+                        )?;
+                        pzero_date_set = true;
+                    }
+                }
+                "INTTIM" => {
+                    if time_resolution.is_some() {
+                        fits_write_string(fptr, &format!("PTYPE{i}"), param, None)?;
+                        fits_write_double(fptr, &format!("PSCAL{i}"), 1.0, None)?;
+                        fits_write_double(fptr, &format!("PZERO{i}"), 0.0, None)?;
+                    }
+                }
+                _ => {
+                    fits_write_string(fptr, &format!("PTYPE{i}"), param, None)?;
+                    fits_write_double(fptr, &format!("PSCAL{i}"), 1.0, None)?;
+                    fits_write_double(fptr, &format!("PZERO{i}"), 0.0, None)?;
+                }
             }
         }
         fits_write_string(
@@ -352,6 +382,7 @@ impl UvfitsWriter {
             antenna_names,
             antenna_positions,
             dut1,
+            time_res: time_resolution.map(|r| r.to_seconds()),
         })
     }
 
@@ -377,6 +408,7 @@ impl UvfitsWriter {
             vis_ctx.sel_baselines.len(),
             vis_ctx.num_avg_chans(),
             vis_ctx.start_timestamp,
+            Some(vis_ctx.avg_int_time()),
             vis_ctx.avg_freq_resolution_hz(),
             avg_centre_freq_hz,
             avg_centre_chan,
@@ -686,8 +718,7 @@ impl UvfitsWriter {
     ///
     /// Will return an [`UvfitsWriteError`] if a fits operation fails.
     ///
-    /// TODO: Assumes that all fine channels are written in `vis`. This needs to
-    /// be updated to add visibilities to an existing uvfits row.
+    /// TODO: Remove this function.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     #[cfg(all(test, feature = "mwalib"))]
@@ -706,16 +737,69 @@ impl UvfitsWriter {
             });
         }
 
-        let jd_trunc = self.start_epoch.to_jde_utc_days().floor() + 0.5;
-        let jd_frac = epoch.to_jde_utc_days() - jd_trunc;
+        // Ensure our buffer can hold all the group params.
+        let num_group_params = GROUP_PARAMS.len() - if self.time_res.is_some() { 0 } else { 1 };
+        self.buffer.resize(num_group_params, 0.0);
+        // Get the group param indices.
+        let mut i_u = None;
+        let mut i_v = None;
+        let mut i_w = None;
+        let mut i_baseline = None;
+        let mut i_date1 = None;
+        let mut i_date2 = None;
+        let mut seen_inttim = false;
+        for (i, &param) in GROUP_PARAMS.iter().enumerate() {
+            if param == "INTTIM" {
+                seen_inttim = true;
+                if let Some(time_res) = self.time_res {
+                    // This only needs to be set once, as it's constant.
+                    self.buffer[i] = time_res as f32;
+                }
+            } else {
+                let i = if seen_inttim && self.time_res.is_none() {
+                    i - 1
+                } else {
+                    i
+                };
+                match param {
+                    "UU" => i_u = Some(i),
+                    "VV" => i_v = Some(i),
+                    "WW" => i_w = Some(i),
+                    "BASELINE" => i_baseline = Some(i),
+                    "DATE" => {
+                        if i_date1.is_none() {
+                            i_date1 = Some(i);
+                        } else {
+                            i_date2 = Some(i);
+                        }
+                    }
+                    other => panic!("Tried to match against unexpected group param '{other}'"),
+                }
+                // Signal to the compiler that all these indices fit in the
+                // buffer.
+                assert!(self.buffer.len() >= i);
+            }
+        }
+        let i_u = i_u.expect("is set");
+        let i_v = i_v.expect("is set");
+        let i_w = i_w.expect("is set");
+        let i_baseline = i_baseline.expect("is set");
+        let i_date1 = i_date1.expect("is set");
+        let i_date2 = i_date2.expect("is set");
 
-        self.buffer.extend_from_slice(&[
-            (uvw.u / VEL_C) as f32,
-            (uvw.v / VEL_C) as f32,
-            (uvw.w / VEL_C) as f32,
-            encode_uvfits_baseline(tile_index1 + 1, tile_index2 + 1) as f32,
-            jd_frac as f32,
-        ]);
+        let jd_trunc = Epoch::from_jde_utc(self.start_epoch.to_jde_utc_days().floor() + 0.5);
+        let jd_frac = epoch - jd_trunc;
+        let jd_frac_f32 = jd_frac.to_unit(Unit::Day) as f32;
+        let jd_remainder_f32 =
+            (jd_frac - Duration::from_days(jd_frac_f32 as f64)).to_unit(Unit::Day) as f32;
+
+        self.buffer[i_u] = uvw.u as f32;
+        self.buffer[i_v] = uvw.v as f32;
+        self.buffer[i_w] = uvw.w as f32;
+        self.buffer[i_baseline] = encode_uvfits_baseline(tile_index1 + 1, tile_index2 + 1) as f32;
+        self.buffer[i_date1] = jd_frac_f32;
+        self.buffer[i_date2] = jd_remainder_f32;
+
         self.buffer.extend_from_slice(vis);
 
         Self::write_vis_row_inner(self.fptr, &mut self.current_num_rows, &mut self.buffer)?;
@@ -806,20 +890,77 @@ impl VisWrite for UvfitsWriter {
 
         // Ensure our buffer is the correct size. Reusing the buffer means we
         // avoid a heap allocation every time this function is called.
-        self.buffer
-            .resize(5 + 3 * num_vis_pols * num_avg_chans, 0.0);
+        let num_group_params = GROUP_PARAMS.len() - if self.time_res.is_some() { 0 } else { 1 };
+        self.buffer.resize(
+            num_group_params + NUM_FLOATS_PER_POL * num_vis_pols * num_avg_chans,
+            0.0,
+        );
+        // Get the group param indices.
+        let mut i_u = None;
+        let mut i_v = None;
+        let mut i_w = None;
+        let mut i_baseline = None;
+        let mut i_date1 = None;
+        let mut i_date2 = None;
+        let mut seen_inttim = false;
+        for (i, &param) in GROUP_PARAMS.iter().enumerate() {
+            if param == "INTTIM" {
+                seen_inttim = true;
+                if let Some(time_res) = self.time_res {
+                    // This only needs to be set once, as it's constant.
+                    self.buffer[i] = time_res as f32;
+                }
+            } else {
+                let i = if seen_inttim && self.time_res.is_none() {
+                    i - 1
+                } else {
+                    i
+                };
+                match param {
+                    "UU" => i_u = Some(i),
+                    "VV" => i_v = Some(i),
+                    "WW" => i_w = Some(i),
+                    "BASELINE" => i_baseline = Some(i),
+                    "DATE" => {
+                        if i_date1.is_none() {
+                            i_date1 = Some(i);
+                        } else {
+                            i_date2 = Some(i);
+                        }
+                    }
+                    other => panic!("Tried to match against unexpected group param '{other}'"),
+                }
+                // Signal to the compiler that all these indices fit in the
+                // buffer.
+                assert!(self.buffer.len() >= i);
+            }
+        }
+        let i_u = i_u.expect("is set");
+        let i_v = i_v.expect("is set");
+        let i_w = i_w.expect("is set");
+        let i_baseline = i_baseline.expect("is set");
+        let i_date1 = i_date1.expect("is set");
+        let i_date2 = i_date2.expect("is set");
+
         let mut avg_weight: f32;
         let mut avg_flag: bool;
         let mut avg_jones: Jones<f32>;
 
-        let jd_trunc = self.start_epoch.to_jde_utc_days().floor() + 0.5;
+        let jd_trunc = Epoch::from_jde_utc(self.start_epoch.to_jde_utc_days().floor() + 0.5);
 
         for (avg_centroid_timestamp, jones_chunk, weight_chunk) in izip!(
             vis_ctx.timeseries(true, true),
             vis.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
             weights.axis_chunks_iter(Axis(0), vis_ctx.avg_time),
         ) {
-            let jd_frac = (avg_centroid_timestamp.to_jde_utc_days() - jd_trunc) as f32;
+            let jd_frac = avg_centroid_timestamp - jd_trunc;
+            let jd_frac_f32 = jd_frac.to_unit(Unit::Day) as f32;
+            let jd_remainder_f32 =
+                (jd_frac - Duration::from_days(jd_frac_f32 as f64)).to_unit(Unit::Day) as f32;
+            // These only need to be set once per timestep.
+            self.buffer[i_date1] = jd_frac_f32;
+            self.buffer[i_date2] = jd_remainder_f32;
+
             let prec_info = precess_time(
                 self.array_pos.longitude_rad,
                 self.array_pos.latitude_rad,
@@ -827,7 +968,6 @@ impl VisWrite for UvfitsWriter {
                 avg_centroid_timestamp,
                 self.dut1,
             );
-
             let tiles_xyz_precessed = prec_info.precess_xyz(&self.antenna_positions);
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
@@ -839,11 +979,10 @@ impl VisWrite for UvfitsWriter {
                     tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000) / VEL_C;
 
-                self.buffer[0] = uvw.u as f32;
-                self.buffer[1] = uvw.v as f32;
-                self.buffer[2] = uvw.w as f32;
-                self.buffer[3] = encode_uvfits_baseline(ant1_idx + 1, ant2_idx + 1) as f32;
-                self.buffer[4] = jd_frac;
+                self.buffer[i_u] = uvw.u as f32;
+                self.buffer[i_v] = uvw.v as f32;
+                self.buffer[i_w] = uvw.w as f32;
+                self.buffer[i_baseline] = encode_uvfits_baseline(ant1_idx + 1, ant2_idx + 1) as f32;
 
                 // MWA/CASA/AOFlagger visibility order is XX,XY,YX,YY
                 // UVFits visibility order is XX,YY,XY,YX
@@ -851,7 +990,8 @@ impl VisWrite for UvfitsWriter {
                 for (jones_chunk, weight_chunk, vis_chunk) in izip!(
                     jones_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    self.buffer[5..].chunks_exact_mut(3 * num_vis_pols),
+                    self.buffer[num_group_params..]
+                        .chunks_exact_mut(NUM_FLOATS_PER_POL * num_vis_pols),
                 ) {
                     avg_weight = weight_chunk[[0, 0]];
                     avg_jones = jones_chunk[[0, 0]];
@@ -1260,11 +1400,11 @@ mod tests {
 
         assert_short_string_keys_eq!(
             vec![
-                "SIMPLE", "EXTEND", "GROUPS", "PCOUNT", "GCOUNT", "PTYPE1", "PTYPE2", "PTYPE3",
-                "PTYPE4", "PTYPE5", "CTYPE2", "CTYPE3", "CTYPE4", "CTYPE5", "CTYPE6", "TELESCOP",
-                "INSTRUME",
+                "SIMPLE", "EXTEND", "GROUPS", "GCOUNT", "PTYPE1", "PTYPE2", "PTYPE3", "PTYPE4",
+                "PTYPE5", "CTYPE2", "CTYPE3", "CTYPE4", "CTYPE5", "CTYPE6", "TELESCOP", "INSTRUME",
                 "DATE-OBS",
                 // WONTFIX:
+                // "PCOUNT" // We use 2 DATEs, cotter uses 1
                 // "METAVER",
                 // "COTVER"
                 // "MWAPYVER",
@@ -1318,10 +1458,11 @@ mod tests {
 
         assert_f32_string_keys_eq!(
             vec![
-                "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "PCOUNT", "GCOUNT", "TFIELDS", //
+                "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "GCOUNT", "TFIELDS", //
                 "ARRAYX", "ARRAYY", "ARRAYZ",
                 // "FREQ", // This is incorrect in Cotter. See: https://github.com/MWATelescope/Birli/issues/6
                 // "GSTIA0", // TODO: this is off from Cotter by about 5e-2
+                // "PCOUNT" // We use 2 DATEs, cotter uses 1
                 "DEGPDY", "POLARX", "POLARY", "UT1UTC", "DATUTC", "NUMORB", "NOPCAL", "FREQID",
                 "IATUTC",
             ],
@@ -1744,6 +1885,7 @@ mod tests {
             num_baselines,
             num_chans,
             start_epoch,
+            None,
             40e3,
             170e6,
             3,
@@ -2371,5 +2513,163 @@ mod tests {
 
         assert_eq!(first_birli_comment, first_cotter_comment);
         assert_eq!(second_birli_comment, second_cotter_comment);
+    }
+
+    #[test]
+    fn test_new_uvfits_with_and_without_inttim() {
+        let tmp_uvfits_file = NamedTempFile::new().unwrap();
+        let num_timesteps = 1;
+        let num_baselines = 3;
+        let num_chans = 2;
+        let obsid = 1065880128;
+        let start_epoch = Epoch::from_gpst_seconds(obsid as f64);
+
+        let names = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions: Vec<XyzGeodetic> = (0..names.len())
+            .into_iter()
+            .map(|i| XyzGeodetic {
+                x: i as f64,
+                y: i as f64 * 2.0,
+                z: i as f64 * 3.0,
+            })
+            .collect();
+
+        let mut u = UvfitsWriter::new(
+            tmp_uvfits_file.path(),
+            num_timesteps,
+            num_baselines,
+            num_chans,
+            start_epoch,
+            None,
+            40e3,
+            170e6,
+            3,
+            RADec::from_degrees(0.0, 60.0),
+            Some("test"),
+            LatLngHeight::mwa(),
+            names.clone(),
+            positions.clone(),
+            Duration::from_total_nanoseconds(0),
+            None,
+        )
+        .unwrap();
+
+        let tmp_uvfits_file2 = NamedTempFile::new().unwrap();
+        let mut u2 = UvfitsWriter::new(
+            tmp_uvfits_file2.path(),
+            num_timesteps,
+            num_baselines,
+            num_chans,
+            start_epoch,
+            Some(Duration::from_seconds(2.0)),
+            40e3,
+            170e6,
+            3,
+            RADec::from_degrees(0.0, 60.0),
+            Some("test"),
+            LatLngHeight::mwa(),
+            names,
+            positions,
+            Duration::from_total_nanoseconds(0),
+            None,
+        )
+        .unwrap();
+
+        for _timestep_index in 0..num_timesteps {
+            for baseline_index in 0..num_baselines {
+                let (tile1, tile2) = match baseline_index {
+                    0 => (0, 1),
+                    1 => (0, 2),
+                    2 => (1, 2),
+                    _ => unreachable!(),
+                };
+
+                u.write_vis_row(
+                    UVW::default(),
+                    tile1,
+                    tile2,
+                    start_epoch,
+                    (baseline_index..baseline_index + num_chans)
+                        .into_iter()
+                        .map(|int| int as f32)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .unwrap();
+                u2.write_vis_row(
+                    UVW::default(),
+                    tile1,
+                    tile2,
+                    start_epoch,
+                    (baseline_index..baseline_index + num_chans)
+                        .into_iter()
+                        .map(|int| int as f32)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .unwrap();
+            }
+        }
+
+        u.finalise().unwrap();
+        u2.finalise().unwrap();
+
+        // Now compare.
+        let mut no_inttim = fits_open!(tmp_uvfits_file.path()).unwrap();
+        let no_inttim_hdu = fits_open_hdu!(&mut no_inttim, 0).unwrap();
+        let mut inttim = fits_open!(tmp_uvfits_file2.path()).unwrap();
+        let inttim_hdu = fits_open_hdu!(&mut inttim, 0).unwrap();
+
+        let no_inttim_pcount: usize =
+            get_required_fits_key!(&mut no_inttim, &no_inttim_hdu, "PCOUNT").unwrap();
+        let inttim_pcount: usize =
+            get_required_fits_key!(&mut inttim, &inttim_hdu, "PCOUNT").unwrap();
+        assert_ne!(no_inttim_pcount, inttim_pcount);
+        assert_eq!(no_inttim_pcount, GROUP_PARAMS.len() - 1);
+        assert_eq!(inttim_pcount, GROUP_PARAMS.len());
+
+        let mut no_inttim_group_params: Vec<f32> = vec![0.0; GROUP_PARAMS.len() - 1];
+        let mut inttim_group_params: Vec<f32> = vec![0.0; GROUP_PARAMS.len()];
+        let mut status = 0;
+
+        unsafe {
+            // ffggpe = fits_read_grppar_flt
+            fitsio_sys::ffggpe(
+                no_inttim.as_raw(), /* I - FITS file pointer                       */
+                1,                  /* I - group to read (1 = 1st group)           */
+                1,                  /* I - first vector element to read (1 = 1st)  */
+                no_inttim_group_params.len() as i64, /* I - number of values to read                */
+                no_inttim_group_params.as_mut_ptr(), /* O - array of values that are returned       */
+                &mut status, /* IO - error status                           */
+            );
+            fits_check_status(status).unwrap();
+            // ffggpe = fits_read_grppar_flt
+            fitsio_sys::ffggpe(
+                inttim.as_raw(),                  /* I - FITS file pointer                       */
+                1,                                /* I - group to read (1 = 1st group)           */
+                1,                                /* I - first vector element to read (1 = 1st)  */
+                inttim_group_params.len() as i64, /* I - number of values to read                */
+                inttim_group_params.as_mut_ptr(), /* O - array of values that are returned       */
+                &mut status,                      /* IO - error status                           */
+            );
+            fits_check_status(status).unwrap();
+        }
+
+        let mut i_no_inttim = 0;
+        let mut i_inttim = 0;
+        for param in GROUP_PARAMS {
+            if param == "INTTIM" {
+                assert_eq!(inttim_group_params[i_inttim], 2.0);
+                i_inttim += 1;
+                continue;
+            } else {
+                assert_eq!(
+                    no_inttim_group_params[i_no_inttim],
+                    inttim_group_params[i_inttim]
+                );
+            }
+            i_inttim += 1;
+            i_no_inttim += 1;
+        }
     }
 }
