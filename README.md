@@ -16,7 +16,7 @@ etc.
 
 ## Prerequisites
 
-- A Rust compiler with a version >= 1.60.0
+- A Rust compiler with a version >= 1.64.0
 
   ```bash
   $ rustc -V

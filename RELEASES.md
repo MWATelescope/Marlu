@@ -1,6 +1,6 @@
 <!-- markdownlint-disable=MD025 -->
 
-# Unreleased
+# Version 0.10.0 (2023-07-21)
 
 - Allow vis writers to not precess their UVWs
 - Improve uvfits time precision
