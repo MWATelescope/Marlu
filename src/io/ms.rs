@@ -3,6 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use std::{
+    borrow::Cow,
     f64::consts::FRAC_PI_2,
     ops::Range,
     path::{Path, PathBuf},
@@ -29,8 +30,9 @@ use crate::{
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
     num_complex::Complex,
-    precession::precess_time,
-    History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic, UVW,
+    precession::{get_lmst, precess_time},
+    HADec, History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
+    UVW,
 };
 
 #[cfg(feature = "mwalib")]
@@ -67,6 +69,9 @@ pub struct MeasurementSetWriter {
     /// timesteps being written; this is pretty sensible, because the value
     /// should change very slowly (a few milliseconds over ~5 days?).
     dut1: Duration,
+
+    /// Are we going to write out precessed UVWs?
+    precess_uvws: bool,
 }
 
 impl MeasurementSetWriter {
@@ -76,6 +81,7 @@ impl MeasurementSetWriter {
         array_pos: LatLngHeight,
         antenna_positions: Vec<XyzGeodetic>,
         dut1: Duration,
+        precess_uvws: bool,
     ) -> Self {
         MeasurementSetWriter {
             path: path.as_ref().to_path_buf(),
@@ -84,6 +90,7 @@ impl MeasurementSetWriter {
             main_row_idx: 0,
             antenna_positions,
             dut1,
+            precess_uvws,
         }
     }
 
@@ -1755,24 +1762,35 @@ impl VisWrite for MeasurementSetWriter {
         ) {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.to_mjd_utc_seconds();
 
-            let prec_info = precess_time(
-                self.array_pos.longitude_rad,
-                self.array_pos.latitude_rad,
-                self.phase_centre,
-                avg_centroid_timestamp,
-                self.dut1,
-            );
-
-            let tiles_xyz_precessed = prec_info.precess_xyz(&self.antenna_positions);
+            let (tile_xyzs, hadec): (Cow<[XyzGeodetic]>, HADec) = if self.precess_uvws {
+                let prec_info = precess_time(
+                    self.array_pos.longitude_rad,
+                    self.array_pos.latitude_rad,
+                    self.phase_centre,
+                    avg_centroid_timestamp,
+                    self.dut1,
+                );
+                (
+                    prec_info.precess_xyz(&self.antenna_positions).into(),
+                    prec_info.hadec_j2000,
+                )
+            } else {
+                let lmst = get_lmst(
+                    self.array_pos.longitude_rad,
+                    avg_centroid_timestamp,
+                    self.dut1,
+                );
+                let hadec = self.phase_centre.to_hadec(lmst);
+                (self.antenna_positions.as_slice().into(), hadec)
+            };
 
             for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter(),
                 vis_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
             ) {
-                let baseline_xyz_precessed =
-                    tiles_xyz_precessed[*ant1_idx] - tiles_xyz_precessed[*ant2_idx];
-                let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000);
+                let baseline_xyzs = tile_xyzs[*ant1_idx] - tile_xyzs[*ant2_idx];
+                let uvw = UVW::from_xyz(baseline_xyzs, hadec);
 
                 // copy values into temporary arrays to avoid heap allocs.
                 uvw_tmp.clone_from_slice(&[uvw.u, uvw.v, uvw.w]);
@@ -1912,7 +1930,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
@@ -1934,7 +1953,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         let result = ms_writer.decompress_default_tables();
         assert!(result.is_err());
@@ -1960,7 +1980,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         let result = ms_writer.decompress_default_tables();
         assert!(result.is_err());
@@ -2257,7 +2278,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         drop(ms_writer);
@@ -2456,7 +2478,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_source_table().unwrap();
         drop(ms_writer);
@@ -2491,7 +2514,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2527,6 +2551,7 @@ mod tests {
             LatLngHeight::mwa(),
             vec![],
             Duration::from_seconds(3.141592653),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.add_mwa_mods().unwrap();
@@ -2592,7 +2617,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2660,7 +2686,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2712,7 +2739,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -2750,7 +2778,8 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3270,7 +3299,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3344,7 +3374,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3421,7 +3452,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3473,7 +3505,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3518,7 +3551,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3563,7 +3597,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3639,7 +3674,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3715,7 +3751,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3780,7 +3817,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3836,7 +3874,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3909,7 +3948,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -3983,7 +4023,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4077,7 +4118,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4163,7 +4205,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4224,7 +4267,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4287,7 +4331,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
 
         vis_sel.timestep_range = 0..3;
@@ -4691,7 +4736,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.decompress_default_tables().unwrap();
         ms_writer.decompress_source_table().unwrap();
@@ -4978,7 +5024,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
 
         let vis_sel = VisSelection {
@@ -5080,7 +5127,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
 
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
@@ -5221,7 +5269,8 @@ mod tests {
             phase_centre,
             array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
 
         let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
@@ -5356,7 +5405,8 @@ mod tests {
             obs_ctx.phase_centre,
             obs_ctx.array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 
@@ -5443,7 +5493,8 @@ mod tests {
             obs_ctx.phase_centre,
             obs_ctx.array_pos,
             antenna_positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
         );
         ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
 

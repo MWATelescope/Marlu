@@ -2,6 +2,7 @@
 
 # Unreleased
 
+- Allow vis writers to not precess their UVWs
 - Improve uvfits time precision
   - A second DATE group param is now used
   - INTTIM is also used, if the time resolution was supplied

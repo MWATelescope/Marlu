@@ -5,6 +5,7 @@
 //! Module for writing the uvfits file format.
 
 use std::{
+    borrow::Cow,
     ffi::CString,
     path::{Path, PathBuf},
 };
@@ -25,8 +26,8 @@ use crate::{
     hifitime::{Duration, Epoch, Unit},
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
-    precession::precess_time,
-    History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
+    precession::{get_lmst, precess_time},
+    HADec, History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
 
 const NUM_FLOATS_PER_POL: usize = 3;
@@ -144,6 +145,9 @@ pub struct UvfitsWriter {
 
     /// The time resolution \[seconds\].
     time_res: Option<f64>,
+
+    /// Are we going to write out precessed UVWs?
+    precess_uvws: bool,
 }
 
 impl UvfitsWriter {
@@ -209,6 +213,7 @@ impl UvfitsWriter {
         antenna_names: Vec<String>,
         antenna_positions: Vec<XyzGeodetic>,
         dut1: Duration,
+        precess_uvws: bool,
         history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let path = path.as_ref();
@@ -383,6 +388,7 @@ impl UvfitsWriter {
             antenna_positions,
             dut1,
             time_res: time_resolution.map(|r| r.to_seconds()),
+            precess_uvws,
         })
     }
 
@@ -396,6 +402,7 @@ impl UvfitsWriter {
         obs_name: Option<&str>,
         antenna_names: Vec<String>,
         antenna_positions: Vec<XyzGeodetic>,
+        precess_uvws: bool,
         history: Option<&History>,
     ) -> Result<UvfitsWriter, UvfitsWriteError> {
         let avg_freqs_hz: Vec<f64> = vis_ctx.avg_frequencies_hz();
@@ -418,6 +425,7 @@ impl UvfitsWriter {
             antenna_names,
             antenna_positions,
             dut1,
+            precess_uvws,
             history,
         )
     }
@@ -961,23 +969,35 @@ impl VisWrite for UvfitsWriter {
             self.buffer[i_date1] = jd_frac_f32;
             self.buffer[i_date2] = jd_remainder_f32;
 
-            let prec_info = precess_time(
-                self.array_pos.longitude_rad,
-                self.array_pos.latitude_rad,
-                self.phase_centre,
-                avg_centroid_timestamp,
-                self.dut1,
-            );
-            let tiles_xyz_precessed = prec_info.precess_xyz(&self.antenna_positions);
+            let (tile_xyzs, hadec): (Cow<[XyzGeodetic]>, HADec) = if self.precess_uvws {
+                let prec_info = precess_time(
+                    self.array_pos.longitude_rad,
+                    self.array_pos.latitude_rad,
+                    self.phase_centre,
+                    avg_centroid_timestamp,
+                    self.dut1,
+                );
+                (
+                    prec_info.precess_xyz(&self.antenna_positions).into(),
+                    prec_info.hadec_j2000,
+                )
+            } else {
+                let lmst = get_lmst(
+                    self.array_pos.longitude_rad,
+                    avg_centroid_timestamp,
+                    self.dut1,
+                );
+                let hadec = self.phase_centre.to_hadec(lmst);
+                (self.antenna_positions.as_slice().into(), hadec)
+            };
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter().copied(),
                 jones_chunk.axis_iter(Axis(2)),
                 weight_chunk.axis_iter(Axis(2)),
             ) {
-                let baseline_xyz_precessed =
-                    tiles_xyz_precessed[ant1_idx] - tiles_xyz_precessed[ant2_idx];
-                let uvw = UVW::from_xyz(baseline_xyz_precessed, prec_info.hadec_j2000) / VEL_C;
+                let baseline_xyz = tile_xyzs[ant1_idx] - tile_xyzs[ant2_idx];
+                let uvw = UVW::from_xyz(baseline_xyz, hadec) / VEL_C;
 
                 self.buffer[i_u] = uvw.u as f32;
                 self.buffer[i_v] = uvw.v as f32;
@@ -1183,6 +1203,7 @@ mod tests {
         _get_fits_col, _get_required_fits_key, _open_fits, _open_hdu, fits_open, fits_open_hdu,
         get_fits_col, get_required_fits_key, CorrelatorContext,
     };
+    use ndarray::Array3;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -1745,10 +1766,11 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
             Some(obs_name),
             names,
             positions,
+            true,
             None,
         )
         .unwrap();
@@ -1825,10 +1847,11 @@ mod tests {
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
             Some(&corr_ctx.metafits_context.obs_name),
             names,
             positions,
+            true,
             None,
         )
         .unwrap();
@@ -1894,7 +1917,8 @@ mod tests {
             LatLngHeight::mwa(),
             names,
             positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
             None,
         )
         .unwrap();
@@ -1973,10 +1997,11 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
             None,
             names,
             positions,
+            true,
             None,
         )
         .unwrap();
@@ -2072,10 +2097,11 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
             None,
             names,
             positions,
+            true,
             None,
         )
         .unwrap();
@@ -2177,10 +2203,11 @@ mod tests {
             &vis_ctx,
             array_pos,
             phase_centre,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
             Some(&field_name),
             names,
             positions,
+            true,
             None,
         )
         .unwrap();
@@ -2462,10 +2489,11 @@ mod tests {
             &vis_ctx,
             array_pos,
             RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context),
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
             Some(&corr_ctx.metafits_context.obs_name),
             names,
             positions,
+            true,
             Some(&history),
         )
         .unwrap();
@@ -2549,7 +2577,8 @@ mod tests {
             LatLngHeight::mwa(),
             names.clone(),
             positions.clone(),
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
             None,
         )
         .unwrap();
@@ -2570,7 +2599,8 @@ mod tests {
             LatLngHeight::mwa(),
             names,
             positions,
-            Duration::from_total_nanoseconds(0),
+            Duration::default(),
+            true,
             None,
         )
         .unwrap();
@@ -2670,6 +2700,130 @@ mod tests {
             }
             i_inttim += 1;
             i_no_inttim += 1;
+        }
+    }
+
+    #[test]
+    fn test_new_uvfits_with_and_without_precession() {
+        let tmp_uvfits_file = NamedTempFile::new().unwrap();
+        let num_timesteps = 1;
+        let num_baselines = 3;
+        let num_chans = 2;
+        let obsid = 1065880128;
+        let start_epoch = Epoch::from_gpst_seconds(obsid as f64);
+
+        let names = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions: Vec<XyzGeodetic> = (1..=names.len())
+            .into_iter()
+            .map(|i| XyzGeodetic {
+                x: i as f64,
+                y: i as f64 * 2.0,
+                z: i as f64 * 3.0,
+            })
+            .collect();
+
+        let mut u = UvfitsWriter::new(
+            tmp_uvfits_file.path(),
+            num_timesteps,
+            num_baselines,
+            num_chans,
+            start_epoch,
+            None,
+            40e3,
+            170e6,
+            3,
+            RADec::from_degrees(0.0, 60.0),
+            Some("test"),
+            LatLngHeight::mwa(),
+            names.clone(),
+            positions.clone(),
+            Duration::default(),
+            true,
+            None,
+        )
+        .unwrap();
+
+        let tmp_uvfits_file2 = NamedTempFile::new().unwrap();
+        let mut u2 = UvfitsWriter::new(
+            tmp_uvfits_file2.path(),
+            num_timesteps,
+            num_baselines,
+            num_chans,
+            start_epoch,
+            None,
+            40e3,
+            170e6,
+            3,
+            RADec::from_degrees(0.0, 60.0),
+            Some("test"),
+            LatLngHeight::mwa(),
+            names,
+            positions,
+            Duration::default(),
+            false,
+            None,
+        )
+        .unwrap();
+
+        let corr_ctx = get_mwa_legacy_context();
+        let vis_ctx =
+            VisContext::from_mwalib(&corr_ctx, &(0..num_timesteps), &(0..1), &[0, 1, 2], 1, 1);
+
+        u.write_vis(
+            Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+            Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+            &vis_ctx,
+        )
+        .unwrap();
+        u2.write_vis(
+            Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+            Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+            &vis_ctx,
+        )
+        .unwrap();
+
+        u.finalise().unwrap();
+        u2.finalise().unwrap();
+
+        // Now compare.
+        let mut precession = fits_open!(tmp_uvfits_file.path()).unwrap();
+        let mut no_precession = fits_open!(tmp_uvfits_file2.path()).unwrap();
+
+        let mut precession_group_params: Vec<f32> = vec![0.0; GROUP_PARAMS.len() - 1];
+        let mut no_precession_group_params: Vec<f32> = vec![0.0; GROUP_PARAMS.len() - 1];
+        let mut status = 0;
+
+        unsafe {
+            // ffggpe = fits_read_grppar_flt
+            fitsio_sys::ffggpe(
+                precession.as_raw(), /* I - FITS file pointer                       */
+                2,                   /* I - group to read (1 = 1st group)           */
+                1,                   /* I - first vector element to read (1 = 1st)  */
+                precession_group_params.len() as i64, /* I - number of values to read                */
+                precession_group_params.as_mut_ptr(), /* O - array of values that are returned       */
+                &mut status, /* IO - error status                           */
+            );
+            fits_check_status(status).unwrap();
+            // ffggpe = fits_read_grppar_flt
+            fitsio_sys::ffggpe(
+                no_precession.as_raw(), /* I - FITS file pointer                       */
+                2,                      /* I - group to read (1 = 1st group)           */
+                1,                      /* I - first vector element to read (1 = 1st)  */
+                no_precession_group_params.len() as i64, /* I - number of values to read                */
+                no_precession_group_params.as_mut_ptr(), /* O - array of values that are returned       */
+                &mut status, /* IO - error status                           */
+            );
+            fits_check_status(status).unwrap();
+        }
+
+        for (i, &param) in GROUP_PARAMS.iter().enumerate() {
+            match param {
+                "INTTIM" => continue,
+                "UU" | "VV" | "WW" => {
+                    assert_ne!(precession_group_params[i], no_precession_group_params[i])
+                }
+                _ => assert_eq!(precession_group_params[i], no_precession_group_params[i]),
+            }
         }
     }
 }
