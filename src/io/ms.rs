@@ -1815,7 +1815,7 @@ impl VisWrite for MeasurementSetWriter {
                     flags_tmp.outer_iter_mut()
                 ) {
                     avg_weight = weight_chunk[[0, 0]];
-                    avg_flag = avg_weight < 0.;
+                    avg_flag = avg_weight.is_sign_negative();
                     if vis_ctx.trivial_averaging() {
                         data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
