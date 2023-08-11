@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.10.1 (2023-08-11)
+
+- When writing out measurement sets, a weight of -0.0 is now considered a flag,
+  rather than only values < 0.0 (-0.0 is not less than 0.0).
+
 # Version 0.10.0 (2023-07-21)
 
 - Allow vis writers to not precess their UVWs
