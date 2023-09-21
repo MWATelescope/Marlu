@@ -1018,6 +1018,7 @@ impl VisWrite for UvfitsWriter {
                         .for_each(|(vis_chunk_element, vis)| {
                             *vis_chunk_element = vis;
                         });
+                    vis_chunk[2] = 1.0;
                 }
 
                 Self::write_vis_row_inner(self.fptr, &mut self.current_num_rows, &mut self.buffer)?;
