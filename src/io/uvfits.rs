@@ -28,6 +28,7 @@ use crate::{
     HADec, History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
 
+const NUM_POLS: usize = 1;
 const NUM_FLOATS_PER_POL: usize = 3;
 const GROUP_PARAMS: [&str; 7] = ["UU", "VV", "WW", "BASELINE", "DATE", "DATE", "INTTIM"];
 
@@ -238,7 +239,14 @@ impl UvfitsWriter {
 
         // Initialise the group header. Copied from cotter. -32 means FLOAT_IMG.
         let num_group_params = GROUP_PARAMS.len() - if time_resolution.is_some() { 0 } else { 1 };
-        let mut naxes = [0, NUM_FLOATS_PER_POL as i64, 4, num_chans as i64, 1, 1];
+        let mut naxes = [
+            0,
+            NUM_FLOATS_PER_POL as i64,
+            NUM_POLS as i64,
+            num_chans as i64,
+            1,
+            1,
+        ];
         let total_num_rows = num_timesteps * num_baselines;
         assert!(
             total_num_rows > 0,
@@ -880,6 +888,7 @@ impl VisWrite for UvfitsWriter {
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
+        assert_eq!(num_vis_pols, NUM_POLS);
         let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
 
         trace!(
@@ -1008,10 +1017,6 @@ impl VisWrite for UvfitsWriter {
                 ) {
                     avg_jones = jones_chunk[[0, 0]];
 
-                    // vis_chunk has 12 elements if num_vis_pols is 4, but, it
-                    // is possible that this is 2 instead. By iterating over the
-                    // Jones elements and applying them, we write the correct
-                    // polarisations for however long vis_chunk actually is.
                     vis_chunk
                         .iter_mut()
                         .zip([avg_jones[0].re, avg_jones[0].im])
