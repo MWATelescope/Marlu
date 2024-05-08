@@ -465,7 +465,7 @@ mod tests {
     fn test_deserialise_json() {
         let json = "{\"ra\": 1.23, \"dec\": -0.57}";
 
-        let result = serde_json::from_str(&json);
+        let result = serde_json::from_str(json);
         assert!(result.is_ok(), "{:?}", result.err());
         let radec: RADec = result.unwrap();
 

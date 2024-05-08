@@ -8,6 +8,7 @@
 <img src="https://github.com/MWATelescope/Marlu/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
 <a href="https://codecov.io/gh/MWATelescope/Marlu">
   <img src="https://codecov.io/gh/MWATelescope/Marlu/branch/main/graph/badge.svg?token=CYMROMUKRI"/>
+<a href="https://crates.io/crates/marlu"><img src="https://img.shields.io/badge/rustc-1.60-orange.svg"/></a>
 </a>
 </div>
 

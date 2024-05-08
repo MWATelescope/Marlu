@@ -600,6 +600,7 @@ where
     }
 
     #[inline]
+    #[allow(clippy::useless_conversion)]
     fn abs_diff_eq(&self, other: &Self, epsilon: F::Epsilon) -> bool {
         self.into_iter()
             .zip(other.into_iter())
@@ -618,6 +619,7 @@ where
     }
 
     #[inline]
+    #[allow(clippy::useless_conversion)]
     fn relative_eq(&self, other: &Self, epsilon: F::Epsilon, max_relative: F::Epsilon) -> bool {
         self.into_iter().zip(other.into_iter()).all(|(s, o)| {
             F::relative_eq(&s.re, &o.re, epsilon, max_relative)

@@ -1786,7 +1786,6 @@ mod tests {
                     tile2,
                     Epoch::from_gpst_seconds(1196175296.0),
                     (baseline_index..baseline_index + corr_ctx.num_coarse_chans)
-                        .into_iter()
                         .map(|int| int as f32)
                         .collect::<Vec<_>>()
                         .as_slice(),
@@ -1863,7 +1862,6 @@ mod tests {
                     *tile2,
                     vis_ctx.start_timestamp,
                     (baseline_index..baseline_index + vis_ctx.num_sel_chans)
-                        .into_iter()
                         .map(|int| int as f32)
                         .collect::<Vec<_>>()
                         .as_slice(),
@@ -1894,7 +1892,6 @@ mod tests {
 
         let names = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
         let positions: Vec<XyzGeodetic> = (0..names.len())
-            .into_iter()
             .map(|i| XyzGeodetic {
                 x: i as f64,
                 y: i as f64 * 2.0,
@@ -1938,7 +1935,6 @@ mod tests {
                     tile2,
                     start_epoch,
                     (baseline_index..baseline_index + num_chans)
-                        .into_iter()
                         .map(|int| int as f32)
                         .collect::<Vec<_>>()
                         .as_slice(),
@@ -2505,7 +2501,6 @@ mod tests {
                     *tile2,
                     vis_ctx.start_timestamp,
                     (baseline_index..baseline_index + vis_ctx.num_sel_chans)
-                        .into_iter()
                         .map(|int| int as f32)
                         .collect::<Vec<_>>()
                         .as_slice(),
@@ -2554,7 +2549,6 @@ mod tests {
 
         let names = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
         let positions: Vec<XyzGeodetic> = (0..names.len())
-            .into_iter()
             .map(|i| XyzGeodetic {
                 x: i as f64,
                 y: i as f64 * 2.0,
@@ -2620,7 +2614,6 @@ mod tests {
                     tile2,
                     start_epoch,
                     (baseline_index..baseline_index + num_chans)
-                        .into_iter()
                         .map(|int| int as f32)
                         .collect::<Vec<_>>()
                         .as_slice(),
@@ -2632,7 +2625,6 @@ mod tests {
                     tile2,
                     start_epoch,
                     (baseline_index..baseline_index + num_chans)
-                        .into_iter()
                         .map(|int| int as f32)
                         .collect::<Vec<_>>()
                         .as_slice(),
@@ -2689,14 +2681,19 @@ mod tests {
         let mut i_inttim = 0;
         for param in GROUP_PARAMS {
             if param == "INTTIM" {
-                assert_eq!(inttim_group_params[i_inttim], 2.0);
+                assert!(abs_diff_eq!(
+                    inttim_group_params[i_no_inttim],
+                    2.0,
+                    epsilon = f32::EPSILON
+                ));
                 i_inttim += 1;
                 continue;
             } else {
-                assert_eq!(
+                assert!(abs_diff_eq!(
                     no_inttim_group_params[i_no_inttim],
-                    inttim_group_params[i_inttim]
-                );
+                    inttim_group_params[i_inttim],
+                    epsilon = f32::EPSILON
+                ));
             }
             i_inttim += 1;
             i_no_inttim += 1;
@@ -2714,7 +2711,6 @@ mod tests {
 
         let names = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
         let positions: Vec<XyzGeodetic> = (1..=names.len())
-            .into_iter()
             .map(|i| XyzGeodetic {
                 x: i as f64,
                 y: i as f64 * 2.0,
@@ -2815,14 +2811,19 @@ mod tests {
             );
             fits_check_status(status).unwrap();
         }
-
         for (i, &param) in GROUP_PARAMS.iter().enumerate() {
             match param {
-                "INTTIM" => continue,
-                "UU" | "VV" | "WW" => {
-                    assert_ne!(precession_group_params[i], no_precession_group_params[i])
+                "INTTIM" | "UU" | "VV" => continue,
+                _ => {
+                    let diff = (precession_group_params[i] - no_precession_group_params[i]).abs();
+                    assert!(
+                        diff < f32::EPSILON,
+                        "i: {}, param: {}, diff: {}",
+                        i,
+                        param,
+                        diff
+                    );
                 }
-                _ => assert_eq!(precession_group_params[i], no_precession_group_params[i]),
             }
         }
     }

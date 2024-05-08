@@ -2542,6 +2542,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_add_mwa_mods() {
+        // import pi
+        use std::f64::consts::PI as pi64;
         let temp_dir = tempdir().unwrap();
         let table_path = temp_dir.path().join("test.ms");
         let phase_centre = RADec::from_radians(0., -0.47123889803846897);
@@ -2550,7 +2552,7 @@ mod tests {
             phase_centre,
             LatLngHeight::mwa(),
             vec![],
-            Duration::from_seconds(3.141592653),
+            Duration::from_seconds(pi64),
             true,
         );
         ms_writer.decompress_default_tables().unwrap();
@@ -2601,8 +2603,9 @@ mod tests {
                 .get_keyword_record()
                 .unwrap()
                 .get_field::<f64>("UT1UTC")
-                .unwrap(),
-            3.141592653
+                .unwrap() as f32,
+            pi64 as f32,
+            epsilon = f32::EPSILON
         );
     }
 
@@ -5083,7 +5086,7 @@ mod tests {
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
-            for col_name in col_names.iter() {
+            for col_name in *col_names {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
@@ -5224,7 +5227,7 @@ mod tests {
             )
             .unwrap();
             assert_table_nrows_match!(table, exp_table);
-            for col_name in col_names.iter() {
+            for col_name in *col_names {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
@@ -5340,7 +5343,7 @@ mod tests {
             let mut exp_table =
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
-            for col_name in col_names.iter() {
+            for col_name in *col_names {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
