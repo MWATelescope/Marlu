@@ -95,5 +95,6 @@ harness = false
 [patch.crates-io]
 # TODO: get rid of this once MSRV >= 1.65
 dashmap = { git = "https://github.com/xacrimon/dashmap", tag = "v5.5.2" } # v5.5.3 msrv is 1.65
+regex-syntax = { git = "https://github.com/rust-lang/regex", tag = "regex-syntax-0.7.5" } # ciborium-ll v > 0.2.1 needs half ^2.2, half v > 2.3.x msrv is 1.70
 # TODO: get rid of this once MSRV >= 1.70
 ciborium = { git = "https://github.com/enarx/ciborium", tag = "v0.2.1" } # ciborium-ll v > 0.2.1 needs half ^2.2, half v > 2.3.x msrv is 1.70
