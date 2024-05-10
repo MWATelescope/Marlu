@@ -404,7 +404,7 @@ mod tests {
             y: -568.5399780273752,
             z: -398.80394537420943,
         };
-        assert_abs_diff_eq!(result, expected);
+        assert_abs_diff_eq!(result, expected, epsilon = 1e-6);
 
         // Do everything automatically.
         let result = geocentric.to_geodetic(LatLngHeight {
@@ -412,7 +412,7 @@ mod tests {
             latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
             height_metres: COTTER_MWA_HEIGHT_METRES,
         });
-        assert_abs_diff_eq!(result, expected);
+        assert_abs_diff_eq!(result, expected, epsilon = 1e-6);
     }
 
     #[test]

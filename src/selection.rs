@@ -95,6 +95,16 @@ pub enum SelectionError {
         received: String,
     },
 
+    #[error("bad baseline index supplied to function {function}. expected {expected}, received {received}")]
+    BadBaselineIdx {
+        /// The function name
+        function: String,
+        /// Predicate on bl_idxs
+        expected: String,
+        /// The baseline index that was received instead
+        received: String,
+    },
+
     #[cfg(feature = "mwalib")]
     #[error(transparent)]
     Mwalib(#[from] mwalib::GpuboxError),
@@ -326,6 +336,16 @@ impl VisSelection {
                 received: format!("{:?}", flag_array.dim()),
             });
         };
+
+        let max_bl_idx = corr_ctx.metafits_context.baselines.len();
+        // check all selected baseline idxs are < max_bl_idx
+        if self.baseline_idxs.iter().any(|&idx| idx >= max_bl_idx) {
+            return Err(SelectionError::BadBaselineIdx {
+                function: "VisSelection::read_mwalib".to_string(),
+                expected: format!(" < {max_bl_idx}"),
+                received: format!("{:?}", self.baseline_idxs.clone()),
+            });
+        }
 
         // since we are using read_by_baseline_into_buffer, the visibilities are read in order:
         // baseline,frequency,pol,r,i
@@ -638,6 +658,19 @@ mod tests {
                 Complex::new(0x41071e as f32, 0x41071f as f32),
             ])
         );
+    }
+
+    #[test]
+    fn test_read_mwalib_bad_baseline_idxs() {
+        let corr_ctx = get_mwax_context();
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+        vis_sel.baseline_idxs = vec![99999999];
+        // Create a blank array to store flags and visibilities
+        let fine_chans_per_coarse = corr_ctx.metafits_context.num_corr_fine_chans_per_coarse;
+        let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
+        let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
+        // read visibilities out of the gpubox files
+        assert!(vis_sel.read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut()).is_err());
     }
 
     #[test]

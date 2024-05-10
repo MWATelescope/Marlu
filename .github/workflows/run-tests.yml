@@ -55,6 +55,13 @@ jobs:
             sudo ldconfig
           fi
 
+      - name: Minimum-specified Rust version works
+        run: |
+          MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
+          ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
+          cargo +${MIN_RUST} test --no-default-features
+          cargo +${MIN_RUST} test --all-features
+
       - name: Run tests
         run: cargo test
 
@@ -87,10 +94,3 @@ jobs:
 
       - name: Run tests, no default features but serde
         run: cargo test --no-default-features --features=serde
-
-      - name: Minimum-specified Rust version works
-        run: |
-          MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
-          ~/.cargo/bin/rustup install $MIN_RUST --profile minimal
-          cargo +${MIN_RUST} test --no-default-features
-          cargo +${MIN_RUST} test --all-features

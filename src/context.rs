@@ -195,7 +195,8 @@ impl MwaObsContext {
             delays: meta_ctx.delays.clone(),
         };
 
-        for (ant, mut input, number, receiver, mut slot, mut length) in izip!(
+        #[allow(unused_mut)]
+        for (ant, mut input, mut number, mut receiver, mut slot, mut length) in izip!(
             ants,
             result.ant_inputs.outer_iter_mut(),
             result.ant_numbers.iter_mut(),
