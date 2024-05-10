@@ -95,6 +95,16 @@ pub enum SelectionError {
         received: String,
     },
 
+    #[error("bad baseline index supplied to function {function}. expected {expected}, received {received}")]
+    BadBaselineIdx {
+        /// The function name
+        function: String,
+        /// Predicate on bl_idxs
+        expected: String,
+        /// The baseline index that was received instead
+        received: String,
+    },
+
     #[cfg(feature = "mwalib")]
     #[error(transparent)]
     Mwalib(#[from] mwalib::GpuboxError),
