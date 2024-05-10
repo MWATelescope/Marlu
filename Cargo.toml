@@ -71,7 +71,7 @@ serde = { version = "1.0.100", features = ["derive"], optional = true }
 
 [dev-dependencies]
 approx = { version = "0.5.0", features = ["num-complex"] }
-criterion = "0.4.0"
+criterion = "~0.4.0"
 csv = "1.1.0"
 glob = "0.3.0"
 lexical = "6.0.0"
@@ -91,3 +91,9 @@ harness = false
 [[bench]]
 name = "bench_io"
 harness = false
+
+[patch.crates-io]
+# TODO: get rid of this once MSRV >= 1.65
+dashmap = { git = "https://github.com/xacrimon/dashmap", tag = "v5.5.2" } # v5.5.3 msrv is 1.65
+# TODO: get rid of this once MSRV >= 1.70
+ciborium = { git = "https://github.com/enarx/ciborium", tag = "v0.2.1" } # ciborium-ll v > 0.2.1 needs half ^2.2, half v > 2.3.x msrv is 1.70
