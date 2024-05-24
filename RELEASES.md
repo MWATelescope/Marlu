@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.10.2 (2024-05-24)
+
+- use built 0.7, to avoid an issue in dependent crates where
+  built can't find Cargo lock.
+
 # Version 0.10.1 (2023-08-11)
 
 - When writing out measurement sets, a weight of -0.0 is now considered a flag,
