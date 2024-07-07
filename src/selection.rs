@@ -64,14 +64,14 @@ pub enum SelectionError {
     #[error("No common timesteps found. CorrelatorContext hdu info: {hdu_info}")]
     /// Error for when gpuboxes provided have no overlapping visibilities
     NoCommonTimesteps {
-        /// display of mwalib::CorrelatorContext::gpubox_time_map
+        /// display of `mwalib::CorrelatorContext::gpubox_time_map`
         hdu_info: String,
     },
 
     #[error("No timesteps were provided. CorrelatorContext hdu info: {hdu_info}")]
     /// Error for when gpuboxes provided have no overlapping visibilities
     NoProvidedTimesteps {
-        /// display of mwalib::CorrelatorContext::gpubox_time_map
+        /// display of `mwalib::CorrelatorContext::gpubox_time_map`
         hdu_info: String,
     },
 
@@ -99,7 +99,7 @@ pub enum SelectionError {
     BadBaselineIdx {
         /// The function name
         function: String,
-        /// Predicate on bl_idxs
+        /// Predicate on `bl_idxs`
         expected: String,
         /// The baseline index that was received instead
         received: String,
@@ -670,7 +670,9 @@ mod tests {
         let mut flag_array = vis_sel.allocate_flags(fine_chans_per_coarse).unwrap();
         let mut jones_array = vis_sel.allocate_jones(fine_chans_per_coarse).unwrap();
         // read visibilities out of the gpubox files
-        assert!(vis_sel.read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut()).is_err());
+        assert!(vis_sel
+            .read_mwalib(&corr_ctx, jones_array.view_mut(), flag_array.view_mut())
+            .is_err());
     }
 
     #[test]

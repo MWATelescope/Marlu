@@ -33,7 +33,7 @@ use erfa::{
 /// Greenwich mean sidereal time (consistent with IAU 2006 precession).
 ///
 /// # Notes
-/// - Uses eraGmst06(). See SOFA/ERFA documentation for details.
+/// - Uses `eraGmst06()`. See SOFA/ERFA documentation for details.
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L1332>
 pub fn palGmst(ut1: f64) -> f64 {
@@ -55,7 +55,7 @@ pub fn palGmst(ut1: f64) -> f64 {
 ///    are right handed, with the x axis at zero longitude and latitude, and
 ///    the z axis at the +ve latitude pole.
 /// Notes:
-///    - Uses eraS2c(). See SOFA/ERFA documentation for details.
+///    - Uses `eraS2c()`. See SOFA/ERFA documentation for details.
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L368>
 ///
@@ -83,7 +83,7 @@ pub unsafe fn palDcs2c(a: f64, b: f64, v: *mut f64) {
 ///    are right handed, with the x axis at zero longitude and latitude, and
 ///    the z axis at the +ve latitude pole.
 /// Notes:
-///    - Uses eraC2s(). See SOFA/ERFA documentation for details.
+///    - Uses `eraC2s()`. See SOFA/ERFA documentation for details.
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L327>
 ///
@@ -107,7 +107,7 @@ pub unsafe fn palDcc2s(v: *mut f64, a: &mut f64, b: &mut f64) {
 /// Description:
 ///    Normalize angle into range 0-2 pi.
 /// Notes:
-///    - Uses eraAnp(). See SOFA/ERFA documentation for details.
+///    - Uses `eraAnp()`. See SOFA/ERFA documentation for details.
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L766>
 pub fn palDranrm(angle: f64) -> f64 {
@@ -126,7 +126,7 @@ pub fn palDranrm(angle: f64) -> f64 {
 /// Description:
 ///    Normalizes a 3-vector also giving the modulus.
 /// Notes:
-///    - Uses eraPn(). See SOFA/ERFA documentation for details.
+///    - Uses `eraPn()`. See SOFA/ERFA documentation for details.
 ///    - the arguments are flipped
 ///
 /// Original: <https://github.com/Starlink/pal/blob/7af65f05fcd33fd7362c586eae7e98972cb03f29/palOne2One.c#L1015>
@@ -151,7 +151,7 @@ pub unsafe fn palDvn(v: *mut f64, uv: *mut f64, vm: *mut f64) {
 /// Returned Value:
 ///    Scalar product va.vb
 /// Notes:
-///    - Uses eraPdp(). See SOFA/ERFA documentation for details.
+///    - Uses `eraPdp()`. See SOFA/ERFA documentation for details.
 ///
 /// # Safety
 ///
@@ -173,7 +173,7 @@ pub unsafe fn palDvdv(va: *mut f64, vb: *mut f64) -> f64 {
 ///    dp = double\[3\] (Returned)
 ///       result vector
 /// Notes:
-///    - Uses eraRxp(). See SOFA/ERFA documentation for details.
+///    - Uses `eraRxp()`. See SOFA/ERFA documentation for details.
 ///
 /// # Safety
 ///

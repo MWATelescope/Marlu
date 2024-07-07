@@ -144,7 +144,7 @@ impl<'a> History<'a> {
 /// An extension of [`ObsContext`] that for MWA-specific metadata that is not
 /// present in some file types like uvfits.
 pub struct MwaObsContext {
-    /// Antenna input numbers. [ant_idx][pol]
+    /// Antenna input numbers. [`ant_idx`][pol]
     pub ant_inputs: Array2<usize>,
 
     /// Antenna tile numbers
@@ -153,10 +153,10 @@ pub struct MwaObsContext {
     /// Antenna receiver numbers
     pub ant_receivers: Vec<usize>,
 
-    /// Antenna slot numbers. [ant_idx][pol]
+    /// Antenna slot numbers. [`ant_idx`][pol]
     pub ant_slots: Array2<usize>,
 
-    /// Antenna slot numbers. [ant_idx][pol]
+    /// Antenna slot numbers. [`ant_idx`][pol]
     pub ant_cable_lengths: Array2<f64>,
 
     /// Coarse Channel Receiver Numbers
