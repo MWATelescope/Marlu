@@ -82,7 +82,11 @@ serial_test = "0.9.0"
 tempfile = "3.3.0"
 
 [build-dependencies]
-built = { version = "~0.7.3", default-features = false, features = ["chrono", "git2", "semver"] }
+built = { version = "~0.7.3", default-features = false, features = [
+    "chrono",
+    "git2",
+    "semver",
+] }
 
 [[bench]]
 name = "bench_misc"
@@ -94,9 +98,9 @@ harness = false
 
 [patch.crates-io]
 # for macos-arm64 support
-rubbl_casatables = { git = "https://github.com/d3v-null/rubbl", branch = "casacore-3.5.0", package = "rubbl_casatables" }
+rubbl_casatables = { git = "https://github.com/d3v-null/rubbl", branch = "master", package = "rubbl_casatables" }
 # TODO: get rid of this once MSRV >= 1.65
-dashmap = { git = "https://github.com/xacrimon/dashmap", tag = "v5.5.2" } # v5.5.3 msrv is 1.65
+dashmap = { git = "https://github.com/xacrimon/dashmap", tag = "v5.5.2" }          # v5.5.3 msrv is 1.65
 regex = { git = "https://github.com/rust-lang/regex", tag = "regex-syntax-0.7.5" } # regex-syntax > 0.8 msrv is 1.65
 # TODO: get rid of this once MSRV >= 1.70
 ciborium = { git = "https://github.com/enarx/ciborium", tag = "v0.2.1" } # ciborium-ll v > 0.2.1 needs half ^2.2, half v > 2.3.x msrv is 1.70
