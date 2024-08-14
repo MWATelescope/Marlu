@@ -1,5 +1,11 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.12.0 (2024-08-14)
+
+- fix issues compiling on arm64:
+  - update rubbl 0.8.0 (which uses casacore v3.5.0)
+  - update ndarray 0.16.0
+
 # Version 0.11.0 (2024-05-24)
 
 - use built 0.7, to avoid an issue in dependent crates where
