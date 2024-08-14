@@ -1,10 +1,10 @@
-FROM ubuntu:22.04
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG DEBUG
 RUN apt-get update \
     && apt-get install -y \
-    aoflagger-dev \
     build-essential \
     clang \
     curl \
@@ -17,24 +17,19 @@ RUN apt-get update \
     pkg-config \
     unzip \
     wget \
-    zip
-RUN test -z "$DEBUG" || ( \
-    apt-get install -y vim gdb \
-    )
-RUN apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    zip \
+    && apt-get clean all && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    apt-get -y autoremove
 
 # Get Rust
-RUN mkdir -m755 /opt/rust /opt/cargo
+ARG RUST_VERSION=stable
 ENV RUSTUP_HOME=/opt/rust CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
-
-# set minimal rust version here to use a newer stable version
-ENV RUST_VERSION=1.67
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain=$RUST_VERSION
-# install latest stable rust toolchian, with llvm-tools-preview (for coverage)
-RUN rustup toolchain install $RUST_VERSION --component llvm-tools-preview
-# Get cargo make, llvm-cov
-RUN /opt/cargo/bin/cargo install --force cargo-make cargo-llvm-cov
+RUN mkdir -m755 $RUSTUP_HOME $CARGO_HOME && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    --profile=minimal \
+    --default-toolchain=${RUST_VERSION}-$(uname -m)-unknown-linux-gnu
+RUN cargo install --force cargo-llvm-cov
 
 ADD . /app
 WORKDIR /app

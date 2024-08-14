@@ -7,6 +7,7 @@
 use std::{
     borrow::Cow,
     ffi::CString,
+    os::raw::c_char,
     path::{Path, PathBuf},
 };
 
@@ -43,7 +44,7 @@ fn get_truncated_date_string(epoch: Epoch) -> String {
 /// Helper function to convert strings into pointers of C strings.
 fn rust_strings_to_c_strings<T: AsRef<str>>(
     strings: &[T],
-) -> Result<Vec<*mut i8>, std::ffi::NulError> {
+) -> Result<Vec<*mut c_char>, std::ffi::NulError> {
     let mut c_strings = Vec::with_capacity(strings.len());
     for s in strings {
         let rust_str = s.as_ref();
@@ -53,7 +54,7 @@ fn rust_strings_to_c_strings<T: AsRef<str>>(
     Ok(c_strings)
 }
 
-fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut i8>) {
+fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut c_char>) {
     unsafe {
         for ptr in c_string_ptrs {
             drop(CString::from_raw(ptr));
