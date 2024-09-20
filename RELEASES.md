@@ -1,5 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.14.0 (2024-09-20)
+
+- update use mwalib 1.5.0
+
 # Version 0.13.0 (2024-08-14)
 
 - fix issues compiling on arm64:
