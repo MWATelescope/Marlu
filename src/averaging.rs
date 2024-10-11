@@ -326,7 +326,7 @@ pub fn average_visibilities(
 mod tess {
     use crate::Complex;
     use approx::assert_abs_diff_eq;
-    use ndarray::{Array3, Array4};
+    use ndarray::prelude::*;
 
     use super::{average_visibilities, Jones};
 
@@ -429,6 +429,56 @@ mod tess {
         let expected_weight_2_3_2_3 =
             if flag_array[(4, 6, 2, 3)] {0.} else {weight_array[(4, 6, 2, 3)]};
         assert_abs_diff_eq!(averaged_weight_array[(2, 3, 2, 3)], expected_weight_2_3_2_3);
+    }
+
+    #[test]
+    /// birli issue 162 https://github.com/MWATelescope/Birli/issues/162
+    fn test_averaging_birli_162() {
+        let n_timesteps = 4;
+        let n_channels = 64;
+        let n_pols = 4;
+        let n_baselines = 1;
+        let shape = (n_timesteps, n_channels, n_baselines, n_pols);
+        let time_factor = 2;
+        let frequency_factor = 1;
+
+        let jones_id: Jones<f32> = Jones::identity();
+        let mut vis_array = Array3::from_elem((n_timesteps, n_channels, n_baselines), jones_id);
+        let mut weight_array = Array4::from_elem(shape, 1_f32);
+        let mut flag_array = Array4::from_elem(shape, false);
+
+        // simulate missing timestep idx 3, second half of channels
+        let half_chan = n_channels / 2;
+        vis_array
+            .slice_mut(s![3, half_chan.., 0])
+            .fill(jones_id * -99999.0);
+        weight_array
+            .slice_mut(s![3, half_chan.., 0, ..])
+            .fill(-99999.0);
+        flag_array.slice_mut(s![3, half_chan.., 0, ..]).fill(true);
+
+        let (averaged_vis_array, averaged_weight_array, averaged_flag_array) =
+            average_visibilities(
+                vis_array.view(),
+                weight_array.view(),
+                flag_array.view(),
+                time_factor,
+                frequency_factor,
+            )
+            .unwrap();
+
+        // despite the missing value, it should still average to identity.
+        averaged_vis_array.for_each(|&v| assert_abs_diff_eq!(v, jones_id));
+        averaged_weight_array
+            .slice(s![.., ..half_chan, 0, ..])
+            .for_each(|&v| assert_abs_diff_eq!(v, 2.0));
+        averaged_weight_array
+            .slice(s![0, half_chan.., 0, ..])
+            .for_each(|&v| assert_abs_diff_eq!(v, 2.0));
+        averaged_weight_array
+            .slice(s![1, half_chan.., 0, ..])
+            .for_each(|&v| assert_abs_diff_eq!(v, 1.0));
+        averaged_flag_array.for_each(|&v| assert!(!v));
     }
 
     // TODO: test unflagged with zero weight.
