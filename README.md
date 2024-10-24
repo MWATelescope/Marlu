@@ -1,5 +1,6 @@
 # Marlu
 
+<!-- markdownlint-disable MD033 -->
 <div class="bg-gray-dark" align="center" style="background-color:#24292e">
 <img src="img/marlu_logo.png" alt="marlu logo" height="200px"/>
 <br/>
@@ -7,8 +8,8 @@
 <a href="https://docs.rs/crate/marlu"><img src="https://docs.rs/marlu/badge.svg" alt="docs"></a>
 <img src="https://github.com/MWATelescope/Marlu/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
 <a href="https://codecov.io/gh/MWATelescope/Marlu">
-  <img src="https://codecov.io/gh/MWATelescope/Marlu/branch/main/graph/badge.svg?token=CYMROMUKRI"/>
-<a href="https://crates.io/crates/marlu"><img src="https://img.shields.io/badge/rustc-1.60-orange.svg"/></a>
+  <img src="https://codecov.io/gh/MWATelescope/Marlu/branch/main/graph/badge.svg?token=CYMROMUKRI" alt="codecov"/>
+<a href="https://crates.io/crates/marlu"><img src="https://img.shields.io/badge/rustc-1.65-orange.svg" alt="rustc"/></a>
 </a>
 </div>
 
@@ -17,14 +18,14 @@ etc.
 
 ## Prerequisites
 
-- A Rust compiler with a version >= 1.64.0
+- Cargo version >= 1.65.0
 
-  ```bash
-  $ rustc -V
-  rustc 1.63.0 (4b91a6ea7 2022-08-08)
-  ```
+```bash
+$ cargo -V
+cargo 1.65.0 (4bc8f24d3 2022-10-20)
+```
 
-  https://www.rust-lang.org/tools/install
+<https://www.rust-lang.org/tools/install>
 
 ### Optional prerequisites
 
