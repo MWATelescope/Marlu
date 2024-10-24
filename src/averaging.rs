@@ -134,7 +134,7 @@ macro_rules! average_chunk_f64 {
         $avg_weight:expr,
         $avg_flag:expr
     ) => {
-        let chunk_size = $jones_chunk.len();
+        let chunk_size_f64 = $jones_chunk.len() as f64;
 
         assert_eq!(
             $jones_chunk.shape(),
@@ -163,23 +163,15 @@ macro_rules! average_chunk_f64 {
                 }
             }
         }
-
-        for (jones_weighted_sum, jones_sum, avg_jones) in izip!(
-            jones_weighted_sum.iter(),
-            jones_sum.iter(),
-            $avg_jones.iter_mut(),
-        ) {
-            *avg_jones = if !$avg_flag {
-                Complex::<f32>::new(
-                    (jones_weighted_sum.re / weight_sum_f64) as f32,
-                    (jones_weighted_sum.im / weight_sum_f64) as f32,
-                )
+        // re-use jones_weighted_sum to store the averaging result
+        if !$avg_flag {
+            jones_weighted_sum /= weight_sum_f64;
             } else {
-                Complex::<f32>::new(
-                    (jones_sum.re / chunk_size as f64) as f32,
-                    (jones_sum.im / chunk_size as f64) as f32,
-                )
-            };
+            jones_weighted_sum = jones_sum / chunk_size_f64;
+        }
+
+        for (r, j) in izip!(jones_weighted_sum.iter(), $avg_jones.iter_mut()) {
+            *j = Complex::<f32>::new(r.re as f32, r.im as f32)
         }
 
         $avg_weight = weight_sum_f64 as f32;
@@ -432,7 +424,7 @@ mod tess {
     }
 
     #[test]
-    /// birli issue 162 https://github.com/MWATelescope/Birli/issues/162
+    /// birli issue 162 <https://github.com/MWATelescope/Birli/issues/162>
     fn test_averaging_birli_162() {
         let n_timesteps = 4;
         let n_channels = 64;

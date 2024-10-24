@@ -1819,6 +1819,7 @@ impl VisWrite for MeasurementSetWriter {
                     if vis_ctx.trivial_averaging() {
                         data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
+                        // The linter doesn't like this, but it's wrong. don't bother.
                         average_chunk_f64!(
                             vis_chunk,
                             weight_chunk,
