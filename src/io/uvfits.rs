@@ -1198,10 +1198,13 @@ mod tests {
     use std::io::Read;
 
     use approx::{abs_diff_eq, assert_abs_diff_eq};
-    use fitsio::hdu::{FitsHdu, HduInfo};
+    use fitsio::{
+        hdu::{FitsHdu, HduInfo},
+        FitsFile,
+    };
     use mwalib::{
         _get_fits_col, _get_required_fits_key, _open_fits, _open_hdu, fits_open, fits_open_hdu,
-        get_fits_col, get_required_fits_key, CorrelatorContext, MWAFitsFile,
+        get_fits_col, get_required_fits_key, CorrelatorContext,
     };
     use ndarray::Array3;
     use tempfile::NamedTempFile;
@@ -1369,7 +1372,7 @@ mod tests {
                 for row_idx in 0..$row_len {
                     unsafe {
                         fitsio_sys::ffgcvd(
-                            $left_fptr.fits_file.as_raw(),
+                            $left_fptr.as_raw(),
                             (col_num + 1) as _,
                             (row_idx + 1) as _,
                             1,
@@ -1381,7 +1384,7 @@ mod tests {
                         );
                         fits_check_status(status).unwrap();
                         fitsio_sys::ffgcvd(
-                            $right_fptr.fits_file.as_raw(),
+                            $right_fptr.as_raw(),
                             (col_num + 1) as _,
                             (row_idx + 1) as _,
                             1,
@@ -1413,8 +1416,8 @@ mod tests {
 
     #[allow(dead_code)]
     pub(crate) fn assert_uvfits_primary_header_eq(
-        left_fptr: &mut MWAFitsFile,
-        right_fptr: &mut MWAFitsFile,
+        left_fptr: &mut FitsFile,
+        right_fptr: &mut FitsFile,
     ) {
         let left_primary_hdu = fits_open_hdu!(left_fptr, 0).unwrap();
         let right_primary_hdu = fits_open_hdu!(right_fptr, 0).unwrap();
@@ -1460,10 +1463,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn assert_uvfits_ant_header_eq(
-        left_fptr: &mut MWAFitsFile,
-        right_fptr: &mut MWAFitsFile,
-    ) {
+    pub(crate) fn assert_uvfits_ant_header_eq(left_fptr: &mut FitsFile, right_fptr: &mut FitsFile) {
         let left_ant_hdu = fits_open_hdu!(left_fptr, 1).unwrap();
         let right_ant_hdu = fits_open_hdu!(right_fptr, 1).unwrap();
 
@@ -1499,7 +1499,7 @@ mod tests {
 
     #[allow(dead_code)]
     pub(crate) fn get_group_column_description(
-        fptr: &mut MWAFitsFile,
+        fptr: &mut FitsFile,
         hdu: &FitsHdu,
     ) -> Result<Vec<String>, mwalib::FitsError> {
         let pcount: usize = get_required_fits_key!(fptr, hdu, "PCOUNT")?;
@@ -1539,10 +1539,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn assert_uvfits_vis_table_eq(
-        left_fptr: &mut MWAFitsFile,
-        right_fptr: &mut MWAFitsFile,
-    ) {
+    pub(crate) fn assert_uvfits_vis_table_eq(left_fptr: &mut FitsFile, right_fptr: &mut FitsFile) {
         let left_vis_hdu = fits_open_hdu!(left_fptr, 0).unwrap();
         let right_vis_hdu = fits_open_hdu!(right_fptr, 0).unwrap();
 
@@ -1583,20 +1580,20 @@ mod tests {
             unsafe {
                 // ffggpe = fits_read_grppar_flt
                 fitsio_sys::ffggpe(
-                    left_fptr.fits_file.as_raw(), /* I - FITS file pointer                       */
-                    1 + row_idx as i64,           /* I - group to read (1 = 1st group)           */
-                    1,                            /* I - first vector element to read (1 = 1st)  */
-                    pcount as i64,                /* I - number of values to read                */
+                    left_fptr.as_raw(),             /* I - FITS file pointer                       */
+                    1 + row_idx as i64, /* I - group to read (1 = 1st group)           */
+                    1,                  /* I - first vector element to read (1 = 1st)  */
+                    pcount as i64,      /* I - number of values to read                */
                     left_group_params.as_mut_ptr(), /* O - array of values that are returned       */
                     &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status).unwrap();
                 // ffggpe = fits_read_grppar_flt
                 fitsio_sys::ffggpe(
-                    right_fptr.fits_file.as_raw(), /* I - FITS file pointer                       */
-                    1 + row_idx as i64,            /* I - group to read (1 = 1st group)           */
-                    1,                             /* I - first vector element to read (1 = 1st)  */
-                    pcount as i64,                 /* I - number of values to read                */
+                    right_fptr.as_raw(),             /* I - FITS file pointer                       */
+                    1 + row_idx as i64, /* I - group to read (1 = 1st group)           */
+                    1,                  /* I - first vector element to read (1 = 1st)  */
+                    pcount as i64,      /* I - number of values to read                */
                     right_group_params.as_mut_ptr(), /* O - array of values that are returned       */
                     &mut status, /* IO - error status                           */
                 );
@@ -1621,27 +1618,27 @@ mod tests {
             unsafe {
                 // ffgpve = fits_read_sel_flt
                 fitsio_sys::ffgpve(
-                    left_fptr.fits_file.as_raw(), /* I - FITS file pointer                       */
-                    1 + row_idx as i64,           /* I - group to read (1 = 1st group)           */
-                    1,                            /* I - first vector element to read (1 = 1st)  */
-                    left_vis.len() as i64,        /* I - number of values to read                */
-                    0.0,                          /* I - value for undefined pixels              */
-                    left_vis.as_mut_ptr(),        /* O - array of values that are returned       */
-                    &mut 0,                       /* O - set to 1 if any values are null; else 0 */
-                    &mut status,                  /* IO - error status                           */
+                    left_fptr.as_raw(),    /* I - FITS file pointer                       */
+                    1 + row_idx as i64,    /* I - group to read (1 = 1st group)           */
+                    1,                     /* I - first vector element to read (1 = 1st)  */
+                    left_vis.len() as i64, /* I - number of values to read                */
+                    0.0,                   /* I - value for undefined pixels              */
+                    left_vis.as_mut_ptr(), /* O - array of values that are returned       */
+                    &mut 0,                /* O - set to 1 if any values are null; else 0 */
+                    &mut status,           /* IO - error status                           */
                 );
                 fits_check_status(status).unwrap();
 
                 // ffgpve = fits_read_sel_flt
                 fitsio_sys::ffgpve(
-                    right_fptr.fits_file.as_raw(), /* I - FITS file pointer                       */
-                    1 + row_idx as i64,            /* I - group to read (1 = 1st group)           */
-                    1,                             /* I - first vector element to read (1 = 1st)  */
-                    right_vis.len() as i64,        /* I - number of values to read                */
-                    0.0,                           /* I - value for undefined pixels              */
-                    right_vis.as_mut_ptr(),        /* O - array of values that are returned       */
-                    &mut 0,                        /* O - set to 1 if any values are null; else 0 */
-                    &mut status,                   /* IO - error status                           */
+                    right_fptr.as_raw(),    /* I - FITS file pointer                       */
+                    1 + row_idx as i64,     /* I - group to read (1 = 1st group)           */
+                    1,                      /* I - first vector element to read (1 = 1st)  */
+                    right_vis.len() as i64, /* I - number of values to read                */
+                    0.0,                    /* I - value for undefined pixels              */
+                    right_vis.as_mut_ptr(), /* O - array of values that are returned       */
+                    &mut 0,                 /* O - set to 1 if any values are null; else 0 */
+                    &mut status,            /* IO - error status                           */
                 );
                 fits_check_status(status).unwrap();
             }
@@ -1660,10 +1657,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn assert_uvfits_ant_table_eq(
-        left_fptr: &mut MWAFitsFile,
-        right_fptr: &mut MWAFitsFile,
-    ) {
+    pub(crate) fn assert_uvfits_ant_table_eq(left_fptr: &mut FitsFile, right_fptr: &mut FitsFile) {
         let left_ant_hdu = fits_open_hdu!(left_fptr, 1).unwrap();
         let right_ant_hdu = fits_open_hdu!(right_fptr, 1).unwrap();
 
@@ -2666,9 +2660,9 @@ mod tests {
         unsafe {
             // ffggpe = fits_read_grppar_flt
             fitsio_sys::ffggpe(
-                no_inttim.fits_file.as_raw(), /* I - FITS file pointer                       */
-                1,                            /* I - group to read (1 = 1st group)           */
-                1,                            /* I - first vector element to read (1 = 1st)  */
+                no_inttim.as_raw(), /* I - FITS file pointer                       */
+                1,                  /* I - group to read (1 = 1st group)           */
+                1,                  /* I - first vector element to read (1 = 1st)  */
                 no_inttim_group_params.len() as i64, /* I - number of values to read                */
                 no_inttim_group_params.as_mut_ptr(), /* O - array of values that are returned       */
                 &mut status, /* IO - error status                           */
@@ -2676,12 +2670,12 @@ mod tests {
             fits_check_status(status).unwrap();
             // ffggpe = fits_read_grppar_flt
             fitsio_sys::ffggpe(
-                inttim.fits_file.as_raw(), /* I - FITS file pointer                       */
-                1,                         /* I - group to read (1 = 1st group)           */
-                1,                         /* I - first vector element to read (1 = 1st)  */
+                inttim.as_raw(),                  /* I - FITS file pointer                       */
+                1,                                /* I - group to read (1 = 1st group)           */
+                1,                                /* I - first vector element to read (1 = 1st)  */
                 inttim_group_params.len() as i64, /* I - number of values to read                */
                 inttim_group_params.as_mut_ptr(), /* O - array of values that are returned       */
-                &mut status,               /* IO - error status                           */
+                &mut status,                      /* IO - error status                           */
             );
             fits_check_status(status).unwrap();
         }
@@ -2801,9 +2795,9 @@ mod tests {
         unsafe {
             // ffggpe = fits_read_grppar_flt
             fitsio_sys::ffggpe(
-                precession.fits_file.as_raw(), /* I - FITS file pointer                       */
-                2,                             /* I - group to read (1 = 1st group)           */
-                1,                             /* I - first vector element to read (1 = 1st)  */
+                precession.as_raw(), /* I - FITS file pointer                       */
+                2,                   /* I - group to read (1 = 1st group)           */
+                1,                   /* I - first vector element to read (1 = 1st)  */
                 precession_group_params.len() as i64, /* I - number of values to read                */
                 precession_group_params.as_mut_ptr(), /* O - array of values that are returned       */
                 &mut status, /* IO - error status                           */
@@ -2811,9 +2805,9 @@ mod tests {
             fits_check_status(status).unwrap();
             // ffggpe = fits_read_grppar_flt
             fitsio_sys::ffggpe(
-                no_precession.fits_file.as_raw(), /* I - FITS file pointer                       */
-                2,                                /* I - group to read (1 = 1st group)           */
-                1,                                /* I - first vector element to read (1 = 1st)  */
+                no_precession.as_raw(), /* I - FITS file pointer                       */
+                2,                      /* I - group to read (1 = 1st group)           */
+                1,                      /* I - first vector element to read (1 = 1st)  */
                 no_precession_group_params.len() as i64, /* I - number of values to read                */
                 no_precession_group_params.as_mut_ptr(), /* O - array of values that are returned       */
                 &mut status, /* IO - error status                           */
