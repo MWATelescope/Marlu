@@ -1,8 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
-# Version 0.15.0 (2024-10-24)
+# Version 0.15.0 (2024-11-12)
 
-- update mwalib 1.7.0, which uses newer lazy_static, fitsio, fitsio-sys, msrv
+- update mwalib 1.8.2, with:
+  - newer lazy_static, fitsio, fitsio-sys, msrv
+  - bscale in CorrelatorContext
 - msrv 1.65
 
 # Version 0.14.0 (2024-09-20)
