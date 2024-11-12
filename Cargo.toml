@@ -57,7 +57,7 @@ fitsio = { version = "0.21.6", optional = true }
 fitsio-sys = { version = "~0.5", optional = true }
 
 # "mwalib" feature
-mwalib = { version = "1.8.0", optional = true }
+mwalib = { version = "1.8.2", optional = true }
 
 # "ms" feature
 flate2 = { version = "1.0.13", optional = true }
@@ -97,6 +97,6 @@ name = "bench_io"
 harness = false
 
 [patch.crates-io]
-mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "pyo3_stub_chrono_fix" }
+# mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "pyo3_stub_chrono_fix" }
 # TODO: get rid of this once MSRV >= 1.70
 ciborium = { git = "https://github.com/enarx/ciborium", tag = "v0.2.1" } # ciborium-ll v > 0.2.1 needs half ^2.2, half v > 2.3.x msrv is 1.70
