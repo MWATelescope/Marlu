@@ -62,10 +62,12 @@ fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut c_char>) {
     }
 }
 
-/// Encode a baseline into the uvfits format. Use the miriad convention to
-/// handle more than 255 antennas (up to 2048). This is backwards compatible
-/// with the standard UVFITS convention. Antenna indices start at 1.
-// Shamelessly copied from the RTS, originally written by Randall Wayth.
+/// Encode a baseline into the uvfits format.
+///
+/// Use the miriad convention to handle more than 255 antennas (up to 2048).
+/// This is backwards compatible with the standard UVFITS convention.
+/// Antenna indices start at 1.
+/// Shamelessly copied from the RTS, originally written by Randall Wayth.
 pub const fn encode_uvfits_baseline(ant1: usize, ant2: usize) -> usize {
     if ant2 > 255 {
         ant1 * 2048 + ant2 + 65_536
