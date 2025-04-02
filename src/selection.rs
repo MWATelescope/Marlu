@@ -196,6 +196,33 @@ impl VisSelection {
         })
     }
 
+    /// Exclude `baseline_idxs` that don't include antennas from `ant_idxs`
+    #[cfg(feature = "mwalib")]
+    pub fn retain_antennas(&mut self, meta_ctx: &MetafitsContext, ant_idxs: &[usize]) {
+        self.baseline_idxs.retain(|&bl_idx| {
+            let bl = &meta_ctx.baselines[bl_idx];
+            ant_idxs.contains(&bl.ant1_index) && ant_idxs.contains(&bl.ant2_index)
+        });
+    }
+
+    /// Exclude `baseline_idxs` that include antennas from `ant_idxs`
+    #[cfg(feature = "mwalib")]
+    pub fn filter_antennas(&mut self, meta_ctx: &MetafitsContext, ant_idxs: &[usize]) {
+        self.baseline_idxs.retain(|&bl_idx| {
+            let bl = &meta_ctx.baselines[bl_idx];
+            !ant_idxs.contains(&bl.ant1_index) && !ant_idxs.contains(&bl.ant2_index)
+        });
+    }
+
+    /// Exclude `baseline_idxs` from autocorrelations
+    #[cfg(feature = "mwalib")]
+    pub fn filter_autos(&mut self, meta_ctx: &MetafitsContext) {
+        self.baseline_idxs.retain(|&bl_idx| {
+            let bl = &meta_ctx.baselines[bl_idx];
+            bl.ant1_index != bl.ant2_index
+        });
+    }
+
     /// The selected antenna index pairs corresponding to `sel_baselines_idxs`
     #[cfg(feature = "mwalib")]
     pub fn get_ant_pairs(&self, meta_ctx: &MetafitsContext) -> Vec<(usize, usize)> {
@@ -821,5 +848,68 @@ mod tests {
                 Complex::new(0x0dec16 as f32, -0x0dec17 as f32),
             ])
         );
+    }
+
+    #[test]
+    fn test_retain_antennas() {
+        let corr_ctx = get_mwa_legacy_context();
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+        assert_eq!(vis_sel.baseline_idxs.len(), 8256);
+
+        // remove all baselines with ant1=0 or ant2=0
+        vis_sel.retain_antennas(&corr_ctx.metafits_context, &[1, 2]);
+
+        assert_eq!(vis_sel.baseline_idxs, vec![128, 129, 255]);
+    }
+
+    #[test]
+    fn test_filter_antennas() {
+        let corr_ctx = get_mwa_legacy_context();
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+        assert_eq!(vis_sel.baseline_idxs.len(), 8256);
+
+        // remove all baselines with ant1=0 or ant2=0
+        vis_sel.filter_antennas(&corr_ctx.metafits_context, &[1, 2]);
+
+        assert_eq!(vis_sel.baseline_idxs.len(), 8001);
+
+        println!("baseline_idxs: {:?}", vis_sel.baseline_idxs);
+
+        assert!(vis_sel.baseline_idxs.contains(&0));
+        assert!(!vis_sel.baseline_idxs.contains(&1));
+        assert!(!vis_sel.baseline_idxs.contains(&2));
+        assert!(vis_sel.baseline_idxs.contains(&3));
+        assert!(!vis_sel.baseline_idxs.contains(&128));
+        assert!(!vis_sel.baseline_idxs.contains(&129));
+        assert!(!vis_sel.baseline_idxs.contains(&130));
+        assert!(!vis_sel.baseline_idxs.contains(&254));
+        assert!(!vis_sel.baseline_idxs.contains(&255));
+        assert!(!vis_sel.baseline_idxs.contains(&256));
+        assert!(vis_sel.baseline_idxs.contains(&381));
+        assert!(vis_sel.baseline_idxs.contains(&8255));
+    }
+
+    #[test]
+    fn test_filter_autos() {
+        let corr_ctx = get_mwa_legacy_context();
+        let mut vis_sel = VisSelection::from_mwalib(&corr_ctx).unwrap();
+        assert_eq!(vis_sel.baseline_idxs.len(), 8256);
+
+        vis_sel.filter_autos(&corr_ctx.metafits_context);
+
+        assert_eq!(vis_sel.baseline_idxs.len(), 8128);
+        assert!(!vis_sel.baseline_idxs.contains(&0));
+        assert!(vis_sel.baseline_idxs.contains(&1));
+        assert!(vis_sel.baseline_idxs.contains(&2));
+        assert!(vis_sel.baseline_idxs.contains(&3));
+        assert!(!vis_sel.baseline_idxs.contains(&128));
+        assert!(vis_sel.baseline_idxs.contains(&129));
+        assert!(vis_sel.baseline_idxs.contains(&130));
+        assert!(vis_sel.baseline_idxs.contains(&254));
+        assert!(!vis_sel.baseline_idxs.contains(&255));
+        assert!(vis_sel.baseline_idxs.contains(&256));
+        assert!(!vis_sel.baseline_idxs.contains(&381));
+        assert!(vis_sel.baseline_idxs.contains(&8127));
+        assert!(!vis_sel.baseline_idxs.contains(&8255));
     }
 }
