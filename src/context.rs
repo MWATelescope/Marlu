@@ -127,7 +127,7 @@ pub struct History<'a> {
     pub message: Option<&'a str>,
 }
 
-impl<'a> History<'a> {
+impl History<'_> {
     /// Format history as a series of uvfits COMMENTs
     pub fn as_comments(&self) -> Vec<String> {
         [
