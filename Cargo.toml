@@ -101,5 +101,7 @@ harness = false
 # TODO: get rid of this once MSRV >= 1.67, built@0.7.3+git2 => icu_normalizer@1.5.0 => rustc 1.65.0
 built = { git = "https://github.com/lukaslueg/built", tag = "0.7.3" }
 url = { git = "https://github.com/servo/rust-url", tag = "v2.5.2" }
+textwrap = { git = "https://github.com/mgeisler/textwrap", tag = "0.16.1" }
+flate2 = { git = "https://github.com/rust-lang/flate2-rs", tag = "1.0.35" }
 # TODO: get rid of this once MSRV >= 1.70
 ciborium = { git = "https://github.com/enarx/ciborium", tag = "v0.2.1" } # ciborium-ll v > 0.2.1 needs half ^2.2, half v > 2.3.x msrv is 1.70
