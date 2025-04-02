@@ -1,5 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.15.1 (2025-04-02)
+
+- add antenna filtering to `VisSelection`
+
 # Version 0.15.0 (2024-11-12)
 
 - update mwalib 1.8.2, with:
