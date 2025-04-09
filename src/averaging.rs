@@ -166,7 +166,7 @@ macro_rules! average_chunk_f64 {
         // re-use jones_weighted_sum to store the averaging result
         if !$avg_flag {
             jones_weighted_sum /= weight_sum_f64;
-            } else {
+        } else {
             jones_weighted_sum = jones_sum / chunk_size_f64;
         }
 
