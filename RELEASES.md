@@ -1,8 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
 
-# Version 0.16.0 (2025-04-09)
+# Version 0.16.0 (2025-04-10)
 
-- update mwalib 1.8.6
+- update mwalib 1.8.7
 - minor code reformatting
 
 # Version 0.15.1 (2025-04-02)
