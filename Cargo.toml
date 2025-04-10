@@ -1,6 +1,6 @@
 [package]
 name = "marlu"
-version = "0.15.1"
+version = "0.16.0"
 authors = [
     "Christopher H. Jordan <christopherjordan87@gmail.com>",
     "Dev Null <dev.null@curtin.edu.au>",
@@ -57,7 +57,7 @@ fitsio = { version = "0.21.6", optional = true }
 fitsio-sys = { version = "~0.5", optional = true }
 
 # "mwalib" feature
-mwalib = { version = "1.8.2", optional = true }
+mwalib = { version = "1.8.7", optional = true }
 
 # "ms" feature
 flate2 = { version = "1.0.13", optional = true }
@@ -82,7 +82,7 @@ serial_test = "0.9.0"
 tempfile = "3.3.0"
 
 [build-dependencies]
-built = { version = "~0.7.3", default-features = false, features = [
+built = { version = "=0.7.3", default-features = false, features = [
     "chrono",
     "git2",
     "semver",
@@ -97,9 +97,8 @@ name = "bench_io"
 harness = false
 
 [patch.crates-io]
-# mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "pyo3_stub_chrono_fix" }
 # TODO: get rid of this once MSRV >= 1.67, built@0.7.3+git2 => icu_normalizer@1.5.0 => rustc 1.65.0
-built = { git = "https://github.com/lukaslueg/built", tag = "0.7.3" }
+# built = { git = "https://github.com/lukaslueg/built", tag = "0.7.3" }
 url = { git = "https://github.com/servo/rust-url", tag = "v2.5.2" }
 textwrap = { git = "https://github.com/mgeisler/textwrap", tag = "0.16.1" }
 flate2 = { git = "https://github.com/rust-lang/flate2-rs", tag = "1.0.35" }
