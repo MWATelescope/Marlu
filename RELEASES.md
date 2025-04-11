@@ -1,5 +1,10 @@
 <!-- markdownlint-disable=MD025 -->
 
+# Version 0.16.1 (2025-04-11)
+
+- Fixed decode_uvfits_baseline bug (#36)
+- minor code reformatting
+
 # Version 0.16.0 (2025-04-10)
 
 - update mwalib 1.8.7
