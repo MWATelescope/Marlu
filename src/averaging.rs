@@ -203,7 +203,7 @@ pub type VisData33 = (Array3<Jones<f32>>, Array3<f32>);
 /// chunk of input visibilities:
 /// - unflagged weights are added together
 /// - if all visibilities in a chunk are flagged, then the result is the geometric
-///     mean of the chunk.
+///   mean of the chunk.
 /// - otherwise the visibility is the weighted mean of the unflagged visibilities.
 ///
 /// This has been validated thoroughly against Cotter.

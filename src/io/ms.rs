@@ -464,7 +464,7 @@ impl MeasurementSetWriter {
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
     /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
-    ///     following for each channel:
+    ///   following for each channel:
     ///     - `CHAN_FREQ` - the center frequencies
     ///     - `CHAN_WIDTH` - channel widths,
     ///     - `EFFECTIVE_BW` - effective noise bandwidths
@@ -521,14 +521,14 @@ impl MeasurementSetWriter {
     /// - `name` - Spectral Window name (`NAME` column)
     /// - `ref_freq` - Reference frequency (`REF_FREQUENCY` column)
     /// - `chan_info` - A two-dimensional array of shape (n, 4), containing the
-    ///     following for each channel:
+    ///   following for each channel:
     ///     - `CHAN_FREQ` - the center frequencies
     ///     - `CHAN_WIDTH` - channel widths,
     ///     - `EFFECTIVE_BW` - effective noise bandwidths
     ///     - `RESOLUTION` - resolutions.
     /// - `total_bw` - Total bandwidth (`TOTAL_BANDWIDTH` column)
     /// - `centre_subband_nr` - This is the "sky" channel number of the center coarse channel in
-    ///     the spectral window.
+    ///   the spectral window.
     /// - `flag` - Row flag (`FLAG_ROW` column)
     #[allow(clippy::too_many_arguments)]
     pub fn write_spectral_window_row_mwa(
@@ -677,7 +677,7 @@ impl MeasurementSetWriter {
     /// - `idx` - row index to write to (ensure enough rows have been added)
     /// - `corr_type` - The polarization type for each correlation product, as a Stokes enum.
     /// - `corr_product` - Indices describing receptors of feed going into correlation.
-    ///     Shape should be [n, 2] where n is the length of `corr_type`
+    ///   Shape should be [n, 2] where n is the length of `corr_type`
     /// - `flag_row` - Row flag
     #[allow(clippy::ptr_arg)]
     pub fn write_polarization_row(
@@ -771,8 +771,8 @@ impl MeasurementSetWriter {
     /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
     /// - `time` - Time origin for direction and rate
     /// - `dir_info` - An array of polynomial coefficients to calculate a direction
-    ///     (RA, DEC) relative to `time`. The shape is  [3, p, 2], where p is the maximum
-    ///     order of all polynomials, and there are three direction polynomials:
+    ///   (RA, DEC) relative to `time`. The shape is  [3, p, 2], where p is the maximum
+    ///   order of all polynomials, and there are three direction polynomials:
     ///     - `DELAY_DIR` - Direction of delay center (e.g. RA, DEC) in time
     ///     - `PHASE_DIR` - Direction of phase center (e.g. RA, DEC) in time
     ///     - `REFERENCE_DIR` - Direction of reference center (e.g. RA, DEC) in time
@@ -830,8 +830,8 @@ impl MeasurementSetWriter {
     /// - `code` - Special characteristics of field, e.g. Bandpass calibrator
     /// - `time` - Time origin for direction and rate
     /// - `dir_info` - An array of polynomial coefficients to calculate a direction
-    ///     (RA, DEC) relative to `time`. The shape is  [3, p, 2], where p is the maximum
-    ///     order of all polynomials, and there are three direction polynomials:
+    ///   (RA, DEC) relative to `time`. The shape is  [3, p, 2], where p is the maximum
+    ///   order of all polynomials, and there are three direction polynomials:
     ///     - `DELAY_DIR` - Direction of delay center (e.g. RA, DEC) in time
     ///     - `PHASE_DIR` - Direction of phase center (e.g. RA, DEC) in time
     ///     - `REFERENCE_DIR` - Direction of reference center (e.g. RA, DEC) in time
@@ -1605,7 +1605,7 @@ impl MeasurementSetWriter {
     /// - `state_id` - ID for this observing state
     /// - `sigma` - Estimated rms noise for channel with unity bandpass response
     /// - `data` - an `[n, p]` shaped ndarray of complex visibilities, where `n`
-    ///     is the number of channels, and p is the number of polarizations
+    ///   is the number of channels, and p is the number of polarizations
     /// - `flags` - an `[n, p]` shaped ndarray of boolean flags.
     /// - `weights` - a `[p]` shaped ndarray of weights for each polarization
     ///
