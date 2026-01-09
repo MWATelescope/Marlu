@@ -40,6 +40,23 @@ pub fn palGmst(ut1: f64) -> f64 {
     eraGmst06(ERFA_DJM0, ut1, ERFA_DJM0, ut1)
 }
 
+/// Equation of the equinoxes (IAU 2006)
+///
+/// # Arguments
+/// date = double (Given)
+///    TT as a modified Julian Date (JD-2400000.5)
+///
+/// # Returned Value
+/// Equation of the equinoxes
+///
+/// # Description
+/// The equation of the equinoxes is the difference between apparent and
+/// mean sidereal time (GAST - GMST).
+pub fn palEqeq(date: f64) -> f64 {
+    let rnpb = erfa::aliases::eraPnm06a(ERFA_DJM0, date);
+    erfa::aliases::eraGst06(ERFA_DJM0, date, ERFA_DJM0, date, rnpb) - erfa::aliases::eraGmst06(ERFA_DJM0, date, ERFA_DJM0, date)
+}
+
 /// Spherical coordinates to direction cosines
 ///
 /// Arguments:

@@ -1780,7 +1780,13 @@ impl VisWrite for MeasurementSetWriter {
                     avg_centroid_timestamp,
                     self.dut1,
                 );
-                let hadec = self.phase_centre.to_hadec(lmst);
+                // We use the same time for TT as we did for UT1 (which is what
+                // get_lmst does).
+                let mjd = (avg_centroid_timestamp + self.dut1).to_mjd_utc_days();
+                let eqeq = crate::pal::palEqeq(mjd);
+                let last = lmst + eqeq;
+
+                let hadec = self.phase_centre.to_hadec(last);
                 (self.antenna_positions.as_slice().into(), hadec)
             };
 
