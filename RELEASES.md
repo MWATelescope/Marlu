@@ -3,7 +3,7 @@
 # Version 0.17.0 (2026-02-10)
 
 - Bumped MSRV to 1.85
-- Updated mwalib to 2.0 rubbl_casatables 0.9.0 thiserror 2.0 hifitime itertools built criterion  
+- Updated mwalib to 2.0.3 rubbl_casatables 0.9.0 thiserror 2.0
 
 # Version 0.16.1 (2025-04-11)
 
