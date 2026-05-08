@@ -16,6 +16,7 @@ homepage = "https://github.com/MWATelescope/marlu"
 keywords = ["radioastronomy", "mwa", "astronomy", "aoflagger", "cotter"]
 categories = ["science"]
 exclude = ["tests/*", ".vscode/*", ".github/*", ".talismanrc"]
+resolver = "3"
 
 [features]
 default = ["mwalib", "ms"]
@@ -90,7 +91,7 @@ serial_test = "3.4.0"
 tempfile = "3.3.0"
 
 [build-dependencies]
-built = { version = "=0.7.0", default-features = false, features = [
+built = { version = "0.7", default-features = false, features = [
     "chrono",
     "git2",
     "semver",
