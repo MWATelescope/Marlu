@@ -59,7 +59,7 @@ fitsio = { version = "0.21.6", optional = true }
 fitsio-sys = { version = "~0.5", optional = true }
 
 # "mwalib" feature
-mwalib = { version = "2.0.3", optional = true }
+mwalib = { version = "2.0", optional = true }
 #mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "bf_metafits_changes_vcs_read_size", optional = true }
 
 # "ms" feature
@@ -91,7 +91,7 @@ serial_test = "3.4.0"
 tempfile = "3.3.0"
 
 [build-dependencies]
-built = { version = "0.7", default-features = false, features = [
+built = { version = "0.8", default-features = false, features = [
     "chrono",
     "git2",
     "semver",
