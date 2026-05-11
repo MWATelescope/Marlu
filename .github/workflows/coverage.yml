@@ -10,7 +10,7 @@ jobs:
     container: mwatelescope/marlu:latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -22,6 +22,6 @@ jobs:
           /opt/cargo/bin/cargo llvm-cov --no-run
 
       - name: Upload reports to codecov.io
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
