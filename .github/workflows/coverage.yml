@@ -21,6 +21,9 @@ jobs:
           # this uses the result of the previous run to generate a text summary
           /opt/cargo/bin/cargo llvm-cov --no-run
 
+      - name: Install codecov dependencies
+        run: apt-get update && apt-get install -y bash curl gpg git
+
       - name: Upload reports to codecov.io
         uses: codecov/codecov-action@v6
         with:
