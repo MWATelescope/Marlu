@@ -1203,8 +1203,8 @@ mod tests {
         FitsFile,
     };
     use mwalib::{
-        _get_fits_col, _get_required_fits_key, _open_fits, _open_hdu, fits_open, fits_open_hdu,
-        get_fits_col, get_required_fits_key, CorrelatorContext,
+        _get_fits_col, _get_required_fits_key, fits_open, fits_open_hdu, get_fits_col,
+        get_required_fits_key, CorrelatorContext,
     };
     use ndarray::Array3;
     use tempfile::NamedTempFile;
@@ -2834,56 +2834,56 @@ mod tests {
     #[test]
     fn test_encode_uvfits_baseline_256t() {
         // test hand calculated edge cases
-        assert_eq!(encode_uvfits_baseline(1,1), 257);
-        assert_eq!(encode_uvfits_baseline(1,2), 258);
-        assert_eq!(encode_uvfits_baseline(1,255), 511);
-        assert_eq!(encode_uvfits_baseline(1,256), 67840);
-        assert_eq!(encode_uvfits_baseline(127,127), 32639);
-        assert_eq!(encode_uvfits_baseline(127,255), 32767);
-        assert_eq!(encode_uvfits_baseline(127,256), 325888);
-        assert_eq!(encode_uvfits_baseline(128,128), 32896);
-        assert_eq!(encode_uvfits_baseline(128,255), 33023);
-        assert_eq!(encode_uvfits_baseline(128,256), 327936);
-        assert_eq!(encode_uvfits_baseline(254,254), 65278);
-        assert_eq!(encode_uvfits_baseline(254,255), 65279);
-        assert_eq!(encode_uvfits_baseline(254,256), 585984);
-        assert_eq!(encode_uvfits_baseline(255,255), 65535);
-        assert_eq!(encode_uvfits_baseline(255,256), 588032);
-        assert_eq!(encode_uvfits_baseline(256,256), 590080);
+        assert_eq!(encode_uvfits_baseline(1, 1), 257);
+        assert_eq!(encode_uvfits_baseline(1, 2), 258);
+        assert_eq!(encode_uvfits_baseline(1, 255), 511);
+        assert_eq!(encode_uvfits_baseline(1, 256), 67840);
+        assert_eq!(encode_uvfits_baseline(127, 127), 32639);
+        assert_eq!(encode_uvfits_baseline(127, 255), 32767);
+        assert_eq!(encode_uvfits_baseline(127, 256), 325888);
+        assert_eq!(encode_uvfits_baseline(128, 128), 32896);
+        assert_eq!(encode_uvfits_baseline(128, 255), 33023);
+        assert_eq!(encode_uvfits_baseline(128, 256), 327936);
+        assert_eq!(encode_uvfits_baseline(254, 254), 65278);
+        assert_eq!(encode_uvfits_baseline(254, 255), 65279);
+        assert_eq!(encode_uvfits_baseline(254, 256), 585984);
+        assert_eq!(encode_uvfits_baseline(255, 255), 65535);
+        assert_eq!(encode_uvfits_baseline(255, 256), 588032);
+        assert_eq!(encode_uvfits_baseline(256, 256), 590080);
     }
 
     #[test]
     fn test_decode_uvfits_baseline_256t() {
         // Test hand calculated edge cases
-        assert_eq!(decode_uvfits_baseline(257), (1,1));
-        assert_eq!(decode_uvfits_baseline(258), (1,2));
-        assert_eq!(decode_uvfits_baseline(511), (1,255));
-        assert_eq!(decode_uvfits_baseline(67840), (1,256));
-        assert_eq!(decode_uvfits_baseline(32639), (127,127));
-        assert_eq!(decode_uvfits_baseline(32767), (127,255));
-        assert_eq!(decode_uvfits_baseline(325888), (127,256));
-        assert_eq!(decode_uvfits_baseline(32896), (128,128));
-        assert_eq!(decode_uvfits_baseline(33023), (128,255));
-        assert_eq!(decode_uvfits_baseline(327936), (128,256));
-        assert_eq!(decode_uvfits_baseline(65278), (254,254));
-        assert_eq!(decode_uvfits_baseline(65279), (254,255));
-        assert_eq!(decode_uvfits_baseline(585984), (254,256));
-        assert_eq!(decode_uvfits_baseline(65535), (255,255));
-        assert_eq!(decode_uvfits_baseline(588032), (255,256));
-        assert_eq!(decode_uvfits_baseline(590080), (256,256));
+        assert_eq!(decode_uvfits_baseline(257), (1, 1));
+        assert_eq!(decode_uvfits_baseline(258), (1, 2));
+        assert_eq!(decode_uvfits_baseline(511), (1, 255));
+        assert_eq!(decode_uvfits_baseline(67840), (1, 256));
+        assert_eq!(decode_uvfits_baseline(32639), (127, 127));
+        assert_eq!(decode_uvfits_baseline(32767), (127, 255));
+        assert_eq!(decode_uvfits_baseline(325888), (127, 256));
+        assert_eq!(decode_uvfits_baseline(32896), (128, 128));
+        assert_eq!(decode_uvfits_baseline(33023), (128, 255));
+        assert_eq!(decode_uvfits_baseline(327936), (128, 256));
+        assert_eq!(decode_uvfits_baseline(65278), (254, 254));
+        assert_eq!(decode_uvfits_baseline(65279), (254, 255));
+        assert_eq!(decode_uvfits_baseline(585984), (254, 256));
+        assert_eq!(decode_uvfits_baseline(65535), (255, 255));
+        assert_eq!(decode_uvfits_baseline(588032), (255, 256));
+        assert_eq!(decode_uvfits_baseline(590080), (256, 256));
     }
 }
 
 #[test]
 fn test_encode_decode_uvfits_all_baselines_128t() {
-    // Test all baselines can be encoded then decoded correctly    
+    // Test all baselines can be encoded then decoded correctly
     // MWAX 128T
-    let n_ants: usize= 128;
-    
+    let n_ants: usize = 128;
+
     for ant1 in 1..=n_ants {
         for ant2 in ant1..=n_ants {
             let bl = encode_uvfits_baseline(ant1, ant2);
-            let (a1,a2) = decode_uvfits_baseline(bl);
+            let (a1, a2) = decode_uvfits_baseline(bl);
             assert_eq!(a1, ant1);
             assert_eq!(a2, ant2);
         }
@@ -2894,12 +2894,12 @@ fn test_encode_decode_uvfits_all_baselines_128t() {
 fn test_encode_decode_uvfits_all_baselines_256t() {
     // Test all baselines can be encoded then decoded correctly
     // MWAX 256T
-    let n_ants: usize= 256;
-    
+    let n_ants: usize = 256;
+
     for ant1 in 1..=n_ants {
         for ant2 in ant1..=n_ants {
             let bl = encode_uvfits_baseline(ant1, ant2);
-            let (a1,a2) = decode_uvfits_baseline(bl);
+            let (a1, a2) = decode_uvfits_baseline(bl);
             assert_eq!(a1, ant1);
             assert_eq!(a2, ant2);
         }
@@ -2910,12 +2910,12 @@ fn test_encode_decode_uvfits_all_baselines_256t() {
 fn test_encode_decode_uvfits_all_baselines_264t() {
     // Test all baselines can be encoded then decoded correctly
     // MWAX 256T + 1 more receiver
-    let n_ants: usize= 264;
-    
+    let n_ants: usize = 264;
+
     for ant1 in 1..=n_ants {
         for ant2 in ant1..=n_ants {
             let bl = encode_uvfits_baseline(ant1, ant2);
-            let (a1,a2) = decode_uvfits_baseline(bl);
+            let (a1, a2) = decode_uvfits_baseline(bl);
             assert_eq!(a1, ant1);
             assert_eq!(a2, ant2);
         }
@@ -2926,12 +2926,12 @@ fn test_encode_decode_uvfits_all_baselines_264t() {
 fn test_encode_decode_uvfits_all_baselines_512t() {
     // Test all baselines can be encoded then decoded correctly
     // MWAX 512T (Phase 4(!))
-    let n_ants: usize= 512;
-    
+    let n_ants: usize = 512;
+
     for ant1 in 1..=n_ants {
         for ant2 in ant1..=n_ants {
             let bl = encode_uvfits_baseline(ant1, ant2);
-            let (a1,a2) = decode_uvfits_baseline(bl);
+            let (a1, a2) = decode_uvfits_baseline(bl);
             assert_eq!(a1, ant1);
             assert_eq!(a2, ant2);
         }

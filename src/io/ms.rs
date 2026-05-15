@@ -5239,7 +5239,7 @@ mod tests {
         }
     }
 
-    /// as above, but with two consecutive calls to write_vis_mwalib
+    /// as above, but with two consecutive calls to `write_vis_mwalib`
     #[cfg(feature = "mwalib")]
     #[test]
     #[serial]

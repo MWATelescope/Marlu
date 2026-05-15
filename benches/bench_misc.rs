@@ -3,9 +3,9 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 //! Misc Benchmarks
-
 use criterion::*;
 use hifitime::{Duration, Epoch};
+use std::hint::black_box;
 
 use marlu::{
     c64,

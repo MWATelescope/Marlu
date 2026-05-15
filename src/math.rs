@@ -38,7 +38,7 @@ pub fn baseline_to_tiles(total_num_tiles: usize, baseline: usize) -> (usize, usi
 // this is just the solved quadratic.
 #[inline]
 pub fn num_tiles_from_num_cross_correlation_baselines(num_baselines: usize) -> usize {
-    (((1 + 8 * num_baselines) as f64).sqrt() as usize + 1) / 2
+    (((1 + 8 * num_baselines) as f64).sqrt() as usize).div_ceil(2)
 }
 
 /// From the number of baselines (which also include auto-correlations as

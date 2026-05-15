@@ -4,9 +4,9 @@ on:
   push:
     tags-ignore:
       - "**"
-    pull_request:
     branches:
       - "**"
+  pull_request:
 
 name: Benchmarks
 
@@ -16,16 +16,12 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cargo Bench
         run: |
@@ -37,7 +33,7 @@ jobs:
       - name: Zip benchmark results
         run: zip -r criterion.zip target/criterion/*
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v6
         with:
-          name: criterion.zip
+          name: criterion
           path: criterion.zip
