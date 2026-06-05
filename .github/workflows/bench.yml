@@ -33,7 +33,7 @@ jobs:
       - name: Zip benchmark results
         run: zip -r criterion.zip target/criterion/*
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: criterion
           path: criterion.zip

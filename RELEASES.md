@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Version 0.17.1 (2026-06-05)
+
+- Corrected MSRV to 1.85.0
+- Updated CI
 
 # Version 0.17.0 (2026-05-15)
 
