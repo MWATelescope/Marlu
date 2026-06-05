@@ -18,11 +18,11 @@ etc.
 
 ## Prerequisites
 
-- Cargo version >= 1.65.0
+- Cargo version >= 1.85.0
 
 ```bash
 $ cargo -V
-cargo 1.65.0 (4bc8f24d3 2022-10-20)
+cargo 1.85.0 (d73d2caf9 2024-12-31)
 ```
 
 <https://www.rust-lang.org/tools/install>
