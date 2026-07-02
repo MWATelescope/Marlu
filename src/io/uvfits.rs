@@ -68,8 +68,33 @@ fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut c_char>) {
 /// This is backwards compatible with the standard UVFITS convention.
 /// Antenna indices start at 1.
 /// Shamelessly copied from the RTS, originally written by Randall Wayth.
+///
+/// Note: when writing a file with more than 255 antennas, **all** baselines
+/// must be encoded with the miriad convention (i.e. `use_miriad = true`),
+/// not just those where `ant2 > 255`. Readers such as pyuvdata determine
+/// which convention was used from the maximum baseline value in the file; a
+/// mix of standard- and miriad-encoded baselines causes incorrect decoding.
 pub const fn encode_uvfits_baseline(ant1: usize, ant2: usize) -> usize {
-    if ant2 > 255 {
+    encode_uvfits_baseline_inner(ant1, ant2, false)
+}
+
+/// Encode a baseline using the miriad convention regardless of antenna index.
+///
+/// This must be used for every baseline when the array has more than 255
+/// antennas so that all baselines in the file share a single consistent
+/// encoding scheme.
+pub const fn encode_uvfits_baseline_miriad(ant1: usize, ant2: usize) -> usize {
+    encode_uvfits_baseline_inner(ant1, ant2, true)
+}
+
+/// Internal implementation shared by [`encode_uvfits_baseline`] and
+/// [`encode_uvfits_baseline_miriad`].
+///
+/// When `use_miriad` is `true`, or when `ant2 > 255`, the miriad convention is
+/// used: `bl = ant1 * 2048 + ant2 + 65536`. Otherwise the standard UVFITS
+/// convention is used: `bl = ant1 * 256 + ant2`. Antenna indices start at 1.
+const fn encode_uvfits_baseline_inner(ant1: usize, ant2: usize, use_miriad: bool) -> usize {
+    if use_miriad || ant2 > 255 {
         ant1 * 2048 + ant2 + 65_536
     } else {
         ant1 * 256 + ant2
@@ -151,6 +176,12 @@ pub struct UvfitsWriter {
 
     /// Are we going to write out precessed UVWs?
     precess_uvws: bool,
+
+    /// If true, all baselines are encoded with the miriad convention
+    /// (`ant1 * 2048 + ant2 + 65536`). This must be set when the array has
+    /// more than 255 antennas so that readers (e.g. pyuvdata) that infer the
+    /// encoding from the maximum baseline value see a consistent scheme.
+    use_miriad_baselines: bool,
 }
 
 impl UvfitsWriter {
@@ -387,6 +418,7 @@ impl UvfitsWriter {
             start_epoch,
             phase_centre,
             array_pos,
+            use_miriad_baselines: antenna_names.len() > 255,
             antenna_names,
             antenna_positions,
             dut1,
@@ -807,7 +839,11 @@ impl UvfitsWriter {
         self.buffer[i_u] = uvw.u as f32;
         self.buffer[i_v] = uvw.v as f32;
         self.buffer[i_w] = uvw.w as f32;
-        self.buffer[i_baseline] = encode_uvfits_baseline(tile_index1 + 1, tile_index2 + 1) as f32;
+        self.buffer[i_baseline] = if self.use_miriad_baselines {
+            encode_uvfits_baseline_miriad(tile_index1 + 1, tile_index2 + 1)
+        } else {
+            encode_uvfits_baseline(tile_index1 + 1, tile_index2 + 1)
+        } as f32;
         self.buffer[i_date1] = jd_frac_f32;
         self.buffer[i_date2] = jd_remainder_f32;
 
@@ -1005,7 +1041,11 @@ impl VisWrite for UvfitsWriter {
                 self.buffer[i_u] = uvw.u as f32;
                 self.buffer[i_v] = uvw.v as f32;
                 self.buffer[i_w] = uvw.w as f32;
-                self.buffer[i_baseline] = encode_uvfits_baseline(ant1_idx + 1, ant2_idx + 1) as f32;
+                self.buffer[i_baseline] = if self.use_miriad_baselines {
+                    encode_uvfits_baseline_miriad(ant1_idx + 1, ant2_idx + 1)
+                } else {
+                    encode_uvfits_baseline(ant1_idx + 1, ant2_idx + 1)
+                } as f32;
 
                 // MWA/CASA/AOFlagger visibility order is XX,XY,YX,YY
                 // UVFits visibility order is XX,YY,XY,YX
@@ -2872,6 +2912,40 @@ mod tests {
         assert_eq!(decode_uvfits_baseline(588032), (255, 256));
         assert_eq!(decode_uvfits_baseline(590080), (256, 256));
     }
+
+    #[test]
+    fn test_encode_uvfits_baseline_miriad() {
+        // Verify that encode_uvfits_baseline_miriad always uses the miriad
+        // convention, even for antenna indices <= 255.
+        assert_eq!(encode_uvfits_baseline_miriad(1, 1), 1 * 2048 + 1 + 65_536);
+        assert_eq!(encode_uvfits_baseline_miriad(1, 2), 1 * 2048 + 2 + 65_536);
+        assert_eq!(
+            encode_uvfits_baseline_miriad(1, 255),
+            1 * 2048 + 255 + 65_536
+        );
+        assert_eq!(
+            encode_uvfits_baseline_miriad(1, 256),
+            1 * 2048 + 256 + 65_536
+        );
+        // Same result as encode_uvfits_baseline for ant2 > 255:
+        assert_eq!(
+            encode_uvfits_baseline_miriad(1, 256),
+            encode_uvfits_baseline(1, 256)
+        );
+        assert_eq!(
+            encode_uvfits_baseline_miriad(256, 256),
+            encode_uvfits_baseline(256, 256)
+        );
+        // But different for ant2 <= 255:
+        assert_ne!(
+            encode_uvfits_baseline_miriad(1, 255),
+            encode_uvfits_baseline(1, 255)
+        );
+        assert_ne!(
+            encode_uvfits_baseline_miriad(255, 255),
+            encode_uvfits_baseline(255, 255)
+        );
+    }
 }
 
 #[test]
@@ -2936,4 +3010,107 @@ fn test_encode_decode_uvfits_all_baselines_512t() {
             assert_eq!(a2, ant2);
         }
     }
+}
+
+/// Tests verifying that the baseline encoding is compatible with pyuvdata's
+/// max-baseline-based scheme selection.
+///
+/// pyuvdata decides which decoding convention to use for an *entire* file
+/// based on the maximum baseline value it finds:
+///   - max_bl < 65536 → standard 256 encoding  (`bl = 256*ant1 + ant2`)
+///   - max_bl ≥ 65536 → miriad 2048 encoding   (`bl = 2048*ant1 + ant2 + 65536`)
+///
+/// Any file that mixes the two conventions will be decoded incorrectly.
+#[cfg(test)]
+fn pyuvdata_decode_baselines(baselines: &[usize]) -> Vec<(u64, u64)> {
+    let max_bl = *baselines.iter().max().unwrap_or(&0);
+    baselines
+        .iter()
+        .map(|&bl| {
+            let bl = bl as u64;
+            if max_bl < 65_536 {
+                // standard 256 convention
+                let ant2 = bl % 256;
+                let ant1 = (bl - ant2) / 256;
+                (ant1, ant2)
+            } else {
+                // miriad 2048 convention — use wrapping arithmetic to match
+                // Python/numpy uint64 behaviour when bl < 65536 (underflow)
+                let bl_adj = bl.wrapping_sub(65_536);
+                let ant2 = bl_adj % 2048;
+                let ant1 = bl_adj.wrapping_sub(ant2) / 2048;
+                (ant1, ant2)
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn test_encode_uvfits_baseline_miriad_all_256t_pyuvdata_compatible() {
+    // For a 256T array, every baseline must use the miriad convention so that
+    // pyuvdata sees a consistent encoding throughout the file.
+    let n_ants: usize = 256;
+
+    let mut baselines: Vec<usize> = Vec::new();
+    for ant1 in 1..=n_ants {
+        for ant2 in ant1..=n_ants {
+            baselines.push(encode_uvfits_baseline_miriad(ant1, ant2));
+        }
+    }
+
+    let decoded = pyuvdata_decode_baselines(&baselines);
+    let mut idx = 0;
+    for ant1 in 1..=n_ants {
+        for ant2 in ant1..=n_ants {
+            let (a1, a2) = decoded[idx];
+            assert_eq!(
+                a1, ant1 as u64,
+                "ant1 mismatch for baseline ({ant1},{ant2}): got {a1}"
+            );
+            assert_eq!(
+                a2, ant2 as u64,
+                "ant2 mismatch for baseline ({ant1},{ant2}): got {a2}"
+            );
+            idx += 1;
+        }
+    }
+}
+
+#[test]
+fn test_encode_uvfits_baseline_mixed_256t_pyuvdata_incompatible() {
+    // The old encode_uvfits_baseline used standard for ant2 <= 255 and miriad
+    // for ant2 > 255 in the same file. pyuvdata's max-baseline heuristic then
+    // picks miriad for the whole file, breaking the standard-encoded rows.
+    let n_ants: usize = 256;
+
+    let mut baselines: Vec<usize> = Vec::new();
+    for ant1 in 1..=n_ants {
+        for ant2 in ant1..=n_ants {
+            // old (broken) behaviour: uses standard for ant2 <= 255
+            baselines.push(encode_uvfits_baseline(ant1, ant2));
+        }
+    }
+
+    // At least one baseline should decode incorrectly (the ones that were
+    // standard-encoded while pyuvdata uses miriad decode).
+    let decoded = pyuvdata_decode_baselines(&baselines);
+    let mut found_wrong = false;
+    let mut idx = 0;
+    for ant1 in 1..=n_ants {
+        for ant2 in ant1..=n_ants {
+            let (a1, a2) = decoded[idx];
+            if a1 != ant1 as u64 || a2 != ant2 as u64 {
+                found_wrong = true;
+                break;
+            }
+            idx += 1;
+        }
+        if found_wrong {
+            break;
+        }
+    }
+    assert!(
+        found_wrong,
+        "Expected mixed encoding to produce incorrect results for pyuvdata, but all decoded correctly"
+    );
 }
