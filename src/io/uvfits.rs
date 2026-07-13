@@ -64,25 +64,50 @@ fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut c_char>) {
 
 /// Encode a baseline into the uvfits format.
 ///
-/// Use the miriad convention to handle more than 255 antennas (up to 2048).
-/// This is backwards compatible with the standard UVFITS convention.
+/// Uses the encoding defined in AIPS Memo 117:
+/// `bl = ant1 * 256 + ant2` (antenna indices are 1-based).
+/// This standard encoding supports antenna indices 1–255 only; the maximum
+/// representable value is `255 * 256 + 255 = 65535`.
+///
+/// When `ant2 > 255`, automatically switches to the miriad extension
+/// `bl = ant1 * 2048 + ant2 + 65536` (values ≥ 65536), which handles indices
+/// up to 2048. Note: AIPS 117 does **not** define this extension — it is a
+/// widely adopted de-facto standard introduced by the MIRIAD software.
+///
+/// # Warning
+///
+/// **Do not use this function for files with more than 255 antennas.**
+/// Because `ant2 ≤ 255` baselines are standard-encoded (< 65536) while
+/// `ant2 > 255` baselines are miriad-encoded (≥ 65536), the resulting file
+/// contains mixed encodings. Readers such as pyuvdata determine the decoding
+/// convention from the *maximum* baseline value across the whole file; mixing
+/// encodings causes those readers to mis-decode the standard-encoded rows.
+/// Use [`encode_uvfits_baseline_miriad`] for every baseline when the array has
+/// more than 255 antennas.
+///
 /// Antenna indices start at 1.
 /// Shamelessly copied from the RTS, originally written by Randall Wayth.
-///
-/// Note: when writing a file with more than 255 antennas, **all** baselines
-/// must be encoded with the miriad convention (i.e. `use_miriad = true`),
-/// not just those where `ant2 > 255`. Readers such as pyuvdata determine
-/// which convention was used from the maximum baseline value in the file; a
-/// mix of standard- and miriad-encoded baselines causes incorrect decoding.
 pub const fn encode_uvfits_baseline(ant1: usize, ant2: usize) -> usize {
     encode_uvfits_baseline_inner(ant1, ant2, false)
 }
 
 /// Encode a baseline using the miriad convention regardless of antenna index.
 ///
-/// This must be used for every baseline when the array has more than 255
-/// antennas so that all baselines in the file share a single consistent
-/// encoding scheme.
+/// Always uses `bl = ant1 * 2048 + ant2 + 65536` (values are always ≥ 65536),
+/// which is the miriad extension to AIPS Memo 117 for arrays with more than 255
+/// antennas (up to 2048). This is **not** defined by AIPS 117 itself; it is a
+/// widely adopted de-facto standard.
+///
+/// This function must be used for **every** baseline in a file when the array
+/// has more than 255 antennas. Readers such as pyuvdata choose the decoding
+/// scheme for the entire file from its maximum baseline value:
+/// - `max_bl < 65536` → AIPS 117 standard decoding (`ant2 = bl % 256`)
+/// - `max_bl ≥ 65536` → miriad decoding (`ant2 = (bl − 65536) % 2048`)
+///
+/// Applying miriad encoding to all baselines keeps the whole file in one
+/// consistent scheme and guarantees correct round-trip decoding.
+///
+/// Antenna indices start at 1.
 pub const fn encode_uvfits_baseline_miriad(ant1: usize, ant2: usize) -> usize {
     encode_uvfits_baseline_inner(ant1, ant2, true)
 }
@@ -91,8 +116,9 @@ pub const fn encode_uvfits_baseline_miriad(ant1: usize, ant2: usize) -> usize {
 /// [`encode_uvfits_baseline_miriad`].
 ///
 /// When `use_miriad` is `true`, or when `ant2 > 255`, the miriad convention is
-/// used: `bl = ant1 * 2048 + ant2 + 65536`. Otherwise the standard UVFITS
-/// convention is used: `bl = ant1 * 256 + ant2`. Antenna indices start at 1.
+/// used: `bl = ant1 * 2048 + ant2 + 65536` (always ≥ 65536).
+/// Otherwise the AIPS 117 standard convention is used: `bl = ant1 * 256 + ant2`
+/// (≤ 65535 for valid 1-based indices). Antenna indices start at 1.
 const fn encode_uvfits_baseline_inner(ant1: usize, ant2: usize, use_miriad: bool) -> usize {
     if use_miriad || ant2 > 255 {
         ant1 * 2048 + ant2 + 65_536
