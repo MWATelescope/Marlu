@@ -69,21 +69,21 @@ fn deallocate_rust_c_strings(c_string_ptrs: Vec<*mut c_char>) {
 /// This standard encoding supports antenna indices 1–255 only; the maximum
 /// representable value is `255 * 256 + 255 = 65535`.
 ///
-/// When `ant2 > 255`, automatically switches to the miriad extension
+/// Applies the miriad extension when `ant2 > 255`:
 /// `bl = ant1 * 2048 + ant2 + 65536` (values ≥ 65536), which handles indices
 /// up to 2048. Note: AIPS 117 does **not** define this extension — it is a
 /// widely adopted de-facto standard introduced by the MIRIAD software.
 ///
 /// # Warning
 ///
-/// **Do not use this function for files with more than 255 antennas.**
+/// **Do not use this function when any antenna index exceeds 255.**
 /// Because `ant2 ≤ 255` baselines are standard-encoded (< 65536) while
 /// `ant2 > 255` baselines are miriad-encoded (≥ 65536), the resulting file
 /// contains mixed encodings. Readers such as pyuvdata determine the decoding
 /// convention from the *maximum* baseline value across the whole file; mixing
 /// encodings causes those readers to mis-decode the standard-encoded rows.
-/// Use [`encode_uvfits_baseline_miriad`] for every baseline when the array has
-/// more than 255 antennas.
+/// Use [`encode_uvfits_baseline_miriad`] for every baseline when any antenna
+/// index exceeds 255.
 ///
 /// Antenna indices start at 1.
 /// Shamelessly copied from the RTS, originally written by Randall Wayth.
