@@ -1,4 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
+# Version 0.18.1 (2026-09-01)
+
+- Bumped mwalib to 2.1.0
+- Migrated hifitime from 3.x to 4.x
+
 # Version 0.18.0 (2026-07-15)
 
 - Fixed 256T uvfits baseline encoding for pyuvdata compatibility: all baselines now use the miriad convention (`ant1 * 2048 + ant2 + 65536`) when the array has more than 255 antennas, preventing mixed-encoding files that pyuvdata incorrectly decodes.
