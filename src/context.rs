@@ -10,7 +10,7 @@ use crate::{LatLngHeight, RADec, XyzGeocentric, XyzGeodetic, ENH};
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         use std::ops::Range;
-        use mwalib::{CorrelatorContext, MetafitsContext};        
+        use mwalib::{CorrelatorContext, MetafitsContext};
         use itertools::izip;
         use ndarray::array;
     }
@@ -395,7 +395,7 @@ impl VisContext {
 }
 
 #[cfg(test)]
-mod tests {    
+mod tests {
     use crate::constants::VEL_C;
 
     use super::*;
