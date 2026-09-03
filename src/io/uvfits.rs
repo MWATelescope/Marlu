@@ -287,7 +287,7 @@ impl UvfitsWriter {
         let mut status = 0;
         let c_path = CString::new(path.to_str().unwrap())?;
         let mut fptr = std::ptr::null_mut();
-        trace!("initialising fits file with fitsio_sys ({:?})", &path);
+        trace!("initialising fits file with fitsio_sys ({:?})", path);
         unsafe {
             // ffinit = fits_create_file
             fitsio_sys::ffinit(
@@ -306,7 +306,7 @@ impl UvfitsWriter {
             total_num_rows > 0,
             "num_timesteps * num_baselines must be > 0"
         );
-        trace!("setting group params in fits file ({:?})", &path);
+        trace!("setting group params in fits file ({:?})", path);
         unsafe {
             // ffphpr = fits_write_grphdr
             fitsio_sys::ffphpr(

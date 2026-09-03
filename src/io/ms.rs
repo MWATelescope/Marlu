@@ -1128,7 +1128,7 @@ impl MeasurementSetWriter {
 
     fn get_centre_freq(freqs: &[f64]) -> f64 {
         let len = freqs.len();
-        if len % 2 == 0 {
+        if len.is_multiple_of(2) {
             (freqs[len / 2] + freqs[len / 2 - 1]) * 0.5
         } else {
             freqs[len / 2]
