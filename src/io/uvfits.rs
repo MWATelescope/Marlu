@@ -1715,8 +1715,8 @@ mod tests {
                     "cells don't match in row {}, vis index {}. {:?} != {:?}",
                     row_idx,
                     vis_idx,
-                    &left_vis,
-                    &right_vis
+                    left_vis,
+                    right_vis
                 );
             }
         }
@@ -2943,15 +2943,15 @@ mod tests {
     fn test_encode_uvfits_baseline_miriad() {
         // Verify that encode_uvfits_baseline_miriad always uses the miriad
         // convention, even for antenna indices <= 255.
-        assert_eq!(encode_uvfits_baseline_miriad(1, 1), 1 * 2048 + 1 + 65_536);
-        assert_eq!(encode_uvfits_baseline_miriad(1, 2), 1 * 2048 + 2 + 65_536);
+        assert_eq!(encode_uvfits_baseline_miriad(1, 1), 2048 + 1 + 65_536);
+        assert_eq!(encode_uvfits_baseline_miriad(1, 2), 2048 + 2 + 65_536);
         assert_eq!(
             encode_uvfits_baseline_miriad(1, 255),
-            1 * 2048 + 255 + 65_536
+            2048 + 255 + 65_536
         );
         assert_eq!(
             encode_uvfits_baseline_miriad(1, 256),
-            1 * 2048 + 256 + 65_536
+            2048 + 256 + 65_536
         );
         // Same result as encode_uvfits_baseline for ant2 > 255:
         assert_eq!(
@@ -3043,8 +3043,8 @@ fn test_encode_decode_uvfits_all_baselines_512t() {
 ///
 /// pyuvdata decides which decoding convention to use for an *entire* file
 /// based on the maximum baseline value it finds:
-///   - max_bl < 65536 → standard 256 encoding  (`bl = 256*ant1 + ant2`)
-///   - max_bl ≥ 65536 → miriad 2048 encoding   (`bl = 2048*ant1 + ant2 + 65536`)
+///   - `max_bl` < 65536 → standard 256 encoding  (`bl = 256*ant1 + ant2`)
+///   - `max_bl` ≥ 65536 → miriad 2048 encoding   (`bl = 2048*ant1 + ant2 + 65536`)
 ///
 /// Any file that mixes the two conventions will be decoded incorrectly.
 #[cfg(test)]
