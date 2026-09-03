@@ -100,4 +100,4 @@ name = "bench_io"
 harness = false
 
 [patch.crates-io]
-mwalib = { path = "../mwalib" }
+mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "hifitime" }
