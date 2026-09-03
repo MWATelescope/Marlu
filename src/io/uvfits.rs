@@ -2945,14 +2945,8 @@ mod tests {
         // convention, even for antenna indices <= 255.
         assert_eq!(encode_uvfits_baseline_miriad(1, 1), 2048 + 1 + 65_536);
         assert_eq!(encode_uvfits_baseline_miriad(1, 2), 2048 + 2 + 65_536);
-        assert_eq!(
-            encode_uvfits_baseline_miriad(1, 255),
-            2048 + 255 + 65_536
-        );
-        assert_eq!(
-            encode_uvfits_baseline_miriad(1, 256),
-            2048 + 256 + 65_536
-        );
+        assert_eq!(encode_uvfits_baseline_miriad(1, 255), 2048 + 255 + 65_536);
+        assert_eq!(encode_uvfits_baseline_miriad(1, 256), 2048 + 256 + 65_536);
         // Same result as encode_uvfits_baseline for ant2 > 255:
         assert_eq!(
             encode_uvfits_baseline_miriad(1, 256),
