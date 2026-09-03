@@ -7,7 +7,7 @@ authors = [
     "Greg Sleap <greg.sleap@curtin.edu.au>",
 ]
 edition = "2021"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 license = "MPL-2.0"
 readme = "README.md"
 description = "Convenience Rust code that handles coordinate transformations, Jones matrices, I/O. for the Murchison Widefield Array (MWA) radio telescope. Previously known as mwa_rust_core"
@@ -59,7 +59,7 @@ fitsio = { version = "0.21.6", optional = true }
 fitsio-sys = { version = "~0.5", optional = true }
 
 # "mwalib" feature
-mwalib = { version = "2.1.0", optional = true }
+mwalib = { version = "3.0.0", optional = true }
 #mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "bf_delay_modes", optional = true }
 
 # "ms" feature
@@ -72,19 +72,13 @@ approx = { version = "0.5.0", features = ["num-complex"], optional = true }
 # "serde" feature
 serde = { version = "1.0.100", features = ["derive"], optional = true }
 
-# Transitive dependencies- newer versions require MSRV>=1.86
-icu_properties = "=2.1.2"
-icu_locale_core = "=2.1.1"
-icu_provider = "=2.1.1"
-icu_normalizer = "=2.1.1"
-
 [dev-dependencies]
 approx = { version = "0.5.0", features = ["num-complex"] }
-criterion = "~0.7.0"
+criterion = "~0.8.2"
 csv = "1.1.0"
 glob = "0.3.0"
 lexical = "7.0.0"
-ndarray = { version = "0.16.1", features = ["approx"] }
+ndarray = { version = "0.16.1", features = ["approx"] }  # ndarray version has to match the rubbl_casatables dependency version, otherwise the build will fail
 regex = "1.5.0"
 serde_json = "1.0.0"
 serial_test = "3.4.0"
@@ -106,4 +100,4 @@ name = "bench_io"
 harness = false
 
 [patch.crates-io]
-#mwalib = { path = "../mwalib" }
+mwalib = { path = "../mwalib" }

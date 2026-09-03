@@ -1,7 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
-# Version 0.18.1 (2026-09-01)
+# Version 0.18.1 (2026-09-03)
 
-- Bumped mwalib to 2.1.0
+- Bumped MSRV to 1.88.0
+- Bumped mwalib to 3.0.0
 - Migrated hifitime from 3.x to 4.x
 
 # Version 0.18.0 (2026-07-15)
