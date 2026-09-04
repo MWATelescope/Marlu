@@ -1,5 +1,5 @@
 <!-- markdownlint-disable=MD025 -->
-# Version 0.18.1 (2026-09-03)
+# Version 0.19.0 (2026-09-04)
 
 - Bumped MSRV to 1.88.0
 - Bumped mwalib to 3.0.0
