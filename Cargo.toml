@@ -104,3 +104,6 @@ harness = false
 [[bench]]
 name = "bench_io"
 harness = false
+
+[patch.crates-io]
+rubbl_casatables = { git = "https://github.com/d3v-null/rubbl.git", branch = "mswrite-bulk" }
