@@ -32,6 +32,7 @@ pub type c64 = num_complex::Complex<f64>;
 pub mod averaging;
 pub mod constants;
 pub mod context;
+pub mod convention;
 pub mod jones;
 pub mod math;
 pub mod pos;
@@ -47,6 +48,7 @@ pub use io::VisWrite;
 
 // Re-exports.
 pub use context::{History, MwaObsContext, ObsContext, VisContext};
+pub use convention::{Convention, PolConvention, StokesConvention, UvwFrame, XOrientation};
 pub use jones::Jones;
 pub use pos::{
     azel::AzEl,

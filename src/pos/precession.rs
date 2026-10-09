@@ -18,7 +18,7 @@ use std::f64::consts::TAU;
 use erfa::constants::{ERFA_CMPS, ERFA_DAU, ERFA_DAYSEC, ERFA_DJM0};
 use hifitime::{Duration, Epoch};
 
-use crate::{pal, HADec, RADec, XyzGeodetic};
+use crate::{convention::UvwFrame, pal, HADec, RADec, XyzGeodetic};
 
 #[derive(Debug, Clone, Copy)]
 pub struct PrecessionInfo {
@@ -164,6 +164,109 @@ fn deaberration(phase_centre: RADec, time: Epoch) -> [[f64; 3]; 3] {
     rotation_taking(p_cat, p_geo)
 }
 
+/// Get the local apparent sidereal time (`GAST` + longitude). `time` should be
+/// in the UTC frame; `dut1` as for [`get_lmst`].
+pub fn get_last(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
+    let ut1 = (time + dut1).to_mjd_utc_days();
+    let tt = time.to_mjd_tt_days();
+    let gast = erfa::time::gst06a(ERFA_DJM0, ut1, ERFA_DJM0, tt);
+    (gast + array_longitude_rad).rem_euclid(TAU)
+}
+
+/// [`precess_time`] in the requested [`UvwFrame`]: [`UvwFrame::Hyperdrive`]
+/// is exactly [`precess_time`]; [`UvwFrame::Casacore`] is
+/// [`precess_time_casacore`]; [`UvwFrame::Oskar`] does not precess at all
+/// (the returned [`PrecessionInfo`] leaves positions and latitude alone) and
+/// uses the apparent sidereal time, as `OSKAR` does.
+pub fn precess_time_in_frame(
+    frame: UvwFrame,
+    array_longitude_rad: f64,
+    array_latitude_rad: f64,
+    phase_centre: RADec,
+    time: Epoch,
+    dut1: Duration,
+) -> PrecessionInfo {
+    match frame {
+        UvwFrame::Hyperdrive => precess_time(
+            array_longitude_rad,
+            array_latitude_rad,
+            phase_centre,
+            time,
+            dut1,
+        ),
+        UvwFrame::Casacore => precess_time_casacore(
+            array_longitude_rad,
+            array_latitude_rad,
+            phase_centre,
+            time,
+            dut1,
+        ),
+        UvwFrame::Oskar => {
+            let last = get_last(array_longitude_rad, time, dut1);
+            PrecessionInfo {
+                rotation_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                hadec_j2000: phase_centre.to_hadec(last),
+                lmst: last,
+                lmst_j2000: last,
+                array_latitude_j2000: array_latitude_rad,
+            }
+        }
+    }
+}
+
+/// Like [`precess_time`], but the returned [`PrecessionInfo`] places the array
+/// in the frame of the `UVW` column `casacore` writes into a Measurement Set
+/// (`MBaseline` ITRF -> J2000), which `DP3`, `WSClean`, `CASA` and `ASKAPsoft` use:
+///
+/// - the array is rotated with the *apparent* sidereal time (`GAST`) rather
+///   than the mean one;
+/// - the J2000 baselines are rotated by the rigid rotation that takes the
+///   annual aberration of the phase centre out (`casacore`'s
+///   `MeasMath::deapplyAberration` with `rotateShift`);
+/// - a baseline is antenna 2 minus antenna 1, so the positions from
+///   [`PrecessionInfo::precess_xyz`] are negated and visibilities modelled
+///   with them are the complex conjugates of [`precess_time`]'s.
+///
+/// The first two effects are each about 20 arcsec; for a source 1 degree
+/// from the phase centre they change the visibilities by about 0.5% per 4 km
+/// of baseline. Bias-precession-nutation is `IAU` 2006/2000A (`casacore`
+/// defaults to `IAU` 1976/1980, a few mm per km of baseline). Polar motion is
+/// not applied. Against `UVWs` from python-`casacore`'s `measures.to_uvw` this
+/// agrees to better than 1 cm on 2 km baselines.
+pub fn precess_time_casacore(
+    array_longitude_rad: f64,
+    array_latitude_rad: f64,
+    phase_centre: RADec,
+    time: Epoch,
+    dut1: Duration,
+) -> PrecessionInfo {
+    let tt = time.to_mjd_tt_days();
+    let last = get_last(array_longitude_rad, time, dut1);
+
+    // True-of-date -> J2000 (GCRS).
+    let to_j2000 = transpose(erfa::prenut::pn_matrix_06a(ERFA_DJM0, tt));
+
+    // The zenith precessed to J2000 gives the sidereal time and latitude to
+    // use with the J2000 positions, as in `precess_time`.
+    let mut zenith_rotation = to_j2000;
+    let (lmst_j2000, array_latitude_j2000) =
+        rotate_radec(&mut zenith_rotation, last, array_latitude_rad);
+    let aberration = deaberration(phase_centre, time);
+
+    // `precess_xyz` applies R3(-lmst_j2000) . rotation_matrix . R3(lmst); the
+    // negation gives casacore's antenna2 - antenna1 baselines.
+    let rotation_matrix = erfa::vectors_and_matrices::multiply_matrices(aberration, to_j2000)
+        .map(|row| row.map(|e| -e));
+
+    PrecessionInfo {
+        rotation_matrix,
+        hadec_j2000: phase_centre.to_hadec(lmst_j2000),
+        lmst: last,
+        lmst_j2000,
+        array_latitude_j2000,
+    }
+}
+
 /// Relativistic annual aberration of unit direction `p` (`casacore`
 /// `MeasMath::applyAberration`).
 fn aberrate(p: [f64; 3], v: [f64; 3]) -> [f64; 3] {
@@ -217,7 +320,6 @@ fn rotation_taking(a: [f64; 3], b: [f64; 3]) -> [[f64; 3]; 3] {
     r
 }
 
-#[cfg(test)]
 fn transpose(m: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
     let mut t = [[0.0; 3]; 3];
     for (i, row) in m.iter().enumerate() {
@@ -274,6 +376,193 @@ mod tests {
     // DUT1 values are calculated with e.g.
     //
     // Time("1090008643", format="gps", scale="utc", location=loc).delta_ut1_utc
+    // Four stations of a LOFAR-like array (ITRF, metres), the J2000 phase
+    // centre and two timestamps of a Measurement Set, with the UVWs
+    // python-casacore's `measures.to_uvw` (what DP3's UVW calculator uses)
+    // computes for them with UT1-UTC = -0.009135 s.
+    const ITRF: [[f64; 3]; 4] = [
+        [3825505.749148041, 460929.50837565673, 5065711.816207074],
+        [3826864.998909839, 462413.2298572394, 5064554.645748515],
+        [3826675.9506614394, 462024.98904948845, 5064729.318786148],
+        [3826143.3875317494, 459543.0372013342, 5065350.071420448],
+    ];
+    const PHASE_CENTRE_RAD: (f64, f64) = (3.1503192998497647, 0.788888821901437);
+    const GPS_TIMES: [f64; 2] = [1394532020.0, 1394532036.0];
+    const DUT1: f64 = -0.00913543626666069;
+    const CASACORE_UVWS: [(usize, usize, usize, [f64; 3]); 12] = [
+        (
+            0,
+            0,
+            1,
+            [-356.32614760098073, 584.5534686278635, -2217.96342144549],
+        ),
+        (
+            0,
+            0,
+            2,
+            [-162.09543607335297, 434.92894640284055, -1821.8980630127026],
+        ),
+        (
+            0,
+            0,
+            3,
+            [1489.3081452906438, -491.1982519522817, -20.732629029234147],
+        ),
+        (
+            0,
+            1,
+            2,
+            [194.23071152762782, -149.62452222502256, 396.06535843278766],
+        ),
+        (
+            0,
+            1,
+            3,
+            [1845.6342928916245, -1075.751720580145, 2197.230792416257],
+        ),
+        (
+            0,
+            2,
+            3,
+            [1651.4035813639957, -926.1271983551219, 1801.1654339834677],
+        ),
+        (
+            1,
+            0,
+            1,
+            [-358.63650557936217, 584.257998403976, -2217.6688815479215],
+        ),
+        (
+            1,
+            0,
+            2,
+            [-163.9559537541119, 434.7941209749316, -1821.7637575763079],
+        ),
+        (
+            1,
+            0,
+            3,
+            [1489.6957396031169, -489.9680348492685, -21.96006581880269],
+        ),
+        (
+            1,
+            1,
+            2,
+            [194.6805518252503, -149.4638774290441, 395.9051239716141],
+        ),
+        (
+            1,
+            1,
+            3,
+            [1848.3322451824788, -1074.2260332532444, 2195.70881572912],
+        ),
+        (
+            1,
+            2,
+            3,
+            [1653.6516933572284, -924.7621558242004, 1799.8036917575055],
+        ),
+    ];
+
+    /// Worst `UVW` error [m] of each frame against `casacore`'s values.
+    fn worst_uvw_error(frame: UvwFrame) -> f64 {
+        use crate::{pos::xyz::xyzs_to_cross_uvws, XyzGeocentric};
+
+        let centre = XyzGeocentric {
+            x: ITRF.iter().map(|p| p[0]).sum::<f64>() / 4.0,
+            y: ITRF.iter().map(|p| p[1]).sum::<f64>() / 4.0,
+            z: ITRF.iter().map(|p| p[2]).sum::<f64>() / 4.0,
+        };
+        let array_pos = centre.to_earth_wgs84();
+        let xyzs: Vec<XyzGeodetic> = ITRF
+            .iter()
+            .map(|p| {
+                XyzGeocentric {
+                    x: p[0],
+                    y: p[1],
+                    z: p[2],
+                }
+                .to_geodetic(array_pos)
+            })
+            .collect();
+        let phase_centre = RADec::from_radians(PHASE_CENTRE_RAD.0, PHASE_CENTRE_RAD.1);
+        // The hyperdrive frame has the opposite baseline sign.
+        let sign = frame.baseline_sign() * UvwFrame::Casacore.baseline_sign();
+        let mut worst: f64 = 0.0;
+        for (i_time, gps) in GPS_TIMES.iter().enumerate() {
+            let p = precess_time_in_frame(
+                frame,
+                array_pos.longitude_rad,
+                array_pos.latitude_rad,
+                phase_centre,
+                Epoch::from_gpst_seconds(*gps),
+                Duration::from_seconds(DUT1),
+            );
+            let uvws =
+                xyzs_to_cross_uvws(&p.precess_xyz(&xyzs), phase_centre.to_hadec(p.lmst_j2000));
+            let mut i_bl = 0;
+            for a1 in 0..4 {
+                for a2 in a1 + 1..4 {
+                    let expected = CASACORE_UVWS
+                        .iter()
+                        .find(|(t, x, y, _)| *t == i_time && *x == a1 && *y == a2)
+                        .unwrap()
+                        .3;
+                    let got = uvws[i_bl];
+                    worst = worst
+                        .max((sign * got.u - expected[0]).abs())
+                        .max((sign * got.v - expected[1]).abs())
+                        .max((sign * got.w - expected[2]).abs());
+                    i_bl += 1;
+                }
+            }
+        }
+        worst
+    }
+
+    #[test]
+    fn casacore_frame_matches_casacore_uvws() {
+        // A few mm on 2.2 km baselines (precession/nutation model
+        // differences), versus ~15 cm for the hyperdrive frame.
+        let casacore = worst_uvw_error(UvwFrame::Casacore);
+        let hyperdrive = worst_uvw_error(UvwFrame::Hyperdrive);
+        assert!(casacore < 0.01, "casacore frame off by {casacore} m");
+        assert!(
+            hyperdrive > 0.05,
+            "hyperdrive frame off by only {hyperdrive} m"
+        );
+    }
+
+    #[test]
+    fn oskar_frame_is_unprecessed_with_apparent_sidereal_time() {
+        let t = Epoch::from_gpst_seconds(1394532020.0);
+        let pc = RADec::from_degrees(180.5, 45.2);
+        let xyzs = [XyzGeodetic {
+            x: 100.0,
+            y: 200.0,
+            z: 300.0,
+        }];
+        let p = precess_time_in_frame(UvwFrame::Oskar, 0.12, 0.92, pc, t, Duration::default());
+        assert_abs_diff_eq!(p.lmst, get_last(0.12, t, Duration::default()));
+        assert_abs_diff_eq!(p.lmst_j2000, p.lmst);
+        assert_abs_diff_eq!(p.array_latitude_j2000, 0.92);
+        let out = p.precess_xyz(&xyzs);
+        assert_abs_diff_eq!(out[0].x, 100.0, epsilon = 1e-9);
+        assert_abs_diff_eq!(out[0].y, 200.0, epsilon = 1e-9);
+        assert_abs_diff_eq!(out[0].z, 300.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn last_differs_from_lmst_by_the_equation_of_the_equinoxes() {
+        let t = Epoch::from_gpst_seconds(1394532020.0);
+        let diff = get_last(0.0, t, Duration::default()) - get_lmst(0.0, t, Duration::default());
+        // About -4 arcsec in 2024.
+        assert!(
+            diff.abs() < 100.0 / 206265.0 && diff.abs() > 0.1 / 206265.0,
+            "{diff}"
+        );
+    }
+
     #[test]
     fn aberration_round_trip() {
         let v = [1e-4, -5e-5, 2e-5];
