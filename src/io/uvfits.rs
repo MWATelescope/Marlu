@@ -24,10 +24,11 @@ use super::{
 use crate::{
     average_chunk_f64,
     constants::VEL_C,
+    convention::{PolConvention, UvwFrame},
     hifitime::{Duration, Epoch, Unit},
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
-    precession::{get_lmst, precess_time},
+    precession::{get_lmst, precess_time_in_frame},
     HADec, History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
 
@@ -202,6 +203,15 @@ pub struct UvfitsWriter {
 
     /// Are we going to write out precessed UVWs?
     precess_uvws: bool,
+
+    /// How the visibilities' Stokes parameters map onto XX, XY, YX, YY;
+    /// recorded natively in the `AIPS AN` table (`POLAA`/`POLAB`) and in the
+    /// `POLCONV` header keyword.
+    pol_convention: PolConvention,
+
+    /// The frame the UVWs are computed in (and the baseline sign); recorded
+    /// in the `marlu_uvw_frame` header keyword.
+    uvw_frame: UvwFrame,
 
     /// If true, all baselines are encoded with the miriad convention
     /// (`ant1 * 2048 + ant2 + 65536`). This must be set when the array has
@@ -434,7 +444,7 @@ impl UvfitsWriter {
             None,
         )?;
 
-        Ok(UvfitsWriter {
+        let mut writer = UvfitsWriter {
             path: path.to_path_buf(),
             fptr,
             buffer: vec![],
@@ -450,7 +460,46 @@ impl UvfitsWriter {
             dut1,
             time_res: time_resolution.map(|r| r.to_seconds()),
             precess_uvws,
-        })
+            pol_convention: PolConvention::default(),
+            uvw_frame: UvwFrame::default(),
+        };
+        writer.write_convention_keys()?;
+        Ok(writer)
+    }
+
+    /// Set the conventions the visibilities follow. The default is the MWA's
+    /// (`PolConvention::MWA`, `UvwFrame::Hyperdrive`). Call before writing
+    /// the antenna table.
+    pub fn with_conventions(
+        mut self,
+        pol_convention: PolConvention,
+        uvw_frame: UvwFrame,
+    ) -> Result<Self, UvfitsWriteError> {
+        self.pol_convention = pol_convention;
+        self.uvw_frame = uvw_frame;
+        self.write_convention_keys()?;
+        Ok(self)
+    }
+
+    /// Write (or update) the `POLCONV` primary-header keyword ("avg" or
+    /// "sum"; the keyword pyuvdata reads and writes) and the `marlu_uvw_frame`
+    /// keyword (longer than 8 characters, so cfitsio writes it as HIERARCH).
+    /// The X orientation is only in the `AIPS AN` table's `POLAA`/`POLAB`, as
+    /// pyuvdata has it.
+    fn write_convention_keys(&mut self) -> Result<(), UvfitsWriteError> {
+        fits_write_string(
+            self.fptr,
+            "POLCONV",
+            &self.pol_convention.stokes.to_string(),
+            Some("Stokes I = (XX+YY)/2 (avg) or XX+YY (sum)"),
+        )?;
+        fits_write_string(
+            self.fptr,
+            "marlu_uvw_frame",
+            &self.uvw_frame.to_string(),
+            Some("frame and baseline sign of UU/VV/WW"),
+        )?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -503,6 +552,10 @@ impl UvfitsWriter {
     ///
     /// Will return an [`UvfitsWriteError`] if a fits operation fails.
     pub fn write_uvfits_antenna_table(&mut self) -> Result<(), UvfitsWriteError> {
+        // Feed position angles in degrees, as AIPS AN POLAA/POLAB record them.
+        let [pol_a_rad, pol_b_rad] = self.pol_convention.feed_angles_rad();
+        let mut pol_a_deg = pol_a_rad.to_degrees() as f32;
+        let mut pol_b_deg = pol_b_rad.to_degrees() as f32;
         if self.current_num_rows != self.total_num_rows {
             return Err(UvfitsWriteError::NotEnoughRowsWritten {
                 current: self.current_num_rows,
@@ -700,13 +753,13 @@ impl UvfitsWriter {
 
                 // POLAA. ffpcle = fits_write_col_flt
                 fitsio_sys::ffpcle(
-                    self.fptr,   /* I - FITS file pointer                       */
-                    7,           /* I - number of column to write (1 = 1st col) */
-                    row,         /* I - first row to write (1 = 1st row)        */
-                    1,           /* I - first vector element to write (1 = 1st) */
-                    1,           /* I - number of values to write               */
-                    &mut 0.0,    /* I - array of values to write                */
-                    &mut status, /* IO - error status                           */
+                    self.fptr,      /* I - FITS file pointer                       */
+                    7,              /* I - number of column to write (1 = 1st col) */
+                    row,            /* I - first row to write (1 = 1st row)        */
+                    1,              /* I - first vector element to write (1 = 1st) */
+                    1,              /* I - number of values to write               */
+                    &mut pol_a_deg, /* I - array of values to write             */
+                    &mut status,    /* IO - error status                        */
                 );
                 fits_check_status(status)?;
 
@@ -736,13 +789,13 @@ impl UvfitsWriter {
 
                 // POLAB.
                 fitsio_sys::ffpcle(
-                    self.fptr,   /* I - FITS file pointer                       */
-                    10,          /* I - number of column to write (1 = 1st col) */
-                    row,         /* I - first row to write (1 = 1st row)        */
-                    1,           /* I - first vector element to write (1 = 1st) */
-                    1,           /* I - number of values to write               */
-                    &mut 90.0,   /* I - array of values to write                */
-                    &mut status, /* IO - error status                           */
+                    self.fptr,      /* I - FITS file pointer                       */
+                    10,             /* I - number of column to write (1 = 1st col) */
+                    row,            /* I - first row to write (1 = 1st row)        */
+                    1,              /* I - first vector element to write (1 = 1st) */
+                    1,              /* I - number of values to write               */
+                    &mut pol_b_deg, /* I - array of values to write             */
+                    &mut status,    /* IO - error status                        */
                 );
                 fits_check_status(status)?;
 
@@ -1035,17 +1088,21 @@ impl VisWrite for UvfitsWriter {
             self.buffer[i_date2] = jd_remainder_f32;
 
             let (tile_xyzs, hadec): (Cow<[XyzGeodetic]>, HADec) = if self.precess_uvws {
-                let prec_info = precess_time(
+                let prec_info = precess_time_in_frame(
+                    self.uvw_frame,
                     self.array_pos.longitude_rad,
                     self.array_pos.latitude_rad,
                     self.phase_centre,
                     avg_centroid_timestamp,
                     self.dut1,
                 );
-                (
-                    prec_info.precess_xyz(&self.antenna_positions).into(),
-                    prec_info.hadec_j2000,
-                )
+                let hadec = match self.uvw_frame {
+                    UvwFrame::Hyperdrive => prec_info.hadec_j2000,
+                    UvwFrame::Casacore | UvwFrame::Oskar => {
+                        self.phase_centre.to_hadec(prec_info.lmst_j2000)
+                    }
+                };
+                (prec_info.precess_xyz(&self.antenna_positions).into(), hadec)
             } else {
                 let lmst = get_lmst(
                     self.array_pos.longitude_rad,
@@ -2766,6 +2823,109 @@ mod tests {
             }
             i_inttim += 1;
             i_no_inttim += 1;
+        }
+    }
+
+    /// The conventions are recorded natively (AIPS AN POLAA/POLAB) and in the
+    /// marlu_* HIERARCH keywords, and the casacore frame negates the UVWs.
+    #[test]
+    fn test_uvfits_conventions() {
+        use crate::convention::{PolConvention, UvwFrame};
+
+        let num_timesteps = 1;
+        let num_baselines = 3;
+        let num_chans = 2;
+        let start_epoch = Epoch::from_gpst_seconds(1065880128.0);
+        let names: Vec<String> = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions: Vec<XyzGeodetic> = (1..=names.len())
+            .map(|i| XyzGeodetic {
+                x: i as f64,
+                y: i as f64 * 2.0,
+                z: i as f64 * 3.0,
+            })
+            .collect();
+        let corr_ctx = get_mwa_legacy_context();
+        let vis_ctx =
+            VisContext::from_mwalib(&corr_ctx, &(0..num_timesteps), &(0..1), &[0, 1, 2], 1, 1);
+
+        let mut uvws = vec![];
+        for (pol, frame) in [
+            (PolConvention::MWA, UvwFrame::Hyperdrive),
+            (PolConvention::IAU, UvwFrame::Casacore),
+        ] {
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let mut u = UvfitsWriter::new(
+                tmp_uvfits_file.path(),
+                num_timesteps,
+                num_baselines,
+                num_chans,
+                start_epoch,
+                None,
+                40e3,
+                170e6,
+                3,
+                RADec::from_degrees(0.0, 60.0),
+                Some("test"),
+                LatLngHeight::mwa(),
+                names.clone(),
+                positions.clone(),
+                Duration::default(),
+                true,
+                None,
+            )
+            .unwrap()
+            .with_conventions(pol, frame)
+            .unwrap();
+            u.write_vis(
+                Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+                Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+                &vis_ctx,
+            )
+            .unwrap();
+            u.finalise().unwrap();
+            drop(u);
+
+            let mut f = fits_open!(tmp_uvfits_file.path()).unwrap();
+            let hdu = fits_open_hdu!(&mut f, 0).unwrap();
+            let stokes: String = get_required_fits_key!(&mut f, &hdu, "POLCONV").unwrap();
+            let uvw_frame: String =
+                get_required_fits_key!(&mut f, &hdu, "marlu_uvw_frame").unwrap();
+            assert_eq!(stokes, pol.stokes.to_string());
+            assert_eq!(uvw_frame, frame.to_string());
+
+            let mut group_params: Vec<f32> = vec![0.0; GROUP_PARAMS.len() - 1];
+            let mut status = 0;
+            unsafe {
+                fitsio_sys::ffggpe(
+                    f.as_raw(),
+                    1,
+                    1,
+                    group_params.len() as i64,
+                    group_params.as_mut_ptr(),
+                    &mut status,
+                );
+            }
+            fits_check_status(status).unwrap();
+            uvws.push(group_params[0..3].to_vec());
+
+            let ant_hdu = fits_open_hdu!(&mut f, 1).unwrap();
+            let pol_a: Vec<f32> = ant_hdu.read_col(&mut f, "POLAA").unwrap();
+            let pol_b: Vec<f32> = ant_hdu.read_col(&mut f, "POLAB").unwrap();
+            let [a, b] = pol.feed_angles_rad();
+            assert!(pol_a
+                .iter()
+                .all(|v| (*v as f64 - a.to_degrees()).abs() < 1e-6));
+            assert!(pol_b
+                .iter()
+                .all(|v| (*v as f64 - b.to_degrees()).abs() < 1e-6));
+        }
+        for i in 0..3 {
+            assert!(
+                (uvws[0][i] + uvws[1][i]).abs() < 1e-6 * uvws[0][i].abs().max(1e-3),
+                "{:?} vs {:?}",
+                uvws[0],
+                uvws[1]
+            );
         }
     }
 
