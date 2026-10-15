@@ -14,7 +14,7 @@ use flate2::read::GzDecoder;
 use hifitime::{Duration, Unit};
 use itertools::izip;
 use lazy_static::lazy_static;
-use log::trace;
+use log::{trace, warn};
 use rubbl_casatables::{
     GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
     TableRecord,
@@ -28,7 +28,7 @@ use super::{
 use crate::{
     average_chunk_f64, c32,
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
-    ndarray::{array, Array2, Array3, ArrayView, ArrayView3, Axis},
+    ndarray::{array, s, Array2, Array3, ArrayView, ArrayView3, ArrayViewMut2, Axis},
     num_complex::Complex,
     precession::{get_lmst, precess_time},
     HADec, History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
@@ -136,23 +136,75 @@ impl MeasurementSetWriter {
             format!("added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MSWriter::initialize()");
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
         // TODO: why isn't it let data_shape = [4, num_channels as _];
-        let data_shape = [num_channels as _, 4];
-        main_table.add_array_column(
+        let data_shape = [num_channels as u64, 4];
+
+        // The big per-visibility columns are stored with a TiledColumnStMan
+        // each, rather than as indirect arrays in the default StandardStMan:
+        // tiles are written whole, whereas an indirect array costs a header
+        // write and a data write (plus a header read) per row. Tiles hold
+        // whole rows, about a MiB of DATA each.
+        let tile_rows = (MS_TILE_TARGET_BYTES
+            / (num_channels.max(1) * 4 * std::mem::size_of::<c32>()))
+        .max(1) as u64;
+        let tile_shape = [tile_rows, num_channels as u64, 4];
+        main_table.add_tiled_array_column(
             GlueDataType::TpComplex,
             "DATA",
             Some(comment.as_str()),
-            Some(&data_shape),
-            false,
-            false,
+            &data_shape,
+            &tile_shape,
+            "TiledDATA",
+            true,
         )?;
-        main_table.add_array_column(
+        main_table.add_tiled_array_column(
             GlueDataType::TpFloat,
             "WEIGHT_SPECTRUM",
             Some(comment.as_str()),
-            Some(&data_shape),
-            false,
+            &data_shape,
+            &tile_shape,
+            "TiledWEIGHT_SPECTRUM",
+            true,
+        )?;
+
+        // The default tables come with variable-shape FLAG, SIGMA and WEIGHT
+        // columns stored as indirect arrays in the StandardStMan. Replace them
+        // (the table has no rows yet) with columns of the same description
+        // (variable shape, same dimensionality) stored in TiledShapeStMans,
+        // as CASA does. The cell contents written are unchanged.
+        main_table.remove_column("FLAG")?;
+        main_table.add_tiled_array_column(
+            GlueDataType::TpBool,
+            "FLAG",
+            Some("The data flags, array of bools with same shape as data"),
+            &data_shape,
+            &tile_shape,
+            "TiledFLAG",
             false,
         )?;
+        let pol_tile_rows = (MS_TILE_TARGET_BYTES / (4 * std::mem::size_of::<f32>())) as u64;
+        for (col_name, col_comment, dm_name) in [
+            (
+                "SIGMA",
+                "Estimated rms noise for channel with unity bandpass response",
+                "TiledSIGMA",
+            ),
+            (
+                "WEIGHT",
+                "Weight for each polarization spectrum",
+                "TiledWEIGHT",
+            ),
+        ] {
+            main_table.remove_column(col_name)?;
+            main_table.add_tiled_array_column(
+                GlueDataType::TpFloat,
+                col_name,
+                Some(col_comment),
+                &[4],
+                &[pol_tile_rows, 4],
+                dm_name,
+                false,
+            )?;
+        }
 
         let source_table_path = self.path.join("SOURCE");
         let mut source_table = Table::open(source_table_path, TableOpenMode::ReadWrite)?;
@@ -1706,6 +1758,208 @@ impl MeasurementSetWriter {
     }
 }
 
+/// Approximate size in bytes of one tile of the tiled `DATA` column (the
+/// `FLAG` and `WEIGHT_SPECTRUM` tiles cover the same rows and are smaller).
+const MS_TILE_TARGET_BYTES: usize = 1024 * 1024;
+
+/// Upper bound on the number of bytes of visibility `DATA` buffered per
+/// MAIN-table write batch. Batches always contain a whole number of averaged
+/// timesteps (all selected baselines of each), so the real size may be larger
+/// for very large arrays.
+const MS_WRITE_BATCH_TARGET_BYTES: usize = 64 * 1024 * 1024;
+
+/// A batch of consecutive MAIN-table rows, stored column-wise so that each
+/// column can be written to the measurement set with a single bulk put
+/// ([`Table::put_column_range_scalar`] / [`Table::put_column_range_array`]).
+///
+/// Writing one row at a time with ~17 `put_cell` calls per row makes
+/// casacore's `StandardStMan` thrash its bucket cache and its indirect-array
+/// file (hundreds of bytes of I/O amplification per byte written). Writing a
+/// column at a time over many rows touches each bucket and file region
+/// sequentially instead.
+///
+/// Row `i` of the batch is written to MAIN row `start_row + i`. Array columns
+/// are stored `[row, ...cell]` in row-major order, which is the memory layout
+/// casacore expects for a column range.
+struct MainTableBatch {
+    /// Number of rows currently held in the batch.
+    len: usize,
+    time: Vec<f64>,
+    time_centroid: Vec<f64>,
+    antenna1: Vec<i32>,
+    antenna2: Vec<i32>,
+    data_desc_id: Vec<i32>,
+    uvw: Array2<f64>,
+    interval: Vec<f64>,
+    exposure: Vec<f64>,
+    processor_id: Vec<i32>,
+    scan_number: Vec<i32>,
+    state_id: Vec<i32>,
+    sigma: Array2<f32>,
+    data: Array3<c32>,
+    weight_spectrum: Array3<f32>,
+    weight: Array2<f32>,
+    flag: Array3<bool>,
+    flag_row: Vec<bool>,
+}
+
+impl MainTableBatch {
+    /// Allocate a batch that can hold `capacity` rows of `[num_chans, num_pols]`
+    /// cells.
+    fn new(capacity: usize, num_chans: usize, num_pols: usize) -> Self {
+        Self {
+            len: 0,
+            time: vec![0.; capacity],
+            time_centroid: vec![0.; capacity],
+            antenna1: vec![0; capacity],
+            antenna2: vec![0; capacity],
+            data_desc_id: vec![0; capacity],
+            uvw: Array2::zeros((capacity, 3)),
+            interval: vec![0.; capacity],
+            exposure: vec![0.; capacity],
+            processor_id: vec![0; capacity],
+            scan_number: vec![0; capacity],
+            state_id: vec![0; capacity],
+            sigma: Array2::zeros((capacity, num_pols)),
+            data: Array3::zeros((capacity, num_chans, num_pols)),
+            weight_spectrum: Array3::zeros((capacity, num_chans, num_pols)),
+            weight: Array2::zeros((capacity, num_pols)),
+            flag: Array3::from_elem((capacity, num_chans, num_pols), false),
+            flag_row: vec![false; capacity],
+        }
+    }
+
+    fn capacity(&self) -> usize {
+        self.time.len()
+    }
+
+    fn is_full(&self) -> bool {
+        self.len == self.capacity()
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    /// Start a new row in the batch, setting all of its scalar / small-vector
+    /// columns, and return its index within the batch. The `DATA`,
+    /// `WEIGHT_SPECTRUM` and `FLAG` cells must then be filled in via
+    /// [`Self::cell_views_mut`], after which [`Self::finish_row`] derives
+    /// `WEIGHT` and `FLAG_ROW`.
+    ///
+    /// The arguments mirror [`MeasurementSetWriter::write_main_row`].
+    #[allow(clippy::too_many_arguments)]
+    fn push_row(
+        &mut self,
+        time: f64,
+        time_centroid: f64,
+        antenna1: i32,
+        antenna2: i32,
+        data_desc_id: i32,
+        uvw: [f64; 3],
+        interval: f64,
+        processor_id: i32,
+        scan_number: i32,
+        state_id: i32,
+        sigma: &[f32],
+    ) -> Result<usize, MeasurementSetWriteError> {
+        let num_pols = self.sigma.shape()[1];
+        if sigma.len() != num_pols {
+            return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                argument: "sigma",
+                function: "MainTableBatch::push_row",
+                expected: format!("{num_pols}"),
+                received: format!("{:?}", sigma.len()),
+            }));
+        }
+        if self.is_full() {
+            return Err(MeasurementSetWriteError::BadArrayShape(BadArrayShape {
+                argument: "batch",
+                function: "MainTableBatch::push_row",
+                expected: format!("fewer than {} rows", self.capacity()),
+                received: format!("{}", self.len + 1),
+            }));
+        }
+
+        let i = self.len;
+        self.time[i] = time;
+        self.time_centroid[i] = time_centroid;
+        self.antenna1[i] = antenna1;
+        self.antenna2[i] = antenna2;
+        self.data_desc_id[i] = data_desc_id;
+        self.uvw.row_mut(i).assign(&ArrayView::from(&uvw[..]));
+        self.interval[i] = interval;
+        // TODO: really? (kept identical to `write_main_row`)
+        self.exposure[i] = interval;
+        self.processor_id[i] = processor_id;
+        self.scan_number[i] = scan_number;
+        self.state_id[i] = state_id;
+        self.sigma.row_mut(i).assign(&ArrayView::from(sigma));
+        self.len += 1;
+        Ok(i)
+    }
+
+    /// Mutable `[num_chans, num_pols]` views of the `DATA`, `WEIGHT_SPECTRUM`
+    /// and `FLAG` cells of row `i`.
+    fn cell_views_mut<'a>(
+        &'a mut self,
+        i: usize,
+    ) -> (
+        ArrayViewMut2<'a, c32>,
+        ArrayViewMut2<'a, f32>,
+        ArrayViewMut2<'a, bool>,
+    ) {
+        (
+            self.data.index_axis_mut(Axis(0), i),
+            self.weight_spectrum.index_axis_mut(Axis(0), i),
+            self.flag.index_axis_mut(Axis(0), i),
+        )
+    }
+
+    /// Derive the `WEIGHT` (per-pol sum of `WEIGHT_SPECTRUM` over channels)
+    /// and `FLAG_ROW` (all flags set) columns of row `i` from its cells.
+    fn finish_row(&mut self, i: usize) {
+        let weights = self.weight_spectrum.index_axis(Axis(0), i);
+        for (p, weights_pol_view) in weights.axis_iter(Axis(1)).enumerate() {
+            self.weight[[i, p]] = weights_pol_view.sum();
+        }
+        self.flag_row[i] = self.flag.index_axis(Axis(0), i).iter().all(|&x| x);
+    }
+
+    /// Write the rows held in the batch to MAIN rows `start_row..start_row +
+    /// len`, one bulk put per column. The rows must already exist.
+    fn write(&self, table: &mut Table, start_row: u64) -> Result<(), MeasurementSetWriteError> {
+        let n = self.len;
+        if n == 0 {
+            return Ok(());
+        }
+
+        table.put_column_range_scalar("TIME", start_row, &self.time[..n])?;
+        table.put_column_range_scalar("TIME_CENTROID", start_row, &self.time_centroid[..n])?;
+        table.put_column_range_scalar("ANTENNA1", start_row, &self.antenna1[..n])?;
+        table.put_column_range_scalar("ANTENNA2", start_row, &self.antenna2[..n])?;
+        table.put_column_range_scalar("DATA_DESC_ID", start_row, &self.data_desc_id[..n])?;
+        table.put_column_range_array("UVW", start_row, &self.uvw.slice(s![..n, ..]))?;
+        table.put_column_range_scalar("INTERVAL", start_row, &self.interval[..n])?;
+        table.put_column_range_scalar("EXPOSURE", start_row, &self.exposure[..n])?;
+        table.put_column_range_scalar("PROCESSOR_ID", start_row, &self.processor_id[..n])?;
+        table.put_column_range_scalar("SCAN_NUMBER", start_row, &self.scan_number[..n])?;
+        table.put_column_range_scalar("STATE_ID", start_row, &self.state_id[..n])?;
+        table.put_column_range_array("SIGMA", start_row, &self.sigma.slice(s![..n, ..]))?;
+        table.put_column_range_array("DATA", start_row, &self.data.slice(s![..n, .., ..]))?;
+        table.put_column_range_array(
+            "WEIGHT_SPECTRUM",
+            start_row,
+            &self.weight_spectrum.slice(s![..n, .., ..]),
+        )?;
+        table.put_column_range_array("WEIGHT", start_row, &self.weight.slice(s![..n, ..]))?;
+        table.put_column_range_array("FLAG", start_row, &self.flag.slice(s![..n, .., ..]))?;
+        table.put_column_range_scalar("FLAG_ROW", start_row, &self.flag_row[..n])?;
+
+        Ok(())
+    }
+}
+
 impl VisWrite for MeasurementSetWriter {
     fn write_vis(
         &mut self,
@@ -1734,7 +1988,8 @@ impl VisWrite for MeasurementSetWriter {
         let num_avg_timesteps = vis_ctx.num_avg_timesteps();
         let num_avg_chans = vis_ctx.num_avg_chans();
         let num_vis_pols = vis_ctx.num_vis_pols;
-        let num_avg_rows = num_avg_timesteps * vis_ctx.sel_baselines.len();
+        let num_sel_baselines = vis_ctx.sel_baselines.len();
+        let num_avg_rows = num_avg_timesteps * num_sel_baselines;
 
         // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
@@ -1747,11 +2002,28 @@ impl VisWrite for MeasurementSetWriter {
             }));
         }
 
-        let mut uvw_tmp = vec![0.; 3];
-        let sigma_tmp = vec![1.; 4];
-        let mut data_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
-        let mut weights_tmp = Array2::zeros((num_avg_chans, num_vis_pols));
-        let mut flags_tmp = Array2::from_elem((num_avg_chans, num_vis_pols), false);
+        // Rows are assembled column-wise in a batch covering a whole number of
+        // averaged timesteps, then flushed with one bulk put per column.
+        let cell_bytes = num_avg_chans * num_vis_pols * std::mem::size_of::<c32>();
+        let timestep_bytes = (cell_bytes * num_sel_baselines).max(1);
+        let timesteps_per_batch =
+            (MS_WRITE_BATCH_TARGET_BYTES / timestep_bytes).clamp(1, num_avg_timesteps.max(1));
+        let batch_rows = timesteps_per_batch * num_sel_baselines;
+        let mut batch = MainTableBatch::new(batch_rows, num_avg_chans, num_vis_pols);
+
+        // Make the StandardStMan bucket cache big enough to hold every bucket
+        // touched by a batch, so that writing the batch one column at a time
+        // reads and writes each bucket once rather than once per column. A
+        // bucket (4 KiB by default) holds a few dozen rows of the scalar
+        // columns; over-estimating the count just costs a little memory.
+        if let Err(e) =
+            main_table.set_standard_stman_cache_size("StandardStMan", (batch_rows / 8 + 64) as u64)
+        {
+            warn!("could not enlarge the StandardStMan bucket cache: {e}");
+        }
+
+        let avg_int_time_s = vis_ctx.avg_int_time().to_seconds();
+        let sigma = vec![1.; num_vis_pols];
         let mut avg_weight: f32;
         let mut avg_flag: bool;
 
@@ -1792,38 +2064,40 @@ impl VisWrite for MeasurementSetWriter {
                 let baseline_xyzs = tile_xyzs[*ant1_idx] - tile_xyzs[*ant2_idx];
                 let uvw = UVW::from_xyz(baseline_xyzs, hadec);
 
-                // copy values into temporary arrays to avoid heap allocs.
-                uvw_tmp.clone_from_slice(&[uvw.u, uvw.v, uvw.w]);
-
-                data_tmp.fill(Complex::default());
-                weights_tmp.fill(0.);
-                flags_tmp.fill(false);
+                let row = batch.push_row(
+                    scan_centroid_mjd_utc_s,
+                    scan_centroid_mjd_utc_s,
+                    *ant1_idx as _,
+                    *ant2_idx as _,
+                    0,
+                    [uvw.u, uvw.v, uvw.w],
+                    avg_int_time_s,
+                    -1,
+                    1,
+                    -1,
+                    &sigma,
+                )?;
+                let (mut data_row, mut weights_row, mut flags_row) = batch.cell_views_mut(row);
 
                 // iterate through the channel dimension of the arrays in chunks of size `avg_freq`,
-                // averaging the chunks into the tmp arrays.
-                for (
-                    vis_chunk,
-                    weight_chunk,
-                    mut data_tmp_view,
-                    mut weights_tmp_view,
-                    mut flags_tmp_view,
-                ) in izip!(
+                // averaging the chunks directly into this row's cells.
+                for (vis_chunk, weight_chunk, mut data_view, mut weights_view, mut flags_view) in izip!(
                     vis_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
                     weight_chunk.axis_chunks_iter(Axis(1), vis_ctx.avg_freq),
-                    data_tmp.outer_iter_mut(),
-                    weights_tmp.outer_iter_mut(),
-                    flags_tmp.outer_iter_mut()
+                    data_row.outer_iter_mut(),
+                    weights_row.outer_iter_mut(),
+                    flags_row.outer_iter_mut()
                 ) {
                     avg_weight = weight_chunk[[0, 0]];
                     avg_flag = avg_weight.is_sign_negative();
                     if vis_ctx.trivial_averaging() {
-                        data_tmp_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
+                        data_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
                     } else {
                         // The linter doesn't like this, but it's wrong. don't bother.
                         average_chunk_f64!(
                             vis_chunk,
                             weight_chunk,
-                            data_tmp_view,
+                            data_view,
                             avg_weight,
                             avg_flag
                         );
@@ -1831,34 +2105,23 @@ impl VisWrite for MeasurementSetWriter {
                     if avg_flag {
                         avg_weight = avg_weight.abs();
                     }
-                    weights_tmp_view.fill(avg_weight);
-                    flags_tmp_view.fill(avg_flag);
+                    weights_view.fill(avg_weight);
+                    flags_view.fill(avg_flag);
                 }
 
-                let flag_row = flags_tmp.iter().all(|&x| x);
-                self.write_main_row(
-                    &mut main_table,
-                    self.main_row_idx as _,
-                    scan_centroid_mjd_utc_s,
-                    scan_centroid_mjd_utc_s,
-                    *ant1_idx as _,
-                    *ant2_idx as _,
-                    0,
-                    &uvw_tmp,
-                    vis_ctx.avg_int_time().to_seconds(),
-                    -1,
-                    1,
-                    -1,
-                    &sigma_tmp,
-                    &data_tmp,
-                    &flags_tmp,
-                    &weights_tmp,
-                    flag_row,
-                )?;
+                batch.finish_row(row);
+            }
 
-                self.main_row_idx += 1;
+            if batch.is_full() {
+                batch.write(&mut main_table, self.main_row_idx as u64)?;
+                self.main_row_idx += batch.len;
+                batch.clear();
             }
         }
+
+        batch.write(&mut main_table, self.main_row_idx as u64)?;
+        self.main_row_idx += batch.len;
+
         Ok(())
     }
 
@@ -4713,6 +4976,197 @@ mod tests {
         }
 
         indices
+    }
+
+    /// Set up an empty measurement set with `num_chans` channels and
+    /// `num_rows` MAIN rows, ready for rows to be written.
+    fn setup_empty_main_table(table_path: &Path, num_chans: usize, num_rows: usize) -> Table {
+        let ms_writer = MeasurementSetWriter::new(
+            table_path,
+            RADec::from_radians(0., -0.47123889803846897),
+            LatLngHeight::mwa(),
+            vec![],
+            Duration::default(),
+            true,
+        );
+        ms_writer.decompress_default_tables().unwrap();
+        ms_writer.decompress_source_table().unwrap();
+        ms_writer.add_cotter_mods(num_chans).unwrap();
+        let mut main_table = Table::open(table_path, TableOpenMode::ReadWrite).unwrap();
+        main_table.add_rows(num_rows).unwrap();
+        main_table
+    }
+
+    /// The batched, column-wise path used by `write_vis` must produce exactly
+    /// the same MAIN table as the per-row `write_main_row` path.
+    #[test]
+    fn test_main_table_batch_matches_write_main_row() {
+        let temp_dir = tempdir().unwrap();
+        let per_row_path = temp_dir.path().join("per_row.ms");
+        let batched_path = temp_dir.path().join("batched.ms");
+
+        let num_timesteps = 3;
+        let num_chans = 6;
+        let num_pols = 4;
+        let baselines = [(0_i32, 0_i32), (0, 1), (0, 2), (1, 2), (2, 2)];
+        let num_rows = num_timesteps * baselines.len();
+
+        let ms_writer = MeasurementSetWriter::new(
+            &per_row_path,
+            RADec::from_radians(0., -0.47123889803846897),
+            LatLngHeight::mwa(),
+            vec![],
+            Duration::default(),
+            true,
+        );
+        let mut per_row_table = setup_empty_main_table(&per_row_path, num_chans, num_rows);
+        let mut batched_table = setup_empty_main_table(&batched_path, num_chans, num_rows);
+
+        // a small batch capacity that does not divide the row count, so that
+        // several flushes (including a partial one) are exercised.
+        let mut batch = MainTableBatch::new(4, num_chans, num_pols);
+        let mut batch_start_row = 0_u64;
+
+        let mut row_idx = 0_u64;
+        for t in 0..num_timesteps {
+            let time = 5e9 + t as f64 * 2.;
+            for (b, &(ant1, ant2)) in baselines.iter().enumerate() {
+                let r = row_idx as usize;
+                let uvw = vec![r as f64 * 1.5, -(b as f64), t as f64 * 0.25];
+                let sigma = vec![1., 2., 3., 4.];
+                let data = Array2::from_shape_fn((num_chans, num_pols), |(c, p)| {
+                    c32::new((r * 100 + c * 10 + p) as f32, -((c * 4 + p) as f32) * 0.5)
+                });
+                let weights = Array2::from_shape_fn((num_chans, num_pols), |(c, p)| {
+                    (r + c + p) as f32 * 0.125
+                });
+                // flag a few cells, and completely flag every 4th row
+                let flags = Array2::from_shape_fn((num_chans, num_pols), |(c, p)| {
+                    r % 4 == 3 || (r + c * p) % 5 == 0
+                });
+                let flag_row = flags.iter().all(|&f| f);
+
+                ms_writer
+                    .write_main_row(
+                        &mut per_row_table,
+                        row_idx,
+                        time,
+                        time + 0.5,
+                        ant1,
+                        ant2,
+                        0,
+                        &uvw,
+                        2.,
+                        -1,
+                        1,
+                        -1,
+                        &sigma,
+                        &data,
+                        &flags,
+                        &weights,
+                        flag_row,
+                    )
+                    .unwrap();
+
+                let i = batch
+                    .push_row(
+                        time,
+                        time + 0.5,
+                        ant1,
+                        ant2,
+                        0,
+                        [uvw[0], uvw[1], uvw[2]],
+                        2.,
+                        -1,
+                        1,
+                        -1,
+                        &sigma,
+                    )
+                    .unwrap();
+                {
+                    let (mut d, mut w, mut f) = batch.cell_views_mut(i);
+                    d.assign(&data);
+                    w.assign(&weights);
+                    f.assign(&flags);
+                }
+                batch.finish_row(i);
+                if batch.is_full() {
+                    batch.write(&mut batched_table, batch_start_row).unwrap();
+                    batch_start_row += batch.len as u64;
+                    batch.clear();
+                }
+
+                row_idx += 1;
+            }
+        }
+        batch.write(&mut batched_table, batch_start_row).unwrap();
+        batch_start_row += batch.len as u64;
+        assert_eq!(batch_start_row, num_rows as u64);
+
+        // the flag_row pattern must actually have produced some fully flagged rows
+        assert!((0..num_rows).any(|r| r % 4 == 3));
+
+        drop(per_row_table);
+        drop(batched_table);
+
+        let mut per_row_table = Table::open(&per_row_path, TableOpenMode::Read).unwrap();
+        let mut batched_table = Table::open(&batched_path, TableOpenMode::Read).unwrap();
+        assert_eq!(per_row_table.n_rows(), num_rows as u64);
+        assert_eq!(batched_table.n_rows(), num_rows as u64);
+        assert_eq!(
+            per_row_table.column_names().unwrap(),
+            batched_table.column_names().unwrap()
+        );
+
+        macro_rules! assert_scalar_col_eq {
+            ($ty:ty, $col:literal) => {
+                for r in 0..num_rows as u64 {
+                    let a: $ty = per_row_table.get_cell($col, r).unwrap();
+                    let b: $ty = batched_table.get_cell($col, r).unwrap();
+                    assert_eq!(a, b, "column {} row {r} differs", $col);
+                }
+            };
+        }
+        macro_rules! assert_array_col_eq {
+            ($ty:ty, $col:literal) => {
+                for r in 0..num_rows as u64 {
+                    let a: Vec<$ty> = per_row_table.get_cell_as_vec($col, r).unwrap();
+                    let b: Vec<$ty> = batched_table.get_cell_as_vec($col, r).unwrap();
+                    assert_eq!(a, b, "column {} row {r} differs", $col);
+                    assert!(!a.is_empty());
+                }
+            };
+        }
+
+        assert_scalar_col_eq!(f64, "TIME");
+        assert_scalar_col_eq!(f64, "TIME_CENTROID");
+        assert_scalar_col_eq!(i32, "ANTENNA1");
+        assert_scalar_col_eq!(i32, "ANTENNA2");
+        assert_scalar_col_eq!(i32, "DATA_DESC_ID");
+        assert_scalar_col_eq!(f64, "INTERVAL");
+        assert_scalar_col_eq!(f64, "EXPOSURE");
+        assert_scalar_col_eq!(i32, "PROCESSOR_ID");
+        assert_scalar_col_eq!(i32, "SCAN_NUMBER");
+        assert_scalar_col_eq!(i32, "STATE_ID");
+        assert_scalar_col_eq!(bool, "FLAG_ROW");
+        // untouched by both paths, but must still agree (zero-initialised)
+        assert_scalar_col_eq!(i32, "ARRAY_ID");
+        assert_scalar_col_eq!(i32, "FEED1");
+        assert_scalar_col_eq!(i32, "FEED2");
+        assert_scalar_col_eq!(i32, "FIELD_ID");
+        assert_scalar_col_eq!(i32, "OBSERVATION_ID");
+        assert_array_col_eq!(f64, "UVW");
+        assert_array_col_eq!(f32, "SIGMA");
+        assert_array_col_eq!(f32, "WEIGHT");
+        assert_array_col_eq!(c32, "DATA");
+        assert_array_col_eq!(f32, "WEIGHT_SPECTRUM");
+        assert_array_col_eq!(bool, "FLAG");
+
+        // sanity: the data actually made it, and some rows are fully flagged
+        let d: Vec<c32> = batched_table.get_cell_as_vec("DATA", 1).unwrap();
+        assert_eq!(d[0], c32::new(100., 0.));
+        assert!(batched_table.get_cell::<bool>("FLAG_ROW", 3).unwrap());
+        assert!(!batched_table.get_cell::<bool>("FLAG_ROW", 0).unwrap());
     }
 
     #[test]

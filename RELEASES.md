@@ -1,4 +1,9 @@
 <!-- markdownlint-disable=MD025 -->
+# Version 0.19.0 (2026-10-15)
+
+- Measurement Set writes are much faster: the MAIN table is written in column-wise batches with one bulk put per column, and DATA, WEIGHT_SPECTRUM, FLAG, SIGMA and WEIGHT use tiled storage managers (one MWA coarse channel: 694 s to 55 s). Row ordering and column contents are unchanged.
+- Updated rubbl_casatables to 0.10.0 (re-exported, hence the minor bump)
+
 # Version 0.18.0 (2026-07-15)
 
 - Fixed 256T uvfits baseline encoding for pyuvdata compatibility: all baselines now use the miriad convention (`ant1 * 2048 + ant2 + 65536`) when the array has more than 255 antennas, preventing mixed-encoding files that pyuvdata incorrectly decodes.
