@@ -1100,13 +1100,10 @@ impl VisWrite for UvfitsWriter {
                     avg_centroid_timestamp,
                     self.dut1,
                 );
-                let hadec = match self.uvw_frame {
-                    UvwFrame::Hyperdrive => prec_info.hadec_j2000,
-                    UvwFrame::Casacore | UvwFrame::Oskar => {
-                        self.phase_centre.to_hadec(prec_info.lmst_j2000)
-                    }
-                };
-                (prec_info.precess_xyz(&self.antenna_positions).into(), hadec)
+                (
+                    prec_info.precess_xyz(&self.antenna_positions).into(),
+                    prec_info.hadec_j2000,
+                )
             } else {
                 let lmst = get_lmst(
                     self.array_pos.longitude_rad,

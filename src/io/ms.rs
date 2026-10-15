@@ -2106,13 +2106,10 @@ impl VisWrite for MeasurementSetWriter {
                     avg_centroid_timestamp,
                     self.dut1,
                 );
-                let hadec = match self.uvw_frame {
-                    UvwFrame::Hyperdrive => prec_info.hadec_j2000,
-                    UvwFrame::Casacore | UvwFrame::Oskar => {
-                        self.phase_centre.to_hadec(prec_info.lmst_j2000)
-                    }
-                };
-                (prec_info.precess_xyz(&self.antenna_positions).into(), hadec)
+                (
+                    prec_info.precess_xyz(&self.antenna_positions).into(),
+                    prec_info.hadec_j2000,
+                )
             } else {
                 let lmst = get_lmst(
                     self.array_pos.longitude_rad,
@@ -2495,7 +2492,7 @@ mod tests {
                                 izip!(left_cell, right_cell).enumerate()
                             {
                                 assert!(
-                                    abs_diff_eq!(left_value, right_value, epsilon = 1e-7),
+                                    abs_diff_eq!(left_value, right_value, epsilon = $epsilon),
                                     "cells don't match at index {} in column {}, row {}. {:?} != {:?}",
                                     vec_idx,
                                     $col_name,
@@ -5747,6 +5744,12 @@ mod tests {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else if *col_name == "UVW" {
+                    // cotter projects onto the aberrated phase centre, which
+                    // rolls u and v by 9.2 arcsec here (see
+                    // `precess_time`): 3.3 cm on the longest (741 m)
+                    // baseline. w agrees to < 1 um.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
@@ -5888,6 +5891,12 @@ mod tests {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else if *col_name == "UVW" {
+                    // cotter projects onto the aberrated phase centre, which
+                    // rolls u and v by 9.2 arcsec here (see
+                    // `precess_time`): 3.3 cm on the longest (741 m)
+                    // baseline. w agrees to < 1 um.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
@@ -6004,6 +6013,12 @@ mod tests {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else if *col_name == "UVW" {
+                    // cotter projects onto the aberrated phase centre, which
+                    // rolls u and v by 9.2 arcsec here (see
+                    // `precess_time`): 3.3 cm on the longest (741 m)
+                    // baseline. w agrees to < 1 um.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
