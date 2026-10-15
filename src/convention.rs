@@ -8,7 +8,11 @@
 //! `MWA`, whose X dipoles point east-west and whose baselines are antenna 1
 //! minus antenna 2. The `IAU`, and the casacore-based software most other
 //! instruments use (`CASA`, `DP3`/`LOFAR`, `WSClean`, `ASKAPsoft`), define X
-//! as north-south and a baseline as antenna 2 minus antenna 1, and casacore's
+//! as north-south. casacore's UVW calculators (`derivedmscal`, and `DP3`'s)
+//! make a baseline antenna 2 minus antenna 1, although the Measurement Sets
+//! `CASA` itself writes (`importevla`, `importuvfits`), like cotter's and
+//! Birli's, have antenna 1 minus antenna 2, which is also what pyuvdata
+//! assumes of any Measurement Set or uvfits file it did not write. casacore's
 //! J2000 `UVW`s also differ from Marlu's precession by the equation of the
 //! equinoxes and the annual aberration of the phase centre (about 20 arcsec
 //! each). These types name the conventions so that code can convert between
@@ -75,7 +79,9 @@ impl XOrientation {
 
     /// The orientation recorded by feed angles (see
     /// [`XOrientation::feed_angles_rad`]): X within 45° of east is
-    /// [`XOrientation::East`], anything else [`XOrientation::North`].
+    /// [`XOrientation::East`], anything else [`XOrientation::North`]. This is
+    /// looser than pyuvdata, which calls feeds "east" or "north" only when
+    /// both X and Y angles match exactly, and otherwise has no orientation.
     pub fn from_feed_angle_rad(x_angle_rad: f64) -> XOrientation {
         let a = x_angle_rad.rem_euclid(std::f64::consts::PI);
         if (a - FRAC_PI_2).abs() < std::f64::consts::FRAC_PI_4 {
@@ -297,12 +303,16 @@ pub enum UvwFrame {
     #[default]
     Hyperdrive,
 
-    /// The frame of the UVW column casacore writes into a Measurement Set,
-    /// which `DP3`, `WSClean`, `CASA` and `ASKAPsoft` use, and of a UVH5
-    /// `uvw_array`: apparent sidereal time, the J2000 baselines rotated to
-    /// undo the annual aberration of the phase centre, and a baseline is
-    /// antenna 2 minus antenna 1 (so visibilities are the complex conjugates
-    /// of the hyperdrive frame's).
+    /// The frame of the UVWs casacore computes (`derivedmscal`'s
+    /// `UVWJ2000`, `measures.to_uvw`) and `DP3` uses, with the baseline sign
+    /// of a UVH5 `uvw_array`: apparent sidereal time, the J2000 baselines
+    /// rotated to undo the annual aberration of the phase centre, and a
+    /// baseline is antenna 2 minus antenna 1 (so visibilities are the complex
+    /// conjugates of the hyperdrive frame's). The Measurement Sets `CASA`
+    /// itself writes have the opposite baseline sign; Marlu's writers record
+    /// this one in `pyuvdata_flip_conj`, and uvfits files are written with
+    /// antenna 1 minus antenna 2 baselines (and conjugated visibilities)
+    /// whatever the frame.
     #[cfg_attr(
         feature = "serde",
         serde(

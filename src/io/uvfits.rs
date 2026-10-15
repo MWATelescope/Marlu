@@ -209,8 +209,10 @@ pub struct UvfitsWriter {
     /// `POLCONV` header keyword.
     pol_convention: PolConvention,
 
-    /// The frame the UVWs are computed in (and the baseline sign); recorded
-    /// in the `marlu_uvw_frame` header keyword.
+    /// The frame the UVWs are computed in; recorded in the `marlu_uvw_frame`
+    /// header keyword. uvfits baselines are always written antenna1 -
+    /// antenna2 (as AIPS and pyuvdata read them), so the visibilities of a
+    /// frame with the other sign are written conjugated.
     uvw_frame: UvwFrame,
 
     /// If true, all baselines are encoded with the miriad convention
@@ -726,14 +728,16 @@ impl UvfitsWriter {
                 );
                 fits_check_status(status)?;
 
-                // MNTSTA
+                // MNTSTA: 6 is a phased (aperture) array, whose POLAA/POLAB
+                // are measured from north (pyuvdata's "phased"; 0, alt-az,
+                // would measure them from the parallactic angle).
                 fitsio_sys::ffpclk(
                     self.fptr,   /* I - FITS file pointer                       */
                     4,           /* I - number of column to write (1 = 1st col) */
                     row,         /* I - first row to write (1 = 1st row)        */
                     1,           /* I - first vector element to write (1 = 1st) */
                     1,           /* I - number of values to write               */
-                    &mut 0,      /* I - array of values to write                */
+                    &mut 6,      /* I - array of values to write                */
                     &mut status, /* IO - error status                           */
                 );
                 fits_check_status(status)?;
@@ -1109,6 +1113,17 @@ impl VisWrite for UvfitsWriter {
                 let hadec = self.phase_centre.to_hadec(lmst);
                 (self.antenna_positions.as_slice().into(), hadec)
             };
+            // uvfits baselines are antenna1 - antenna2 (pyuvdata conjugates
+            // every uvfits file on reading on that assumption), so a frame
+            // with the other sign is written as the conjugate baseline:
+            // `precess_xyz`'s negation is undone and the visibilities
+            // conjugated.
+            let uvw_sign = if self.precess_uvws {
+                self.uvw_frame.baseline_sign()
+            } else {
+                1.0
+            };
+            let im_sign = self.uvw_frame.baseline_sign() as f32;
 
             for ((ant1_idx, ant2_idx), jones_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter().copied(),
@@ -1116,7 +1131,7 @@ impl VisWrite for UvfitsWriter {
                 weight_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyz = tile_xyzs[ant1_idx] - tile_xyzs[ant2_idx];
-                let uvw = UVW::from_xyz(baseline_xyz, hadec) / VEL_C;
+                let uvw = UVW::from_xyz(baseline_xyz, hadec) * uvw_sign / VEL_C;
 
                 self.buffer[i_u] = uvw.u as f32;
                 self.buffer[i_v] = uvw.v as f32;
@@ -1157,16 +1172,16 @@ impl VisWrite for UvfitsWriter {
                         .iter_mut()
                         .zip([
                             avg_jones[0].re,
-                            avg_jones[0].im,
+                            im_sign * avg_jones[0].im,
                             avg_weight,
                             avg_jones[3].re,
-                            avg_jones[3].im,
+                            im_sign * avg_jones[3].im,
                             avg_weight,
                             avg_jones[1].re,
-                            avg_jones[1].im,
+                            im_sign * avg_jones[1].im,
                             avg_weight,
                             avg_jones[2].re,
-                            avg_jones[2].im,
+                            im_sign * avg_jones[2].im,
                             avg_weight,
                         ])
                         .for_each(|(vis_chunk_element, vis)| {
@@ -2846,6 +2861,15 @@ mod tests {
             VisContext::from_mwalib(&corr_ctx, &(0..num_timesteps), &(0..1), &[0, 1, 2], 1, 1);
 
         let mut uvws = vec![];
+        let vis = Array3::from_elem(
+            (num_timesteps, num_chans, num_baselines),
+            Jones::from([
+                Complex::new(1.0, 2.0),
+                Complex::new(3.0, 4.0),
+                Complex::new(5.0, 6.0),
+                Complex::new(7.0, 8.0),
+            ]),
+        );
         for (pol, frame) in [
             (PolConvention::MWA, UvwFrame::Hyperdrive),
             (PolConvention::IAU, UvwFrame::Casacore),
@@ -2874,8 +2898,8 @@ mod tests {
             .with_conventions(pol, frame)
             .unwrap();
             u.write_vis(
-                Array3::default((num_timesteps, num_chans, num_baselines)).view(),
-                Array3::default((num_timesteps, num_chans, num_baselines)).view(),
+                vis.view(),
+                Array3::from_elem((num_timesteps, num_chans, num_baselines), 1.0).view(),
                 &vis_ctx,
             )
             .unwrap();
@@ -2890,20 +2914,40 @@ mod tests {
             assert_eq!(stokes, pol.stokes.to_string());
             assert_eq!(uvw_frame, frame.to_string());
 
+            // Group 2 is the first cross-correlation (group 1 is 0-0).
             let mut group_params: Vec<f32> = vec![0.0; GROUP_PARAMS.len() - 1];
+            let mut data = [0.0f32; 3];
             let mut status = 0;
+            let mut any_null = 0;
             unsafe {
                 fitsio_sys::ffggpe(
                     f.as_raw(),
-                    1,
+                    2,
                     1,
                     group_params.len() as i64,
                     group_params.as_mut_ptr(),
                     &mut status,
                 );
+                fitsio_sys::ffgpve(
+                    f.as_raw(),
+                    2,
+                    1,
+                    data.len() as i64,
+                    0.0,
+                    data.as_mut_ptr(),
+                    &mut any_null,
+                    &mut status,
+                );
             }
             fits_check_status(status).unwrap();
             uvws.push(group_params[0..3].to_vec());
+            // uvfits is always antenna1 - antenna2, so data in an antenna2 -
+            // antenna1 frame are written conjugated.
+            assert!((data[0] - 1.0).abs() < 1e-6, "{data:?}");
+            assert!(
+                (data[1] - 2.0 * frame.baseline_sign() as f32).abs() < 1e-6,
+                "{data:?}"
+            );
 
             let ant_hdu = fits_open_hdu!(&mut f, 1).unwrap();
             let pol_a: Vec<f32> = ant_hdu.read_col(&mut f, "POLAA").unwrap();
@@ -2915,10 +2959,15 @@ mod tests {
             assert!(pol_b
                 .iter()
                 .all(|v| (*v as f64 - b.to_degrees()).abs() < 1e-6));
+            let mount: Vec<i32> = ant_hdu.read_col(&mut f, "MNTSTA").unwrap();
+            assert!(mount.iter().all(|m| *m == 6));
         }
+        // Both antenna1 - antenna2, differing only slightly (apparent
+        // sidereal time, aberration).
+        assert!(uvws[0].iter().any(|u| u.abs() > 1e-9));
         for i in 0..3 {
             assert!(
-                (uvws[0][i] + uvws[1][i]).abs() < 1e-6 * uvws[0][i].abs().max(1e-3),
+                (uvws[0][i] - uvws[1][i]).abs() < 1e-3 * uvws[0][i].abs().max(1e-9),
                 "{:?} vs {:?}",
                 uvws[0],
                 uvws[1]
