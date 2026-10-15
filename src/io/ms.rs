@@ -79,7 +79,8 @@ pub struct MeasurementSetWriter {
     pol_convention: PolConvention,
 
     /// The frame the UVWs are computed in (and the baseline sign); recorded
-    /// in the `marlu_uvw_frame` keyword and the `UVW` column's `MEASINFO`.
+    /// in the `marlu_uvw_frame` keyword, the `UVW` column's `MEASINFO` and the
+    /// `pyuvdata_flip_conj` keyword.
     uvw_frame: UvwFrame,
 }
 
@@ -115,14 +116,26 @@ impl MeasurementSetWriter {
 
     /// Record the conventions on the main table: the `pyuvdata_polconv`
     /// keyword ("avg" or "sum", the keyword pyuvdata reads and writes), the
-    /// `marlu_uvw_frame` keyword, and the `UVW` column's `MEASINFO` reference
-    /// (J2000 when precessing, APP otherwise). The X orientation is only in
-    /// the `FEED` table's `RECEPTOR_ANGLE`, as pyuvdata has it.
+    /// `marlu_uvw_frame` keyword, the `pyuvdata_flip_conj` keyword and the
+    /// `UVW` column's `MEASINFO` reference (J2000 when precessing, APP
+    /// otherwise). The X orientation is only in the `FEED` table's
+    /// `RECEPTOR_ANGLE`, as pyuvdata has it.
+    ///
+    /// pyuvdata assumes a Measurement Set it did not write has antenna1 -
+    /// antenna2 baselines (as CASA, cotter and Birli write them) and
+    /// conjugates it on reading, unless `pyuvdata_flip_conj` says otherwise;
+    /// it is false for the antenna2 - antenna1 frames (`UvwFrame::Casacore`,
+    /// i.e. casacore's `derivedmscal` and DP3), which are already in
+    /// pyuvdata's own convention.
     pub fn add_conventions(&self) -> Result<(), MeasurementSetWriteError> {
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
         main_table
             .put_keyword::<String>("pyuvdata_polconv", &self.pol_convention.stokes.to_string())?;
         main_table.put_keyword::<String>("marlu_uvw_frame", &self.uvw_frame.to_string())?;
+        main_table.put_keyword::<bool>(
+            "pyuvdata_flip_conj",
+            &(self.uvw_frame.baseline_sign() > 0.0),
+        )?;
 
         let mut meas_info = TableRecord::new()?;
         meas_info.put_field("type", &"uvw".to_string())?;
@@ -1512,7 +1525,10 @@ impl MeasurementSetWriter {
                 name,
                 "MWA",
                 "GROUND-BASED",
-                "ALT-AZ",
+                // A zenith-pointing aperture array: pyuvdata's "phased" mount,
+                // whose feed angles are measured from north (an ALT-AZ feed
+                // angle is from the parallactic angle).
+                "phased",
                 &vec![position_geoc.x, position_geoc.y, position_geoc.z],
                 4.0,
                 false,
@@ -2106,6 +2122,12 @@ impl VisWrite for MeasurementSetWriter {
                 let hadec = self.phase_centre.to_hadec(lmst);
                 (self.antenna_positions.as_slice().into(), hadec)
             };
+            // `precess_xyz` already gives the frame's baseline sign.
+            let uvw_sign = if self.precess_uvws {
+                1.0
+            } else {
+                self.uvw_frame.baseline_sign()
+            };
 
             for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter(),
@@ -2113,7 +2135,7 @@ impl VisWrite for MeasurementSetWriter {
                 weight_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyzs = tile_xyzs[*ant1_idx] - tile_xyzs[*ant2_idx];
-                let uvw = UVW::from_xyz(baseline_xyzs, hadec);
+                let uvw = UVW::from_xyz(baseline_xyzs, hadec) * uvw_sign;
 
                 let row = batch.push_row(
                     scan_centroid_mjd_utc_s,
@@ -2633,7 +2655,7 @@ mod tests {
                     "TYPE",
                     "DISH_DIAMETER",
                     "FLAG_ROW",
-                    "MOUNT",
+                    // MOUNT is not compared: cotter records ALT-AZ, Marlu "phased".
                     "NAME",
                     "STATION",
                 ],
@@ -4681,7 +4703,7 @@ mod tests {
                     "TYPE",
                     "DISH_DIAMETER",
                     "FLAG_ROW",
-                    "MOUNT",
+                    // MOUNT is not compared: cotter records ALT-AZ, Marlu "phased".
                     "NAME",
                     "STATION",
                     "MWA_INPUT",
@@ -5380,7 +5402,7 @@ mod tests {
                 "TYPE",
                 "DISH_DIAMETER",
                 "FLAG_ROW",
-                "MOUNT",
+                // MOUNT is not compared: cotter records ALT-AZ, Marlu "phased".
                 "NAME",
                 "STATION",
             ],
@@ -5606,6 +5628,16 @@ mod tests {
             let mut feed_table = Table::open(table_path.join("FEED"), TableOpenMode::Read).unwrap();
             let angles: Vec<f64> = feed_table.get_cell_as_vec("RECEPTOR_ANGLE", 0).unwrap();
             assert_eq!(angles, pol.feed_angles_rad().to_vec());
+
+            // pyuvdata conjugates on reading unless the baselines are already
+            // antenna2 - antenna1.
+            let flip_conj: bool = keywords.get_field("pyuvdata_flip_conj").unwrap();
+            assert_eq!(flip_conj, frame != UvwFrame::Casacore);
+
+            let mut ant_table =
+                Table::open(table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
+            let mount: String = ant_table.get_cell("MOUNT", 0).unwrap();
+            assert_eq!(mount, "phased");
         }
         // Opposite baseline sign, and the two frames differ by more than
         // that (apparent sidereal time, aberration) but only slightly.
