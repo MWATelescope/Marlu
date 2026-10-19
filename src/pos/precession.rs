@@ -103,7 +103,9 @@ pub fn get_lmst(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
 /// (`casacore`'s `MeasMath::deapplyAberration`), so that `UVWs` are
 /// projected onto the catalogue phase centre: `w` is unchanged, and a model
 /// built from catalogue source positions and these `UVWs` sees the sky where
-/// the (aberrated) data have it.
+/// the (aberrated) data have it. `cotter` also rotated the array by the mean
+/// sidereal time; the array is rotated here by the apparent one, which
+/// matches the nutation in the precession matrix.
 pub fn precess_time(
     array_longitude_rad: f64,
     array_latitude_rad: f64,
@@ -111,9 +113,16 @@ pub fn precess_time(
     time: Epoch,
     dut1: Duration,
 ) -> PrecessionInfo {
-    // Note that we explicitly use the mean LST (i.e. LMST) because we're
-    // handling nutation ourselves.
     let lmst = get_lmst(array_longitude_rad, time, dut1);
+    // The matrix below includes nutation, so it takes positions from the true
+    // equator and equinox of date: the array has to be rotated by the
+    // apparent sidereal time, not the mean one. The difference is the
+    // equation of the equinoxes (up to ~17 arcsec).
+    let ut1 = (time + dut1).to_mjd_utc_days();
+    let tt = time.to_mjd_tt_days();
+    let eqeq = erfa::time::gst06a(ERFA_DJM0, ut1, ERFA_DJM0, tt)
+        - erfa::time::gmst06(ERFA_DJM0, ut1, ERFA_DJM0, tt);
+    let last = lmst + eqeq;
 
     let j2000 = 2000.0;
     let mjd = (time + dut1).to_mjd_utc_days();
@@ -135,11 +144,15 @@ pub fn precess_time(
     // The zenith gives the J2000 sidereal time and latitude; these don't
     // include aberration.
     let (lmst_j2000, array_latitude_j2000) =
-        rotate_radec(&mut rotation_matrix, lmst, array_latitude_rad);
+        rotate_radec(&mut rotation_matrix, last, array_latitude_rad);
 
+    // `precess_xyz` rotates positions by `lmst`; the rest of the way to the
+    // apparent sidereal time goes in the matrix.
+    let (s, c) = eqeq.sin_cos();
+    let eqeq_rotation = [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]];
     let rotation_matrix = erfa::vectors_and_matrices::multiply_matrices(
         deaberration(phase_centre, time),
-        rotation_matrix,
+        erfa::vectors_and_matrices::multiply_matrices(rotation_matrix, eqeq_rotation),
     );
 
     PrecessionInfo {
@@ -367,6 +380,159 @@ mod tests {
         }
     }
 
+    // Four stations around the MWA (ITRF, metres; 3-32 km baselines), two
+    // timestamps, and the UVWs CALC 11 (the VLBI delay model used by DiFX, via
+    // pycalc11, `noatmo` mode, no polar motion, UT1-UTC = -0.151522 s) gives
+    // for them towards RA 0, Dec -27 (J2000). CALC's u and v are the gradient
+    // of the full relativistic delay over catalogue J2000 offsets, and w is
+    // the delay times c, so they don't depend on a projection convention.
+    const CALC_ITRF: [[f64; 3]; 4] = [
+        [-2559454.0790495784, 5095372.143311582, -2849057.185786278],
+        [-2562134.8794759056, 5094025.551660707, -2849057.185786278],
+        [-2560059.1979564168, 5096576.81662318, -2846377.149719187],
+        [-2588279.1463356433, 5085921.804508169, -2840123.732229308],
+    ];
+    const CALC_GPS_TIMES: [f64; 2] = [1254670338.0, 1254670578.0];
+    const CALC_UVWS: [(usize, usize, usize, [f64; 3]); 12] = [
+        (
+            0,
+            0,
+            1,
+            [2975.2923784119776, -174.31783798732067, -343.5356172900647],
+        ),
+        (
+            0,
+            0,
+            2,
+            [173.1940623857081, 2995.060250000395, -19.76255600526929],
+        ),
+        (
+            0,
+            0,
+            3,
+            [30330.23786973243, 8240.354734546112, -3501.2349972864613],
+        ),
+        (
+            0,
+            1,
+            2,
+            [-2802.0983160262695, 3169.378087987716, 323.7730612847954],
+        ),
+        (
+            0,
+            1,
+            3,
+            [27354.945491320454, 8414.672572533433, -3157.6993799963966],
+        ),
+        (
+            0,
+            2,
+            3,
+            [30157.043807346723, 5245.294484545717, -3481.472441281192],
+        ),
+        (
+            1,
+            0,
+            1,
+            [2968.095101361163, -197.84090606482278, -389.91919966600835],
+        ),
+        (
+            1,
+            0,
+            2,
+            [196.56548183760606, 2993.5968511652736, -22.64675517939031],
+        ),
+        (
+            1,
+            0,
+            3,
+            [30336.169577636523, 8000.246257009172, -3974.684804080054],
+        ),
+        (
+            1,
+            1,
+            2,
+            [-2771.529619523557, 3191.4377572300964, 367.27244448661804],
+        ),
+        (
+            1,
+            1,
+            3,
+            [27368.07447627536, 8198.087163073995, -3584.765604414046],
+        ),
+        (
+            1,
+            2,
+            3,
+            [30139.604095798917, 5006.649405843898, -3952.038048900664],
+        ),
+    ];
+
+    #[test]
+    fn uvws_match_calc() {
+        use crate::{pos::xyz::xyzs_to_cross_uvws, XyzGeocentric};
+
+        let centre = XyzGeocentric {
+            x: CALC_ITRF.iter().map(|p| p[0]).sum::<f64>() / 4.0,
+            y: CALC_ITRF.iter().map(|p| p[1]).sum::<f64>() / 4.0,
+            z: CALC_ITRF.iter().map(|p| p[2]).sum::<f64>() / 4.0,
+        };
+        let array_pos = centre.to_earth_wgs84();
+        let xyzs: Vec<XyzGeodetic> = CALC_ITRF
+            .iter()
+            .map(|p| {
+                XyzGeocentric {
+                    x: p[0],
+                    y: p[1],
+                    z: p[2],
+                }
+                .to_geodetic(array_pos)
+            })
+            .collect();
+        let phase_centre = RADec::from_degrees(0.0, -27.0);
+        for (i_time, gps) in CALC_GPS_TIMES.iter().enumerate() {
+            let time = Epoch::from_gpst_seconds(*gps);
+            let p = precess_time(
+                array_pos.longitude_rad,
+                array_pos.latitude_rad,
+                phase_centre,
+                time,
+                Duration::from_seconds(-0.151522),
+            );
+            let uvws = xyzs_to_cross_uvws(&p.precess_xyz(&xyzs), p.hadec_j2000);
+            // CALC differentiates over catalogue offsets, so its u and v also
+            // carry the aberration's compression of the field, a scale of
+            // 1 - v.s/c (43 ppm here), which a rigid rotation leaves out.
+            let (_, _, pvb) = erfa::earth::position_velocity_00(ERFA_DJM0, time.to_mjd_tt_days());
+            let v = pvb[1].map(|v| v * ERFA_DAU / ERFA_DAYSEC / ERFA_CMPS);
+            let s = erfa::transform::spherical_to_cartesian(phase_centre.ra, phase_centre.dec);
+            let scale = 1.0 - dot(v, s);
+            let mut i_bl = 0;
+            for a1 in 0..4 {
+                for a2 in a1 + 1..4 {
+                    let expected = CALC_UVWS
+                        .iter()
+                        .find(|(t, x, y, _)| *t == i_time && *x == a1 && *y == a2)
+                        .unwrap()
+                        .3;
+                    // CALC's baselines have the opposite sign.
+                    let got = uvws[i_bl] * -1.0;
+                    let km = (expected[0].powi(2) + expected[1].powi(2) + expected[2].powi(2))
+                        .sqrt()
+                        / 1e3;
+                    // Before taking the aberration out of the positions, u
+                    // and v were rolled by 9 arcsec (44 mm per km); with the
+                    // mean sidereal time, w was off by 70 mm per km.
+                    let duv = (scale * got.u - expected[0]).hypot(scale * got.v - expected[1]);
+                    assert!(duv < 2e-3 * km, "baseline {a1}-{a2}: uv off by {duv} m");
+                    let dw = (got.w - expected[2]).abs();
+                    assert!(dw < 4e-3 * km, "baseline {a1}-{a2}: w off by {dw} m");
+                    i_bl += 1;
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_get_lst() {
         let epoch = Epoch::from_gpst_seconds(1090008642.0);
@@ -564,17 +730,19 @@ mod tests {
         assert_abs_diff_ne!(rm[2][0], 0.0, epsilon = 1e-5);
         assert_abs_diff_ne!(rm[2][1], 0.0, epsilon = 1e-5);
 
-        assert_abs_diff_eq!(p.hadec_j2000.ha, 6.071524853410621, epsilon = 1e-10);
+        // Expected J2000 values from ERFA: the zenith at the apparent sidereal
+        // time (`eraGst06a`), taken to J2000 with `eraPnm06a`.
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 6.071569090772114, epsilon = 1e-8);
         assert_abs_diff_eq!(p.hadec_j2000.dec, -0.47123889803846897, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst, 6.0747789094260245, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.lmst_j2000, 6.071524853456497, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.array_latitude_j2000, -0.467396549790915, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst_j2000, 6.071569090772114, epsilon = 1e-8);
+        assert_abs_diff_eq!(p.array_latitude_j2000, -0.46739656091984, epsilon = 1e-8);
         assert_abs_diff_ne!(p.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-5);
 
         let pc_hadec = phase_centre.to_hadec(p.lmst);
         let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
-        assert_abs_diff_eq!(ha_diff_arcmin, 11.18662040130441, epsilon = 1e-5); // 11.2 arcmin!
+        assert_abs_diff_eq!(ha_diff_arcmin, 11.034544, epsilon = 1e-4);
         assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
     }
 
@@ -602,17 +770,19 @@ mod tests {
         assert_abs_diff_ne!(rm[2][0], 0.0, epsilon = 1e-5);
         assert_abs_diff_ne!(rm[2][1], 0.0, epsilon = 1e-5);
 
-        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4099942841002786, epsilon = 1e-10);
+        // Expected J2000 values from ERFA: the zenith at the apparent sidereal
+        // time (`eraGst06a`), taken to J2000 with `eraPnm06a`.
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4100110770434626, epsilon = 1e-8);
         assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235987755982988, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst, 1.4598017673520172, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.lmst_j2000, 1.4571918352968762, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661807836570052, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst_j2000, 1.4572086282400603, epsilon = 1e-8);
+        assert_abs_diff_eq!(p.array_latitude_j2000, -0.46618075917013235, epsilon = 1e-8);
         assert_abs_diff_ne!(p.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-5);
 
         let pc_hadec = phase_centre.to_hadec(p.lmst);
         let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
-        assert_abs_diff_eq!(ha_diff_arcmin, 8.97228549452883, epsilon = 1e-5);
+        assert_abs_diff_eq!(ha_diff_arcmin, 8.914556, epsilon = 1e-4);
         assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
     }
 
@@ -642,17 +812,19 @@ mod tests {
         assert_abs_diff_ne!(rm[2][0], 0.0, epsilon = 1e-5);
         assert_abs_diff_ne!(rm[2][1], 0.0, epsilon = 1e-5);
 
-        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4099653884973804, epsilon = 1e-10);
+        // Expected J2000 values from ERFA: the zenith at the apparent sidereal
+        // time (`eraGst06a`), taken to J2000 with `eraPnm06a`.
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4099821814417699, epsilon = 1e-8);
         assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235987755982988, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst, 1.4597728734531659, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.lmst_j2000, 1.457162939693978, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661808254250147, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst_j2000, 1.4571797326383675, epsilon = 1e-8);
+        assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661808009369447, epsilon = 1e-8);
         assert_abs_diff_ne!(p.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-5);
 
         let pc_hadec = phase_centre.to_hadec(p.lmst);
         let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
-        assert_abs_diff_eq!(ha_diff_arcmin, 8.97228549452883, epsilon = 1e-5);
+        assert_abs_diff_eq!(ha_diff_arcmin, 8.914561, epsilon = 1e-4);
         assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
     }
 }
