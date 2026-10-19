@@ -2422,7 +2422,7 @@ mod tests {
                                 izip!(left_cell, right_cell).enumerate()
                             {
                                 assert!(
-                                    abs_diff_eq!(left_value, right_value, epsilon = 1e-7),
+                                    abs_diff_eq!(left_value, right_value, epsilon = $epsilon),
                                     "cells don't match at index {} in column {}, row {}. {:?} != {:?}",
                                     vec_idx,
                                     $col_name,
@@ -5545,6 +5545,12 @@ mod tests {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else if *col_name == "UVW" {
+                    // cotter projects onto the aberrated phase centre, which
+                    // rolls u and v by 9.2 arcsec here (see
+                    // `precess_time`): 3.3 cm on the longest (741 m)
+                    // baseline. w agrees to < 1 um.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
@@ -5686,6 +5692,12 @@ mod tests {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else if *col_name == "UVW" {
+                    // cotter projects onto the aberrated phase centre, which
+                    // rolls u and v by 9.2 arcsec here (see
+                    // `precess_time`): 3.3 cm on the longest (741 m)
+                    // baseline. w agrees to < 1 um.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
@@ -5802,6 +5814,12 @@ mod tests {
                 if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
+                } else if *col_name == "UVW" {
+                    // cotter projects onto the aberrated phase centre, which
+                    // rolls u and v by 9.2 arcsec here (see
+                    // `precess_time`): 3.3 cm on the longest (741 m)
+                    // baseline. w agrees to < 1 um.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }

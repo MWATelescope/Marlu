@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Unreleased
+
+- `precession::precess_time` now takes the annual aberration of the phase centre out of the precessed positions with a rigid rotation (as casacore's `MBaseline` conversion does), and `PrecessionInfo::hadec_j2000` is the catalogue phase centre, `phase_centre.to_hadec(lmst_j2000)`. Previously (as in cotter) the positions were projected onto the aberrated phase centre, which gets `w` right but rolls `u` and `v` about the phase centre by the RA aberration times sin(dec) (up to ~9 arcsec; e.g. 3 arcsec, 10 cm on 6.4 km baselines for an ASKAP field at dec -31), and disagreed with modellers that project onto `to_hadec(lmst_j2000)` (hyperdrive: ~1% model error at 1 GHz on 6 km baselines). `w`, and so phase tracking that uses it, is unchanged to < 0.1 mm per km; written UVWs now differ from cotter's by that roll. This is how python-casacore and pyuvdata handle the aberration (checked against python-casacore to 1.3 mm on 6.4 km, apart from casacore's apparent sidereal time and antenna2 - antenna1 baseline sign).
+
 # Version 0.19.0 (2026-10-15)
 
 - Measurement Set writes are much faster: the MAIN table is written in column-wise batches with one bulk put per column, and DATA, WEIGHT_SPECTRUM, FLAG, SIGMA and WEIGHT use tiled storage managers (one MWA coarse channel: 694 s to 55 s). Row ordering and column contents are unchanged.
