@@ -15,6 +15,7 @@
 
 use std::f64::consts::TAU;
 
+use erfa::constants::{ERFA_CMPS, ERFA_DAU, ERFA_DAYSEC, ERFA_DJM0};
 use hifitime::{Duration, Epoch};
 
 use crate::{pal, HADec, RADec, XyzGeodetic};
@@ -24,7 +25,11 @@ pub struct PrecessionInfo {
     /// Bias procession rotation matrix.
     rotation_matrix: [[f64; 3]; 3],
 
-    /// The precessed phase centre in the J2000 epoch.
+    /// The phase centre's hour angle (against [`PrecessionInfo::lmst_j2000`])
+    /// and declination in the J2000 frame of [`PrecessionInfo::precess_xyz`],
+    /// i.e. `phase_centre.to_hadec(lmst_j2000)`. Project precessed positions
+    /// onto this (or any other J2000 direction with `to_hadec(lmst_j2000)`)
+    /// to get `UVWs`; the annual aberration is already in the positions.
     pub hadec_j2000: HADec,
 
     /// The LMST of the current epoch.
@@ -86,7 +91,19 @@ pub fn get_lmst(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
 /// isn't known, then a [`Duration`] of 0 seconds can be used; the results are
 /// wrong by up to 0.9 seconds.
 ///
-/// This function is very similar to cotter's `PrepareTimestepUVW`.
+/// This function is very similar to `cotter`'s `PrepareTimestepUVW`, with one
+/// difference. `cotter` (and earlier versions of Marlu) projected the precessed
+/// positions onto the *aberrated* phase centre's hour angle and declination,
+/// which gets `w` right but rolls `u` and `v` by a few arcsec (the RA shift
+/// times the sine of the declination), and leaves the J2000 positions
+/// inconsistent with `phase_centre.to_hadec(lmst_j2000)`, which is how
+/// modellers (e.g. `hyperdrive`) project them. Here, as in `casacore`'s
+/// `MBaseline` conversion and `pyuvdata`, the annual aberration of the phase
+/// centre is instead taken out of the positions by the minimal rigid rotation
+/// (`casacore`'s `MeasMath::deapplyAberration`), so that `UVWs` are
+/// projected onto the catalogue phase centre: `w` is unchanged, and a model
+/// built from catalogue source positions and these `UVWs` sees the sky where
+/// the (aberrated) data have it.
 pub fn precess_time(
     array_longitude_rad: f64,
     array_latitude_rad: f64,
@@ -100,7 +117,6 @@ pub fn precess_time(
 
     let j2000 = 2000.0;
     let mjd = (time + dut1).to_mjd_utc_days();
-    let radec_aber = aber_radec_rad(j2000, mjd, phase_centre);
     let mut rotation_matrix = [[0.0; 3]; 3];
     unsafe { pal::palPrenut(j2000, mjd, rotation_matrix.as_mut_ptr()) };
 
@@ -116,84 +132,109 @@ pub fn precess_time(
         new
     };
 
-    let precessed = hadec_j2000(&mut rotation_matrix, lmst, array_latitude_rad, radec_aber);
+    // The zenith gives the J2000 sidereal time and latitude; these don't
+    // include aberration.
+    let (lmst_j2000, array_latitude_j2000) =
+        rotate_radec(&mut rotation_matrix, lmst, array_latitude_rad);
+
+    let rotation_matrix = erfa::vectors_and_matrices::multiply_matrices(
+        deaberration(phase_centre, time),
+        rotation_matrix,
+    );
 
     PrecessionInfo {
         rotation_matrix,
-        hadec_j2000: precessed.hadec,
+        hadec_j2000: phase_centre.to_hadec(lmst_j2000),
         lmst,
-        lmst_j2000: precessed.lmst,
-        array_latitude_j2000: precessed.latitude,
+        lmst_j2000,
+        array_latitude_j2000,
     }
 }
 
-// Blatently stolen from cotter.
-fn aber_radec_rad(eq: f64, mjd: f64, radec: RADec) -> RADec {
-    let mut v1 = [0.0; 3];
-    let mut v2 = [0.0; 3];
-
-    unsafe {
-        pal::palDcs2c(radec.ra, radec.dec, v1.as_mut_ptr());
-        stelaber(eq, mjd, &mut v1, &mut v2);
-        let mut ra2 = 0.0;
-        let mut dec2 = 0.0;
-        pal::palDcc2s(v2.as_mut_ptr(), &mut ra2, &mut dec2);
-        ra2 = pal::palDranrm(ra2);
-
-        RADec::from_radians(ra2, dec2)
-    }
+/// The rigid rotation taking the annual aberration of `phase_centre` out of
+/// J2000 positions: the minimal rotation from the catalogue phase centre to
+/// the direction whose aberrated position is the catalogue one (`casacore`'s
+/// `MeasMath::deapplyAberration` with `rotateShift`).
+fn deaberration(phase_centre: RADec, time: Epoch) -> [[f64; 3]; 3] {
+    let tt = time.to_mjd_tt_days();
+    let (_, _, pvb) = erfa::earth::position_velocity_00(ERFA_DJM0, tt);
+    let v_over_c = pvb[1].map(|v| v * ERFA_DAU / ERFA_DAYSEC / ERFA_CMPS);
+    let p_cat = erfa::transform::spherical_to_cartesian(phase_centre.ra, phase_centre.dec);
+    let p_geo = deaberrate(p_cat, v_over_c);
+    rotation_taking(p_cat, p_geo)
 }
 
-// Blatently stolen from cotter.
-fn stelaber(eq: f64, mjd: f64, v1: &mut [f64; 3], v2: &mut [f64; 3]) {
-    let mut amprms = [0.0; 21];
-    let mut v1n = [0.0; 3];
-    let mut v2un = [0.0; 3];
-    let mut abv = [0.0; 3];
-
-    unsafe {
-        pal::palMappa(eq, mjd, amprms.as_mut_ptr());
-
-        /* Unpack scalar and vector parameters */
-        let ab1 = &amprms[11];
-        abv[0] = amprms[8];
-        abv[1] = amprms[9];
-        abv[2] = amprms[10];
-
-        let mut w = 0.0;
-        pal::palDvn(v1.as_mut_ptr(), v1n.as_mut_ptr(), &mut w);
-
-        /* Aberration (normalization omitted) */
-        let p1dv = pal::palDvdv(v1n.as_mut_ptr(), abv.as_mut_ptr());
-        w = 1.0 + p1dv / (ab1 + 1.0);
-        v2un[0] = ab1 * v1n[0] + w * abv[0];
-        v2un[1] = ab1 * v1n[1] + w * abv[1];
-        v2un[2] = ab1 * v1n[2] + w * abv[2];
-
-        /* Normalize */
-        pal::palDvn(v2un.as_mut_ptr(), v2.as_mut_ptr(), &mut w);
-    }
+/// Relativistic annual aberration of unit direction `p` (`casacore`
+/// `MeasMath::applyAberration`).
+fn aberrate(p: [f64; 3], v: [f64; 3]) -> [f64; 3] {
+    let g1 = (1.0 - dot(v, v)).sqrt();
+    let g2 = dot(p, v);
+    let a = (g1 - 1.0 - g2) / (1.0 + g2);
+    let b = (1.0 + g2 / (1.0 + g1)) / (1.0 + g2);
+    normalise([
+        p[0] + a * p[0] + b * v[0],
+        p[1] + a * p[1] + b * v[1],
+        p[2] + a * p[2] + b * v[2],
+    ])
 }
 
-/// The return type of `hadec_j2000`. All values are in radians.
-struct HADecJ2000 {
-    hadec: HADec,
-    latitude: f64,
-    lmst: f64,
+/// The direction whose aberrated position is `p_app` (`casacore`
+/// `MeasMath::deapplyAberration`).
+fn deaberrate(p_app: [f64; 3], v: [f64; 3]) -> [f64; 3] {
+    let mut p = normalise([p_app[0] - v[0], p_app[1] - v[1], p_app[2] - v[2]]);
+    for _ in 0..50 {
+        let q = aberrate(p, v);
+        let delta = [q[0] - p_app[0], q[1] - p_app[1], q[2] - p_app[2]];
+        if delta.iter().all(|d| d.abs() < 1e-14) {
+            break;
+        }
+        p = normalise([p[0] - delta[0], p[1] - delta[1], p[2] - delta[2]]);
+    }
+    p
 }
 
-fn hadec_j2000(
-    rotation_matrix: &mut [[f64; 3]; 3],
-    lmst: f64,
-    lat_rad: f64,
-    radec: RADec,
-) -> HADecJ2000 {
-    let (new_lmst, new_lat) = rotate_radec(rotation_matrix, lmst, lat_rad);
-    HADecJ2000 {
-        hadec: HADec::from_radians(pal::palDranrm(new_lmst - radec.ra), radec.dec),
-        latitude: new_lat,
-        lmst: new_lmst,
+/// Minimal rigid rotation taking unit vector `a` to unit vector `b`.
+fn rotation_taking(a: [f64; 3], b: [f64; 3]) -> [[f64; 3]; 3] {
+    let axis = [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ];
+    let s = dot(axis, axis).sqrt();
+    let c = dot(a, b);
+    let mut r = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    if s < 1e-18 {
+        return r;
     }
+    let k = [axis[0] / s, axis[1] / s, axis[2] / s];
+    let kx = [[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]];
+    let kx2 = erfa::vectors_and_matrices::multiply_matrices(kx, kx);
+    for (i, row) in r.iter_mut().enumerate() {
+        for (j, e) in row.iter_mut().enumerate() {
+            *e += s * kx[i][j] + (1.0 - c) * kx2[i][j];
+        }
+    }
+    r
+}
+
+#[cfg(test)]
+fn transpose(m: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut t = [[0.0; 3]; 3];
+    for (i, row) in m.iter().enumerate() {
+        for (j, e) in row.iter().enumerate() {
+            t[j][i] = *e;
+        }
+    }
+    t
+}
+
+fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn normalise(v: [f64; 3]) -> [f64; 3] {
+    let n = dot(v, v).sqrt();
+    [v[0] / n, v[1] / n, v[2] / n]
 }
 
 // Blatently stolen from cotter.
@@ -234,6 +275,99 @@ mod tests {
     //
     // Time("1090008643", format="gps", scale="utc", location=loc).delta_ut1_utc
     #[test]
+    fn aberration_round_trip() {
+        let v = [1e-4, -5e-5, 2e-5];
+        let p = normalise([0.3, -0.5, 0.8]);
+        let q = aberrate(p, v);
+        let back = deaberrate(q, v);
+        for i in 0..3 {
+            assert_abs_diff_eq!(back[i], p[i], epsilon = 1e-13);
+        }
+        let moved = erfa::vectors_and_matrices::mat_mul_pvec(rotation_taking(p, q), p);
+        for i in 0..3 {
+            assert_abs_diff_eq!(moved[i], q[i], epsilon = 1e-13);
+        }
+    }
+
+    #[test]
+    fn uvws_are_projected_onto_the_catalogue_phase_centre() {
+        use crate::pos::xyz::xyzs_to_cross_uvws;
+
+        // 1254670392 (EoR0, October 2019).
+        let phase_centre = RADec::from_degrees(0.0, -27.0);
+        let time = Epoch::from_gpst_seconds(1254670392.0);
+        let p = precess_time(
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            time,
+            Duration::default(),
+        );
+        // What modellers project onto.
+        let pc_hadec = phase_centre.to_hadec(p.lmst_j2000);
+        assert_abs_diff_eq!(p.hadec_j2000.ha, pc_hadec.ha);
+        assert_abs_diff_eq!(p.hadec_j2000.dec, pc_hadec.dec);
+
+        // cotter's frame: positions without the de-aberration rotation,
+        // projected onto the aberrated phase centre.
+        let cotter = PrecessionInfo {
+            rotation_matrix: erfa::vectors_and_matrices::multiply_matrices(
+                transpose(deaberration(phase_centre, time)),
+                p.rotation_matrix,
+            ),
+            ..p
+        };
+        let (_, _, pvb) = erfa::earth::position_velocity_00(ERFA_DJM0, time.to_mjd_tt_days());
+        let v = pvb[1].map(|v| v * ERFA_DAU / ERFA_DAYSEC / ERFA_CMPS);
+        let (ra_aber, dec_aber) = erfa::transform::cartesian_to_spherical(aberrate(
+            erfa::transform::spherical_to_cartesian(phase_centre.ra, phase_centre.dec),
+            v,
+        ));
+        let cotter_hadec = HADec::from_radians(p.lmst_j2000 - ra_aber, dec_aber);
+
+        let xyzs = [
+            XyzGeodetic::default(),
+            XyzGeodetic {
+                x: 3000.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            XyzGeodetic {
+                x: 0.0,
+                y: 3000.0,
+                z: 0.0,
+            },
+            XyzGeodetic {
+                x: 0.0,
+                y: 0.0,
+                z: 3000.0,
+            },
+            XyzGeodetic {
+                x: 1500.0,
+                y: -2000.0,
+                z: 800.0,
+            },
+        ];
+        let new = xyzs_to_cross_uvws(&p.precess_xyz(&xyzs), p.hadec_j2000);
+        let old = xyzs_to_cross_uvws(&cotter.precess_xyz(&xyzs), cotter_hadec);
+
+        // The aberration is the same rigid rotation in both, so `w` and the
+        // baseline lengths agree; `u` and `v` differ by a roll about the phase
+        // centre of the RA aberration times sin(dec): the minimal rotation
+        // doesn't keep north pointing at the pole, the RA/Dec shift does.
+        let d_ra = (ra_aber - phase_centre.ra + std::f64::consts::PI).rem_euclid(TAU)
+            - std::f64::consts::PI;
+        let expected_roll = d_ra * phase_centre.dec.sin();
+        assert!(expected_roll.abs().to_degrees() * 3600.0 > 5.0);
+        for (n, o) in new.iter().zip(old.iter()) {
+            assert_abs_diff_eq!(n.w, o.w, epsilon = 1e-4);
+            assert_abs_diff_eq!(n.u.hypot(n.v), o.u.hypot(o.v), epsilon = 1e-4);
+            let roll = (o.u * n.v - o.v * n.u).atan2(o.u * n.u + o.v * n.v);
+            assert_abs_diff_eq!(roll, expected_roll, epsilon = 0.02 * expected_roll.abs());
+        }
+    }
+
+    #[test]
     fn test_get_lst() {
         let epoch = Epoch::from_gpst_seconds(1090008642.0);
         let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
@@ -268,6 +402,14 @@ mod tests {
         );
     }
 
+    /// [`PrecessionInfo`]'s matrix without the de-aberration rotation.
+    fn precession_matrix(p: &PrecessionInfo, phase_centre: RADec, time: Epoch) -> [[f64; 3]; 3] {
+        erfa::vectors_and_matrices::multiply_matrices(
+            transpose(deaberration(phase_centre, time)),
+            p.rotation_matrix,
+        )
+    }
+
     #[test]
     // TODO: reduce cognitive complexity
     #[allow(clippy::cognitive_complexity)]
@@ -286,15 +428,16 @@ mod tests {
             j2000_epoch,
             Duration::from_total_nanoseconds(0),
         );
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
+        let rm0 = precession_matrix(&eor0, phase_centre, j2000_epoch);
+        assert_abs_diff_eq!(rm0[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm0[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm0[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm0[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm0[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm0[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm0[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm0[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm0[2][1], 0.0, epsilon = 3e-5);
 
         assert_abs_diff_eq!(eor0.lmst_j2000 - eor0.hadec_j2000.ha, 0.0, epsilon = 1e-4);
         assert_abs_diff_eq!(eor0.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
@@ -310,19 +453,20 @@ mod tests {
             j2000_epoch,
             Duration::from_total_nanoseconds(0),
         );
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
+        let rm1 = precession_matrix(&eor1, phase_centre, j2000_epoch);
+        assert_abs_diff_eq!(rm1[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm1[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm1[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm1[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm1[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm1[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm1[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm1[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm1[2][1], 0.0, epsilon = 3e-5);
 
         assert_abs_diff_eq!(
             eor1.lmst_j2000 - eor1.hadec_j2000.ha,
-            -5.235898085317921,
+            1.0471975511965976,
             epsilon = 1e-4
         );
         assert_abs_diff_eq!(eor1.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
@@ -349,15 +493,16 @@ mod tests {
             j2000_epoch,
             Duration::from_f64(0.35494706, Unit::Second),
         );
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor0.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
+        let rm0 = precession_matrix(&eor0, phase_centre, j2000_epoch);
+        assert_abs_diff_eq!(rm0[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm0[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm0[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm0[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm0[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm0[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm0[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm0[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm0[2][1], 0.0, epsilon = 3e-5);
 
         assert_abs_diff_eq!(eor0.lmst_j2000 - eor0.hadec_j2000.ha, 0.0, epsilon = 1e-4);
         assert_abs_diff_eq!(eor0.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
@@ -373,19 +518,20 @@ mod tests {
             j2000_epoch,
             Duration::from_f64(0.35494706, Unit::Second),
         );
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][0], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][1], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][2], 1.0, epsilon = 1e-8);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][1], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[0][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][0], 0.0, epsilon = 7e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[1][2], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][0], 0.0, epsilon = 3e-5);
-        assert_abs_diff_eq!(eor1.rotation_matrix[2][1], 0.0, epsilon = 3e-5);
+        let rm1 = precession_matrix(&eor1, phase_centre, j2000_epoch);
+        assert_abs_diff_eq!(rm1[0][0], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm1[1][1], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm1[2][2], 1.0, epsilon = 1e-8);
+        assert_abs_diff_eq!(rm1[0][1], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm1[0][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm1[1][0], 0.0, epsilon = 7e-5);
+        assert_abs_diff_eq!(rm1[1][2], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm1[2][0], 0.0, epsilon = 3e-5);
+        assert_abs_diff_eq!(rm1[2][1], 0.0, epsilon = 3e-5);
 
         assert_abs_diff_eq!(
             eor1.lmst_j2000 - eor1.hadec_j2000.ha,
-            -5.235898085317921,
+            1.0471975511965976,
             epsilon = 1e-4
         );
         assert_abs_diff_eq!(eor1.array_latitude_j2000, MWA_LAT_RAD, epsilon = 1e-4);
@@ -406,19 +552,20 @@ mod tests {
             epoch,
             Duration::from_total_nanoseconds(0),
         );
+        let rm = precession_matrix(&p, phase_centre, epoch);
         // How do I know this is right? Good question! ... I don't.
-        assert_abs_diff_eq!(p.rotation_matrix[0][0], 1.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(p.rotation_matrix[1][1], 1.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(p.rotation_matrix[2][2], 1.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[0][1], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[0][2], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[1][0], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[1][2], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[2][0], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[2][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[0][0], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[1][1], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[2][2], 1.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[0][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[0][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[1][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[1][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[2][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[2][1], 0.0, epsilon = 1e-5);
 
-        assert_abs_diff_eq!(p.hadec_j2000.ha, 6.0714305189419715, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.47122418312765446, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 6.071524853410621, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.47123889803846897, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst, 6.0747789094260245, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst_j2000, 6.071524853456497, epsilon = 1e-10);
         assert_abs_diff_eq!(p.array_latitude_j2000, -0.467396549790915, epsilon = 1e-10);
@@ -427,8 +574,8 @@ mod tests {
         let pc_hadec = phase_centre.to_hadec(p.lmst);
         let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
-        assert_abs_diff_eq!(ha_diff_arcmin, 11.510918573880216, epsilon = 1e-5); // 11.5 arcmin!
-        assert_abs_diff_eq!(dec_diff_arcmin, -0.05058613713495692, epsilon = 1e-5);
+        assert_abs_diff_eq!(ha_diff_arcmin, 11.18662040130441, epsilon = 1e-5); // 11.2 arcmin!
+        assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
     }
 
     #[test]
@@ -443,19 +590,20 @@ mod tests {
             epoch,
             Duration::from_total_nanoseconds(0),
         );
+        let rm = precession_matrix(&p, phase_centre, epoch);
         // How do I know this is right? Good question! ... I don't.
-        assert_abs_diff_eq!(p.rotation_matrix[0][0], 1.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(p.rotation_matrix[1][1], 1.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(p.rotation_matrix[2][2], 1.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[0][1], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[0][2], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[1][0], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[1][2], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[2][0], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[2][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[0][0], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[1][1], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[2][2], 1.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[0][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[0][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[1][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[1][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[2][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[2][1], 0.0, epsilon = 1e-5);
 
-        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.409885996082088, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235637661235192, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4099942841002786, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235987755982988, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst, 1.4598017673520172, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst_j2000, 1.4571918352968762, epsilon = 1e-10);
         assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661807836570052, epsilon = 1e-10);
@@ -464,8 +612,8 @@ mod tests {
         let pc_hadec = phase_centre.to_hadec(p.lmst);
         let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
-        assert_abs_diff_eq!(ha_diff_arcmin, 9.344552279378359, epsilon = 1e-5);
-        assert_abs_diff_eq!(dec_diff_arcmin, -0.12035370887056628, epsilon = 1e-5);
+        assert_abs_diff_eq!(ha_diff_arcmin, 8.97228549452883, epsilon = 1e-5);
+        assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
     }
 
     #[test]
@@ -482,19 +630,20 @@ mod tests {
             epoch,
             Duration::from_f64(-0.39623459, Unit::Second),
         );
+        let rm = precession_matrix(&p, phase_centre, epoch);
         // How do I know this is right? Good question! ... I don't.
-        assert_abs_diff_eq!(p.rotation_matrix[0][0], 1.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(p.rotation_matrix[1][1], 1.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(p.rotation_matrix[2][2], 1.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[0][1], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[0][2], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[1][0], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[1][2], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[2][0], 0.0, epsilon = 1e-5);
-        assert_abs_diff_ne!(p.rotation_matrix[2][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[0][0], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[1][1], 1.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(rm[2][2], 1.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[0][1], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[0][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[1][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[1][2], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[2][0], 0.0, epsilon = 1e-5);
+        assert_abs_diff_ne!(rm[2][1], 0.0, epsilon = 1e-5);
 
-        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4098571004815674, epsilon = 1e-10);
-        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235637661235192, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 0.4099653884973804, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.5235987755982988, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst, 1.4597728734531659, epsilon = 1e-10);
         assert_abs_diff_eq!(p.lmst_j2000, 1.457162939693978, epsilon = 1e-10);
         assert_abs_diff_eq!(p.array_latitude_j2000, -0.4661808254250147, epsilon = 1e-10);
@@ -503,7 +652,7 @@ mod tests {
         let pc_hadec = phase_centre.to_hadec(p.lmst);
         let ha_diff_arcmin = (pc_hadec.ha - p.hadec_j2000.ha).to_degrees() * 60.0;
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
-        assert_abs_diff_eq!(ha_diff_arcmin, 9.344552279378359, epsilon = 1e-5);
-        assert_abs_diff_eq!(dec_diff_arcmin, -0.12035370887056628, epsilon = 1e-5);
+        assert_abs_diff_eq!(ha_diff_arcmin, 8.97228549452883, epsilon = 1e-5);
+        assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
     }
 }
