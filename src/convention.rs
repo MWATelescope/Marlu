@@ -28,8 +28,11 @@
 //! is also how pyuvdata records (and derives `x_orientation` from) its
 //! `feed_angle`. Neither has a slot for "sum", so writers add the keyword
 //! pyuvdata uses for it (`pyuvdata_polconv` on an MS main table, `POLCONV`
-//! in a uvfits primary header), and a `marlu_uvw_frame` keyword for the
-//! [`UvwFrame`], which no format records. See
+//! in a uvfits primary header, written only for calibrated [`VisUnits`] as
+//! pyuvdata requires), and a keyword for the [`UvwFrame`], which no format
+//! records (`marlu_uvw_frame` on an MS main table; `UVWFRAME` in a uvfits
+//! primary header, 8 characters so that it is a standard FITS keyword that
+//! pyuvdata keeps when it rewrites a file). See
 //! [`crate::precession::precess_time_in_frame`] for the geometry behind
 //! [`UvwFrame`].
 
@@ -157,6 +160,62 @@ impl Display for StokesConvention {
             StokesConvention::Avg => "avg",
             StokesConvention::Sum => "sum",
         })
+    }
+}
+
+/// The units of the visibilities (uvfits `BUNIT`, UVH5 `vis_units`).
+///
+/// pyuvdata reads a Stokes convention (`POLCONV`) only for calibrated data,
+/// and refuses a file that records one with uncalibrated visibilities, so
+/// writers record [`StokesConvention`] only when the units are calibrated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+pub enum VisUnits {
+    /// Correlator units, e.g. raw or preprocessed data (uvfits `UNCALIB`).
+    #[default]
+    Uncalibrated,
+    /// Calibrated or modelled flux density (uvfits `JY`).
+    Jansky,
+}
+
+impl VisUnits {
+    /// The names [`VisUnits::from_str`] accepts (case-insensitive).
+    pub const NAMES: &'static str = "uncalib, jy";
+
+    /// Whether the visibilities are calibrated.
+    pub fn is_calibrated(self) -> bool {
+        matches!(self, VisUnits::Jansky)
+    }
+
+    /// The uvfits `BUNIT` value (as pyuvdata writes it).
+    pub fn bunit(self) -> &'static str {
+        match self {
+            VisUnits::Uncalibrated => "UNCALIB",
+            VisUnits::Jansky => "JY",
+        }
+    }
+}
+
+impl FromStr for VisUnits {
+    type Err = UnknownConvention;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "uncalib" | "uncalibrated" => Ok(VisUnits::Uncalibrated),
+            "jy" | "jansky" => Ok(VisUnits::Jansky),
+            _ => Err(UnknownConvention {
+                kind: "visibility unit",
+                got: s.to_string(),
+                expected: Self::NAMES,
+            }),
+        }
+    }
+}
+
+impl Display for VisUnits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.bunit())
     }
 }
 

@@ -48,7 +48,9 @@ pub use io::VisWrite;
 
 // Re-exports.
 pub use context::{History, MwaObsContext, ObsContext, VisContext};
-pub use convention::{Convention, PolConvention, StokesConvention, UvwFrame, XOrientation};
+pub use convention::{
+    Convention, PolConvention, StokesConvention, UvwFrame, VisUnits, XOrientation,
+};
 pub use jones::Jones;
 pub use pos::{
     azel::AzEl,
