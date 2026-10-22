@@ -33,6 +33,28 @@ pub fn baseline_to_tiles(total_num_tiles: usize, baseline: usize) -> (usize, usi
     (tile1 as usize, tile2 as usize)
 }
 
+/// Convert tile indices into a _cross-correlation_ baseline index; the inverse
+/// of [`cross_correlation_baseline_to_tiles`]. `tile1` must be less than
+/// `tile2`.
+#[inline]
+pub fn tiles_to_cross_correlation_baseline(
+    total_num_tiles: usize,
+    tile1: usize,
+    tile2: usize,
+) -> usize {
+    debug_assert!(tile1 < tile2 && tile2 < total_num_tiles);
+    tile1 * (2 * total_num_tiles - tile1 - 1) / 2 + tile2 - tile1 - 1
+}
+
+/// Convert tile indices into a baseline index (where the baseline indices
+/// include auto-correlations as baselines); the inverse of
+/// [`baseline_to_tiles`]. `tile1` must not be greater than `tile2`.
+#[inline]
+pub fn tiles_to_baseline(total_num_tiles: usize, tile1: usize, tile2: usize) -> usize {
+    debug_assert!(tile1 <= tile2 && tile2 < total_num_tiles);
+    tile1 * (2 * total_num_tiles - tile1 + 1) / 2 + tile2 - tile1
+}
+
 /// From the number of cross-correlation baselines, get the number of tiles.
 // From the definition of how many baselines there are in an array of N tiles,
 // this is just the solved quadratic.
@@ -108,6 +130,31 @@ mod tests {
                 );
                 bl_index += 1;
             }
+        }
+    }
+
+    #[test]
+    fn test_tiles_to_baselines() {
+        for n in [1, 2, 3, 126, 128, 256] {
+            let mut cross = 0;
+            let mut all = 0;
+            for tile1 in 0..n {
+                for tile2 in tile1..n {
+                    assert_eq!(tiles_to_baseline(n, tile1, tile2), all);
+                    assert_eq!(baseline_to_tiles(n, all), (tile1, tile2));
+                    all += 1;
+                    if tile1 != tile2 {
+                        assert_eq!(tiles_to_cross_correlation_baseline(n, tile1, tile2), cross);
+                        assert_eq!(
+                            cross_correlation_baseline_to_tiles(n, cross),
+                            (tile1, tile2)
+                        );
+                        cross += 1;
+                    }
+                }
+            }
+            assert_eq!(all, n * (n + 1) / 2);
+            assert_eq!(cross, n * (n - 1) / 2);
         }
     }
 
