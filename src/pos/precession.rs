@@ -229,20 +229,19 @@ pub fn precess_time_in_frame(
 
 /// Like [`precess_time`], but the returned [`PrecessionInfo`] places the array
 /// in the frame of the `UVW` column `casacore` writes into a Measurement Set
-/// (`MBaseline` ITRF -> J2000), which `DP3`, `WSClean`, `CASA` and `ASKAPsoft` use:
+/// (`MBaseline` ITRF -> J2000), which `DP3`, `WSClean`, `CASA` and `ASKAPsoft` use.
+/// Like [`precess_time`], the array is rotated with the apparent sidereal
+/// time (`GAST`) and the J2000 baselines are rotated by the rigid rotation
+/// that takes the annual aberration of the phase centre out (`casacore`'s
+/// `MeasMath::deapplyAberration` with `rotateShift`). It differs in that:
 ///
-/// - the array is rotated with the *apparent* sidereal time (`GAST`) rather
-///   than the mean one;
-/// - the J2000 baselines are rotated by the rigid rotation that takes the
-///   annual aberration of the phase centre out (`casacore`'s
-///   `MeasMath::deapplyAberration` with `rotateShift`);
 /// - a baseline is antenna 2 minus antenna 1, so the positions from
 ///   [`PrecessionInfo::precess_xyz`] are negated and visibilities modelled
-///   with them are the complex conjugates of [`precess_time`]'s.
+///   with them are the complex conjugates of [`precess_time`]'s;
+/// - [`PrecessionInfo::lmst`] is the apparent sidereal time, not the mean
+///   one.
 ///
-/// The first two effects are each about 20 arcsec; for a source 1 degree
-/// from the phase centre they change the visibilities by about 0.5% per 4 km
-/// of baseline. Bias-precession-nutation is `IAU` 2006/2000A (`casacore`
+/// Otherwise the two agree to well under a mm. Bias-precession-nutation is `IAU` 2006/2000A (`casacore`
 /// defaults to `IAU` 1976/1980, a few mm per km of baseline). Polar motion is
 /// not applied. Against `UVWs` from python-`casacore`'s `measures.to_uvw` this
 /// agrees to better than 1 cm on 2 km baselines.
@@ -536,14 +535,12 @@ mod tests {
     #[test]
     fn casacore_frame_matches_casacore_uvws() {
         // A few mm on 2.2 km baselines (precession/nutation model
-        // differences), versus ~15 cm for the hyperdrive frame.
+        // differences). The hyperdrive frame differs only in baseline sign,
+        // which `worst_uvw_error` allows for.
         let casacore = worst_uvw_error(UvwFrame::Casacore);
         let hyperdrive = worst_uvw_error(UvwFrame::Hyperdrive);
         assert!(casacore < 0.01, "casacore frame off by {casacore} m");
-        assert!(
-            hyperdrive > 0.05,
-            "hyperdrive frame off by only {hyperdrive} m"
-        );
+        assert!(hyperdrive < 0.01, "hyperdrive frame off by {hyperdrive} m");
     }
 
     #[test]

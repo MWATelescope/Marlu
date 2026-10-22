@@ -5636,16 +5636,12 @@ mod tests {
             let mount: String = ant_table.get_cell("MOUNT", 0).unwrap();
             assert_eq!(mount, "phased");
         }
-        // Opposite baseline sign, and the two frames differ by more than
-        // that (apparent sidereal time, aberration) but only slightly.
+        // Apart from the baseline sign, the two frames are the same.
+        assert!(uvws[0].iter().any(|u| u.abs() > 1.0), "{:?}", uvws[0]);
         for i in 0..3 {
             let diff = (uvws[0][i] + uvws[1][i]).abs();
-            assert!(diff < 1.0, "{:?} vs {:?}", uvws[0], uvws[1]);
+            assert!(diff < 1e-6, "{:?} vs {:?}", uvws[0], uvws[1]);
         }
-        assert!(uvws[0]
-            .iter()
-            .zip(&uvws[1])
-            .any(|(a, b)| (a + b).abs() > 1e-6));
     }
 
     #[cfg(feature = "mwalib")]

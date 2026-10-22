@@ -297,9 +297,12 @@ impl Display for PolConvention {
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum UvwFrame {
     /// Marlu's (and `hyperdrive`'s, `Birli`'s and `cotter`'s) frame: the
-    /// array is precessed and nutated to J2000 and rotated with the mean
-    /// sidereal time, and a baseline is antenna 1 minus antenna 2. This is
-    /// also the `AIPS` uvfits convention.
+    /// array is precessed and nutated to J2000 and rotated with the apparent
+    /// sidereal time, the annual aberration of the phase centre is taken out
+    /// as in the casacore frame, and a baseline is antenna 1 minus antenna 2.
+    /// This is also the `AIPS` uvfits convention. (`cotter` and Marlu before
+    /// 0.20 used the mean sidereal time and projected onto the aberrated
+    /// phase centre.)
     #[default]
     Hyperdrive,
 
@@ -307,8 +310,9 @@ pub enum UvwFrame {
     /// `UVWJ2000`, `measures.to_uvw`) and `DP3` uses, with the baseline sign
     /// of a UVH5 `uvw_array`: apparent sidereal time, the J2000 baselines
     /// rotated to undo the annual aberration of the phase centre, and a
-    /// baseline is antenna 2 minus antenna 1 (so visibilities are the complex
-    /// conjugates of the hyperdrive frame's). The Measurement Sets `CASA`
+    /// baseline is antenna 2 minus antenna 1. Apart from that sign it is the
+    /// hyperdrive frame (to well under a mm), so visibilities are the complex
+    /// conjugates of the hyperdrive frame's. The Measurement Sets `CASA`
     /// itself writes have the opposite baseline sign; Marlu's writers record
     /// this one in `pyuvdata_flip_conj`, and uvfits files are written with
     /// antenna 1 minus antenna 2 baselines (and conjugated visibilities)
@@ -355,7 +359,7 @@ impl UvwFrame {
     /// A one-line description of the frame.
     pub fn describe(self) -> &'static str {
         match self {
-            UvwFrame::Hyperdrive => "hyperdrive (J2000, mean sidereal time, antenna1 - antenna2)",
+            UvwFrame::Hyperdrive => "hyperdrive (J2000, apparent sidereal time, phase-centre aberration rotation, antenna1 - antenna2)",
             UvwFrame::Casacore => {
                 "casacore (J2000, apparent sidereal time, phase-centre aberration rotation, antenna2 - antenna1)"
             }
