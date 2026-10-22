@@ -3033,7 +3033,6 @@ mod tests {
         }
     }
 
-
     /// Uncalibrated (the default) files say so in BUNIT and carry no POLCONV,
     /// which pyuvdata would refuse; antenna names are NUL padded, not space
     /// padded.
@@ -3090,7 +3089,11 @@ mod tests {
 
         // Raw bytes of ANNAME in each row of the antenna table.
         let _ = fits_open_hdu!(&mut f, 1).unwrap();
-        for (row, expected) in [(1, &b"Tile1\0\0\0"[..]), (2, b"HexE11\0\0"), (3, b"LongName")] {
+        for (row, expected) in [
+            (1, &b"Tile1\0\0\0"[..]),
+            (2, b"HexE11\0\0"),
+            (3, b"LongName"),
+        ] {
             let mut bytes = [0xffu8; 8];
             let mut status = 0;
             unsafe {
