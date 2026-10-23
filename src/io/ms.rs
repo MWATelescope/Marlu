@@ -5746,10 +5746,11 @@ mod tests {
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
                     // cotter projects onto the aberrated phase centre, which
-                    // rolls u and v by 9.2 arcsec here (see
-                    // `precess_time`): 3.3 cm on the longest (741 m)
-                    // baseline. w agrees to < 1 um.
-                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
+                    // rolls u and v by 9.2 arcsec here, and uses the mean
+                    // sidereal time, which puts w out by the equation of the
+                    // equinoxes (see `precess_time`): 4 mm on these 55 m
+                    // baselines.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.01);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
@@ -5893,10 +5894,11 @@ mod tests {
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
                     // cotter projects onto the aberrated phase centre, which
-                    // rolls u and v by 9.2 arcsec here (see
-                    // `precess_time`): 3.3 cm on the longest (741 m)
-                    // baseline. w agrees to < 1 um.
-                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
+                    // rolls u and v by 9.2 arcsec here, and uses the mean
+                    // sidereal time, which puts w out by the equation of the
+                    // equinoxes (see `precess_time`): 4 mm on these 55 m
+                    // baselines.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.01);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
@@ -6015,10 +6017,11 @@ mod tests {
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
                     // cotter projects onto the aberrated phase centre, which
-                    // rolls u and v by 9.2 arcsec here (see
-                    // `precess_time`): 3.3 cm on the longest (741 m)
-                    // baseline. w agrees to < 1 um.
-                    assert_table_columns_match!(table, exp_table, col_name, 0.04);
+                    // rolls u and v by 9.2 arcsec here, and uses the mean
+                    // sidereal time, which puts w out by the equation of the
+                    // equinoxes (see `precess_time`): 4 mm on these 55 m
+                    // baselines.
+                    assert_table_columns_match!(table, exp_table, col_name, 0.01);
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
                 }
