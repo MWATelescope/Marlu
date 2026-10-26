@@ -2210,7 +2210,7 @@ mod tests {
 
     use super::*;
 
-    use approx::abs_diff_eq;
+    use approx::{abs_diff_eq, assert_abs_diff_eq};
     use hifitime::Epoch;
     use itertools::izip;
     use lexical::parse;
@@ -2230,6 +2230,7 @@ mod tests {
                 c32,
                 constants::{
                     COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
+                    MWA_HEIGHT_M,
                 },
                 ndarray::array,
             };
@@ -2784,6 +2785,25 @@ mod tests {
             }
             if !table_name.is_empty() {
                 assert!(main_table_keywords.contains(&table_name.into()));
+            }
+        }
+    }
+
+    /// `cotter` took metafits heights, which are altitudes, as heights above
+    /// the array centre, so its tiles are [`MWA_HEIGHT_M`] too high (along the
+    /// array centre's vertical). Check that the `ANTENNA` table's positions
+    /// are `cotter`'s, lowered by that much.
+    #[cfg(feature = "mwalib")]
+    fn assert_positions_are_cotters_lowered(table: &mut Table, exp_table: &mut Table) {
+        assert_eq!(table.n_rows(), exp_table.n_rows());
+        let (s_lat, c_lat) = COTTER_MWA_LATITUDE_RADIANS.sin_cos();
+        let (s_long, c_long) = COTTER_MWA_LONGITUDE_RADIANS.sin_cos();
+        let up = [c_lat * c_long, c_lat * s_long, s_lat];
+        for row in 0..table.n_rows() {
+            let ours: Vec<f64> = table.get_cell_as_vec("POSITION", row).unwrap();
+            let cotter: Vec<f64> = exp_table.get_cell_as_vec("POSITION", row).unwrap();
+            for i in 0..3 {
+                assert_abs_diff_eq!(ours[i], cotter[i] - MWA_HEIGHT_M * up[i], epsilon = 1e-6);
             }
         }
     }
@@ -4870,6 +4890,10 @@ mod tests {
             } else {
                 assert_table_nrows_match!(table, exp_table);
                 for col_name in col_names {
+                    if table_name == "ANTENNA" && col_name == "POSITION" {
+                        assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                        continue;
+                    }
                     let epsilon = 1e-6;
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, epsilon);
@@ -5737,7 +5761,9 @@ mod tests {
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in *col_names {
-                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                if *table_name == "ANTENNA" && *col_name == "POSITION" {
+                    assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                } else if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
@@ -5885,7 +5911,9 @@ mod tests {
             .unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in *col_names {
-                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                if *table_name == "ANTENNA" && *col_name == "POSITION" {
+                    assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                } else if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
@@ -6008,7 +6036,9 @@ mod tests {
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in *col_names {
-                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                if *table_name == "ANTENNA" && *col_name == "POSITION" {
+                    assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                } else if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
