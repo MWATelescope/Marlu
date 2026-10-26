@@ -185,7 +185,8 @@ mod tests {
     #[test]
     fn test_from_ellipsoidal_height() {
         // At the array centre, nothing changes.
-        let enh = ENH::from_ellipsoidal_height(0.0, 0.0, MWA_HEIGHT_M, LatLngHeight::mwa());
+        let array = LatLngHeight::mwa();
+        let enh = ENH::from_ellipsoidal_height(0.0, 0.0, array.height_metres, array);
         assert_abs_diff_eq!(enh.h, 0.0, epsilon = 1e-6);
 
         // LBD7, LBA1 and LBB2, with their raw survey heights; the expected "up"
