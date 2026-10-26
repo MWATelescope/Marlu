@@ -26,10 +26,10 @@ jobs:
       - name: Install Dependencies
         run: |
           cd /tmp
-          curl "https://heasarc.gsfc.nasa.gov/FTP/software/fitsio/c/cfitsio-3.49.tar.gz" -o cfitsio.tar.gz
+          curl "https://codeload.github.com/HEASARC/cfitsio/tar.gz/refs/tags/cfitsio-4.6.3" -o cfitsio.tar.gz
           tar -xf cfitsio.tar.gz
           rm cfitsio.tar.gz
-          cd cfitsio-3.49
+          cd cfitsio-cfitsio-4.6.3
           ./configure --prefix=/usr/local --enable-reentrant --disable-curl
           sudo make shared
           sudo make install
