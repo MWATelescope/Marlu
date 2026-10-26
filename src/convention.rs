@@ -336,17 +336,24 @@ pub enum UvwFrame {
     /// is rotated with the apparent sidereal time - and a baseline is
     /// antenna 1 minus antenna 2, as in the hyperdrive frame.
     Oskar,
+
+    /// `cotter`'s frame (and Marlu's before 0.20): the hyperdrive frame, but
+    /// with the array rotated by the mean sidereal time and the precessed
+    /// positions projected onto the aberrated phase centre. `w` differs from
+    /// the hyperdrive frame's by up to ~8 cm per km of baseline. Use it only
+    /// to reproduce `cotter`'s `UVWs` (e.g. `Birli`'s `--emulate-cotter`).
+    Cotter,
 }
 
 impl UvwFrame {
     /// The names [`UvwFrame::from_str`] accepts (case-insensitive).
-    pub const NAMES: &'static str = "hyperdrive (aliases: marlu, mwa, aips), casacore (aliases: lofar, casa, wsclean, askap, uvh5, pyuvdata), oskar";
+    pub const NAMES: &'static str = "hyperdrive (aliases: marlu, mwa, aips), casacore (aliases: lofar, casa, wsclean, askap, uvh5, pyuvdata), oskar, cotter";
 
     /// Sign of a baseline vector in this frame relative to Marlu's
     /// (antenna 1 minus antenna 2) convention.
     pub fn baseline_sign(self) -> f64 {
         match self {
-            UvwFrame::Hyperdrive | UvwFrame::Oskar => 1.0,
+            UvwFrame::Hyperdrive | UvwFrame::Oskar | UvwFrame::Cotter => 1.0,
             UvwFrame::Casacore => -1.0,
         }
     }
@@ -366,6 +373,9 @@ impl UvwFrame {
             UvwFrame::Oskar => {
                 "oskar (no precession: coordinates of date, apparent sidereal time, antenna1 - antenna2)"
             }
+            UvwFrame::Cotter => {
+                "cotter (J2000, mean sidereal time, projected onto the aberrated phase centre, antenna1 - antenna2)"
+            }
         }
     }
 }
@@ -380,6 +390,7 @@ impl FromStr for UvwFrame {
                 Ok(UvwFrame::Casacore)
             }
             "oskar" => Ok(UvwFrame::Oskar),
+            "cotter" => Ok(UvwFrame::Cotter),
             _ => Err(UnknownConvention {
                 kind: "UVW frame",
                 got: s.to_string(),
@@ -395,6 +406,7 @@ impl Display for UvwFrame {
             UvwFrame::Hyperdrive => "hyperdrive",
             UvwFrame::Casacore => "casacore",
             UvwFrame::Oskar => "oskar",
+            UvwFrame::Cotter => "cotter",
         })
     }
 }
@@ -612,7 +624,12 @@ mod tests {
         ] {
             assert_eq!(c.to_string().parse::<Convention>().unwrap(), c);
         }
-        for f in [UvwFrame::Hyperdrive, UvwFrame::Casacore, UvwFrame::Oskar] {
+        for f in [
+            UvwFrame::Hyperdrive,
+            UvwFrame::Casacore,
+            UvwFrame::Oskar,
+            UvwFrame::Cotter,
+        ] {
             assert_eq!(f.to_string().parse::<UvwFrame>().unwrap(), f);
         }
     }

@@ -196,7 +196,8 @@ fn deaberration(phase_centre: RADec, time: Epoch) -> [[f64; 3]; 3] {
 
 /// [`precess_time`] in the requested [`UvwFrame`]: [`UvwFrame::Hyperdrive`]
 /// is exactly [`precess_time`]; [`UvwFrame::Casacore`] is
-/// [`precess_time_casacore`]; [`UvwFrame::Oskar`] does not precess at all
+/// [`precess_time_casacore`]; [`UvwFrame::Cotter`] is [`precess_time_cotter`];
+/// [`UvwFrame::Oskar`] does not precess at all
 /// (the returned [`PrecessionInfo`] leaves positions and latitude alone) and
 /// uses the apparent sidereal time, as `OSKAR` does.
 pub fn precess_time_in_frame(
@@ -222,6 +223,13 @@ pub fn precess_time_in_frame(
             time,
             dut1,
         ),
+        UvwFrame::Cotter => precess_time_cotter(
+            array_longitude_rad,
+            array_latitude_rad,
+            phase_centre,
+            time,
+            dut1,
+        ),
         UvwFrame::Oskar => {
             let last = get_last(array_longitude_rad, time, dut1);
             PrecessionInfo {
@@ -232,6 +240,110 @@ pub fn precess_time_in_frame(
                 array_latitude_j2000: array_latitude_rad,
             }
         }
+    }
+}
+
+/// `cotter`'s (and Marlu before 0.20's) [`precess_time`]: the array is
+/// rotated by the mean sidereal time, and the precessed positions are
+/// projected onto the *aberrated* phase centre. This is [`UvwFrame::Cotter`];
+/// use it only to reproduce `cotter`'s (or older Marlu's) `UVWs`. Compared
+/// with [`precess_time`], `w` differs by up to ~8 cm per km of baseline and
+/// `u` and `v` are rolled by a few arcsec about the phase centre.
+pub fn precess_time_cotter(
+    array_longitude_rad: f64,
+    array_latitude_rad: f64,
+    phase_centre: RADec,
+    time: Epoch,
+    dut1: Duration,
+) -> PrecessionInfo {
+    // Note that we explicitly use the mean LST (i.e. LMST) because we're
+    // handling nutation ourselves.
+    let lmst = get_lmst(array_longitude_rad, time, dut1);
+
+    let j2000 = 2000.0;
+    let mjd = (time + dut1).to_mjd_utc_days();
+    let radec_aber = aber_radec_rad(j2000, mjd, phase_centre);
+    let mut rotation_matrix = [[0.0; 3]; 3];
+    unsafe { pal::palPrenut(j2000, mjd, rotation_matrix.as_mut_ptr()) };
+    let mut rotation_matrix = transpose(rotation_matrix);
+
+    let precessed = hadec_j2000(&mut rotation_matrix, lmst, array_latitude_rad, radec_aber);
+
+    PrecessionInfo {
+        rotation_matrix,
+        hadec_j2000: precessed.hadec,
+        lmst,
+        lmst_j2000: precessed.lmst,
+        array_latitude_j2000: precessed.latitude,
+    }
+}
+
+// Blatently stolen from cotter.
+fn aber_radec_rad(eq: f64, mjd: f64, radec: RADec) -> RADec {
+    let mut v1 = [0.0; 3];
+    let mut v2 = [0.0; 3];
+
+    unsafe {
+        pal::palDcs2c(radec.ra, radec.dec, v1.as_mut_ptr());
+        stelaber(eq, mjd, &mut v1, &mut v2);
+        let mut ra2 = 0.0;
+        let mut dec2 = 0.0;
+        pal::palDcc2s(v2.as_mut_ptr(), &mut ra2, &mut dec2);
+        ra2 = pal::palDranrm(ra2);
+
+        RADec::from_radians(ra2, dec2)
+    }
+}
+
+// Blatently stolen from cotter.
+fn stelaber(eq: f64, mjd: f64, v1: &mut [f64; 3], v2: &mut [f64; 3]) {
+    let mut amprms = [0.0; 21];
+    let mut v1n = [0.0; 3];
+    let mut v2un = [0.0; 3];
+    let mut abv = [0.0; 3];
+
+    unsafe {
+        pal::palMappa(eq, mjd, amprms.as_mut_ptr());
+
+        /* Unpack scalar and vector parameters */
+        let ab1 = &amprms[11];
+        abv[0] = amprms[8];
+        abv[1] = amprms[9];
+        abv[2] = amprms[10];
+
+        let mut w = 0.0;
+        pal::palDvn(v1.as_mut_ptr(), v1n.as_mut_ptr(), &mut w);
+
+        /* Aberration (normalization omitted) */
+        let p1dv = pal::palDvdv(v1n.as_mut_ptr(), abv.as_mut_ptr());
+        w = 1.0 + p1dv / (ab1 + 1.0);
+        v2un[0] = ab1 * v1n[0] + w * abv[0];
+        v2un[1] = ab1 * v1n[1] + w * abv[1];
+        v2un[2] = ab1 * v1n[2] + w * abv[2];
+
+        /* Normalize */
+        pal::palDvn(v2un.as_mut_ptr(), v2.as_mut_ptr(), &mut w);
+    }
+}
+
+/// The return type of `hadec_j2000`. All values are in radians.
+struct HADecJ2000 {
+    hadec: HADec,
+    latitude: f64,
+    lmst: f64,
+}
+
+fn hadec_j2000(
+    rotation_matrix: &mut [[f64; 3]; 3],
+    lmst: f64,
+    lat_rad: f64,
+    radec: RADec,
+) -> HADecJ2000 {
+    let (new_lmst, new_lat) = rotate_radec(rotation_matrix, lmst, lat_rad);
+    HADecJ2000 {
+        hadec: HADec::from_radians(pal::palDranrm(new_lmst - radec.ra), radec.dec),
+        latitude: new_lat,
+        lmst: new_lmst,
     }
 }
 
@@ -1143,5 +1255,26 @@ mod tests {
         let dec_diff_arcmin = (pc_hadec.dec - p.hadec_j2000.dec).to_degrees() * 60.0;
         assert_abs_diff_eq!(ha_diff_arcmin, 8.914561, epsilon = 1e-4);
         assert_abs_diff_eq!(dec_diff_arcmin, 0.0, epsilon = 1e-10);
+    }
+
+    /// [`precess_time_cotter`] is Marlu's `precess_time` before 0.20 (and
+    /// `cotter`'s): these are the values that function's test expected.
+    #[test]
+    fn test_precess_time_cotter_matches_old_precess_time() {
+        let epoch = Epoch::from_gpst_seconds(1065880128.0);
+        let phase_centre = RADec::from_degrees(0.0, -27.0);
+        let p = precess_time_in_frame(
+            UvwFrame::Cotter,
+            MWA_LONG_RAD,
+            MWA_LAT_RAD,
+            phase_centre,
+            epoch,
+            Duration::from_total_nanoseconds(0),
+        );
+        assert_abs_diff_eq!(p.hadec_j2000.ha, 6.0714305189419715, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.hadec_j2000.dec, -0.47122418312765446, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst, 6.0747789094260245, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.lmst_j2000, 6.071524853456497, epsilon = 1e-10);
+        assert_abs_diff_eq!(p.array_latitude_j2000, -0.467396549790915, epsilon = 1e-10);
     }
 }
