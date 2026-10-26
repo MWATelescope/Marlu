@@ -43,7 +43,7 @@ jobs:
           rm cfitsio.tar.gz
           cd cfitsio-*
           ./configure --prefix=/usr/local --enable-reentrant --disable-curl
-          sudo make shared
+          make -j
           sudo make install
           cd ..
 
