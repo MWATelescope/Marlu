@@ -86,6 +86,25 @@ pub fn get_lmst(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
     (gmst + array_longitude_rad) % TAU
 }
 
+/// Get the local apparent sidereal time (IAU 2006/2000A, as `astropy`'s
+/// `sidereal_time("apparent")` and `pyuvdata`'s LSTs), in radians in
+/// `[0, 2pi)`. `time` should be in the UTC frame, and `dut1` (i.e. UT1 - UTC)
+/// provides a better estimate of the LAST. If DUT1 isn't known, then a
+/// [`Duration`] of 0 seconds can be used; the results are wrong by up to 0.9
+/// seconds.
+pub fn get_last(array_longitude_rad: f64, time: Epoch, dut1: Duration) -> f64 {
+    (get_lmst(array_longitude_rad, time, dut1) + equation_of_the_equinoxes(time, dut1))
+        .rem_euclid(TAU)
+}
+
+/// The apparent minus the mean sidereal time (up to ~17 arcsec), in radians.
+fn equation_of_the_equinoxes(time: Epoch, dut1: Duration) -> f64 {
+    let ut1 = (time + dut1).to_mjd_utc_days();
+    let tt = time.to_mjd_tt_days();
+    erfa::time::gst06a(ERFA_DJM0, ut1, ERFA_DJM0, tt)
+        - erfa::time::gmst06(ERFA_DJM0, ut1, ERFA_DJM0, tt)
+}
+
 /// Obtain precessed coordinate information. `time` should be in the UTC frame,
 /// and `dut1` (i.e. UT1 - UTC) provides a better estimate of the LMST. If DUT1
 /// isn't known, then a [`Duration`] of 0 seconds can be used; the results are
@@ -116,12 +135,8 @@ pub fn precess_time(
     let lmst = get_lmst(array_longitude_rad, time, dut1);
     // The matrix below includes nutation, so it takes positions from the true
     // equator and equinox of date: the array has to be rotated by the
-    // apparent sidereal time, not the mean one. The difference is the
-    // equation of the equinoxes (up to ~17 arcsec).
-    let ut1 = (time + dut1).to_mjd_utc_days();
-    let tt = time.to_mjd_tt_days();
-    let eqeq = erfa::time::gst06a(ERFA_DJM0, ut1, ERFA_DJM0, tt)
-        - erfa::time::gmst06(ERFA_DJM0, ut1, ERFA_DJM0, tt);
+    // apparent sidereal time, not the mean one.
+    let eqeq = equation_of_the_equinoxes(time, dut1);
     let last = lmst + eqeq;
 
     let j2000 = 2000.0;
@@ -566,6 +581,29 @@ mod tests {
             6.262210968916753,
             epsilon = 1e-9
         );
+    }
+
+    #[test]
+    fn test_get_last() {
+        // Expected values are from astropy 7.1 (IAU 2006/2000A), e.g.
+        //
+        // t = Time(1090008642, format="gps", scale="utc", location=loc)
+        // t.delta_ut1_utc = -0.31295757
+        // np.deg2rad(t.sidereal_time("apparent").value * 15)
+        for (gps, dut1, expected) in [
+            (1090008642.0, -0.31295757, 6.262100753245431),
+            (1196175296.0, 0.2478, 0.8898287888471533),
+            (1320409688.0, -0.1, 6.135556501912982),
+        ] {
+            let epoch = Epoch::from_gpst_seconds(gps);
+            let dut1 = Duration::from_f64(dut1, Unit::Second);
+            let last = get_last(MWA_LONG_RAD, epoch, dut1);
+            // 1e-8 rad is ~0.1 ms of time.
+            assert_abs_diff_eq!(last, expected, epsilon = 1e-8);
+            // The equation of the equinoxes is at most ~1.2 s of time.
+            let eqeq = last - get_lmst(MWA_LONG_RAD, epoch, dut1);
+            assert!(eqeq.abs() < 1e-4, "{eqeq}");
+        }
     }
 
     /// [`PrecessionInfo`]'s matrix without the de-aberration rotation.
