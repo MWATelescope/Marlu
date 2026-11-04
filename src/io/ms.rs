@@ -77,7 +77,19 @@ pub struct MeasurementSetWriter {
     /// storage manager instead of `TiledColumnStMan`. Writing needs Marlu's
     /// `dysco` feature (or a loadable `libdyscostman`).
     dysco: Option<DyscoSpec>,
+
+    /// With Dysco, the main table is kept open between `write_vis` calls
+    /// until `finalise` (or drop): DyscoStMan can't be flushed before it has
+    /// seen two whole timesteps, and callers often write one at a time.
+    dysco_main_table: Option<SendTable>,
 }
+
+/// A [`Table`] that may be moved to another thread.
+///
+/// SAFETY: the casacore table is only ever accessed through `&mut` from the
+/// thread that currently owns the writer, never shared.
+struct SendTable(Table);
+unsafe impl Send for SendTable {}
 
 impl MeasurementSetWriter {
     pub fn new<T: AsRef<Path>>(
@@ -97,6 +109,7 @@ impl MeasurementSetWriter {
             dut1,
             precess_uvws,
             dysco: None,
+            dysco_main_table: None,
         }
     }
 
@@ -2053,8 +2066,12 @@ impl VisWrite for MeasurementSetWriter {
         let num_sel_baselines = vis_ctx.sel_baselines.len();
         let num_avg_rows = num_avg_timesteps * num_sel_baselines;
 
-        // Open the table for writing
-        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
+        // Open the table for writing (with Dysco, reuse the table kept open
+        // since the previous call)
+        let mut main_table = match self.dysco_main_table.take() {
+            Some(SendTable(table)) => table,
+            None => Table::open(&self.path, TableOpenMode::ReadWrite)?,
+        };
         self.add_dysco_columns_if_missing(&mut main_table, num_avg_chans)?;
         let num_main_rows = main_table.n_rows();
         if (num_main_rows - self.main_row_idx as u64) < num_avg_rows as u64 {
@@ -2185,10 +2202,16 @@ impl VisWrite for MeasurementSetWriter {
         batch.write(&mut main_table, self.main_row_idx as u64)?;
         self.main_row_idx += batch.len;
 
+        if self.dysco.is_some() {
+            self.dysco_main_table = Some(SendTable(main_table));
+        }
+
         Ok(())
     }
 
     fn finalise(&mut self) -> Result<(), IOError> {
+        // Closing the table makes Dysco write its last time block.
+        self.dysco_main_table = None;
         Ok(())
     }
 }
@@ -5687,7 +5710,7 @@ mod tests {
             1,
         );
 
-        let vis_ctx = VisContext::from_mwalib(
+        let mut vis_ctx = VisContext::from_mwalib(
             &corr_ctx,
             &vis_sel.timestep_range,
             &vis_sel.coarse_chan_range,
@@ -5706,9 +5729,24 @@ mod tests {
         });
         let weight_array = encode_flags(weight_array.view(), flag_array.view());
 
-        ms_writer
-            .write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
-            .unwrap();
+        // One timestep per call, as Birli does: Dysco needs the table kept open
+        // until two timesteps have been written.
+        for (timestamp, jones_array_chunk, weight_array_chunk) in izip!(
+            vis_ctx.timeseries(false, false),
+            jones_array.axis_chunks_iter(Axis(0), 1),
+            weight_array.axis_chunks_iter(Axis(0), 1),
+        ) {
+            vis_ctx.num_sel_timesteps = 1;
+            vis_ctx.start_timestamp = timestamp;
+            ms_writer
+                .write_vis(
+                    jones_array_chunk.view(),
+                    weight_array_chunk.view(),
+                    &vis_ctx,
+                )
+                .unwrap();
+        }
+        ms_writer.finalise().unwrap();
 
         let mut table = Table::open(&table_path, TableOpenMode::Read).unwrap();
         let mut exp_table = Table::open(PATH_1254670392.as_path(), TableOpenMode::Read).unwrap();
