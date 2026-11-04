@@ -16,7 +16,7 @@ use itertools::izip;
 use lazy_static::lazy_static;
 use log::{trace, warn};
 use rubbl_casatables::{
-    GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
+    DyscoSpec, GlueDataType, Table, TableCreateMode, TableDesc, TableDescCreateMode, TableOpenMode,
     TableRecord,
 };
 use tar::Archive;
@@ -72,6 +72,11 @@ pub struct MeasurementSetWriter {
 
     /// Are we going to write out precessed UVWs?
     precess_uvws: bool,
+
+    /// If set, store `DATA` and `WEIGHT_SPECTRUM` with the Dysco compressing
+    /// storage manager instead of `TiledColumnStMan`. Writing needs Marlu's
+    /// `dysco` feature (or a loadable `libdyscostman`).
+    dysco: Option<DyscoSpec>,
 }
 
 impl MeasurementSetWriter {
@@ -91,7 +96,58 @@ impl MeasurementSetWriter {
             antenna_positions,
             dut1,
             precess_uvws,
+            dysco: None,
         }
+    }
+
+    /// Compress `DATA` and `WEIGHT_SPECTRUM` with Dysco using `spec`
+    /// (`None` to store them uncompressed, the default). Must be set before
+    /// the measurement set is initialized.
+    pub fn with_dysco(mut self, spec: Option<DyscoSpec>) -> Self {
+        self.dysco = spec;
+        self
+    }
+
+    /// Add the Dysco-compressed `DATA` and `WEIGHT_SPECTRUM` columns to an
+    /// open main table, if Dysco is enabled and they aren't there yet.
+    ///
+    /// Dysco encodes each timestep's block of baselines together, so it
+    /// relies on `TIME`, `ANTENNA1/2`, `FIELD_ID` and `DATA_DESC_ID` being written
+    /// before `DATA` / `WEIGHT_SPECTRUM` for each row, which the batched
+    /// main-table writer does, and the table must stay open until at least
+    /// one whole timestep has been written.
+    fn add_dysco_columns_if_missing(
+        &self,
+        main_table: &mut Table,
+        num_channels: usize,
+    ) -> Result<(), MeasurementSetWriteError> {
+        let Some(spec) = &self.dysco else {
+            return Ok(());
+        };
+        if main_table.column_names()?.iter().any(|c| c == "DATA") {
+            return Ok(());
+        }
+        let comment = format!(
+            "added by {PKG_VERSION} {PKG_NAME}, emulating cotter::MSWriter::initialize(), Dysco-compressed"
+        );
+        let data_shape = [num_channels as u64, 4];
+        main_table.add_dysco_array_column(
+            GlueDataType::TpComplex,
+            "DATA",
+            Some(comment.as_str()),
+            &data_shape,
+            "DyscoData",
+            spec,
+        )?;
+        main_table.add_dysco_array_column(
+            GlueDataType::TpFloat,
+            "WEIGHT_SPECTRUM",
+            Some(comment.as_str()),
+            &data_shape,
+            "DyscoWeightSpectrum",
+            spec,
+        )?;
+        Ok(())
     }
 
     pub fn validate_path(&self, path: &Path) -> Result<(), MeasurementSetWriteError> {
@@ -147,24 +203,30 @@ impl MeasurementSetWriter {
             / (num_channels.max(1) * 4 * std::mem::size_of::<c32>()))
         .max(1) as u64;
         let tile_shape = [tile_rows, num_channels as u64, 4];
-        main_table.add_tiled_array_column(
-            GlueDataType::TpComplex,
-            "DATA",
-            Some(comment.as_str()),
-            &data_shape,
-            &tile_shape,
-            "TiledDATA",
-            true,
-        )?;
-        main_table.add_tiled_array_column(
-            GlueDataType::TpFloat,
-            "WEIGHT_SPECTRUM",
-            Some(comment.as_str()),
-            &data_shape,
-            &tile_shape,
-            "TiledWEIGHT_SPECTRUM",
-            true,
-        )?;
+        // With Dysco, DATA and WEIGHT_SPECTRUM are added by the first
+        // `write_vis` instead: DyscoStMan only writes its file header once it
+        // has seen a whole timestep of data, so a table holding an empty Dysco
+        // column can't be reopened. See `add_dysco_columns_if_missing`.
+        if self.dysco.is_none() {
+            main_table.add_tiled_array_column(
+                GlueDataType::TpComplex,
+                "DATA",
+                Some(comment.as_str()),
+                &data_shape,
+                &tile_shape,
+                "TiledDATA",
+                true,
+            )?;
+            main_table.add_tiled_array_column(
+                GlueDataType::TpFloat,
+                "WEIGHT_SPECTRUM",
+                Some(comment.as_str()),
+                &data_shape,
+                &tile_shape,
+                "TiledWEIGHT_SPECTRUM",
+                true,
+            )?;
+        }
 
         // The default tables come with variable-shape FLAG, SIGMA and WEIGHT
         // columns stored as indirect arrays in the StandardStMan. Replace them
@@ -1993,6 +2055,7 @@ impl VisWrite for MeasurementSetWriter {
 
         // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
+        self.add_dysco_columns_if_missing(&mut main_table, num_avg_chans)?;
         let num_main_rows = main_table.n_rows();
         if (num_main_rows - self.main_row_idx as u64) < num_avg_rows as u64 {
             return Err(IOError::MeasurementSetWriteError(MeasurementSetFull {
@@ -5557,6 +5620,132 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[cfg(all(feature = "mwalib", feature = "dysco"))]
+    #[test]
+    #[serial]
+    fn test_write_vis_from_mwalib_dysco() {
+        let temp_dir = tempdir().unwrap();
+        let table_path = temp_dir.path().join("test.ms");
+        let array_pos = LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        };
+
+        let corr_ctx = get_mwa_avg_context();
+
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
+        let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
+        let antenna_positions = ANT_POSITIONS
+            .iter()
+            .map(|floats| {
+                XyzGeocentric {
+                    x: floats[0],
+                    y: floats[1],
+                    z: floats[2],
+                }
+                .to_geodetic_inner(geocentric_vector, s_long, c_long)
+            })
+            .collect();
+        let mut ms_writer = MeasurementSetWriter::new(
+            &table_path,
+            phase_centre,
+            array_pos,
+            antenna_positions,
+            Duration::default(),
+            true,
+        )
+        .with_dysco(Some(DyscoSpec::default()));
+
+        let vis_sel = VisSelection {
+            timestep_range: 0..2,
+            baseline_idxs: vec![1],
+            ..VisSelection::from_mwalib(&corr_ctx).unwrap()
+        };
+
+        let (avg_time, avg_freq) = (1, 1);
+
+        ms_writer
+            .initialize_from_mwalib(
+                &corr_ctx,
+                &vis_sel.timestep_range,
+                &vis_sel.coarse_chan_range,
+                &vis_sel.baseline_idxs,
+                avg_time,
+                avg_freq,
+                Some(&COTTER_HISTORY),
+            )
+            .unwrap();
+
+        let (jones_array, weight_array, flag_array, _, _, _) = get_test_data(
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv",
+            2,
+            768,
+            1,
+        );
+
+        let vis_ctx = VisContext::from_mwalib(
+            &corr_ctx,
+            &vis_sel.timestep_range,
+            &vis_sel.coarse_chan_range,
+            &vis_sel.baseline_idxs,
+            avg_time,
+            avg_freq,
+        );
+
+        let weight_array = weight_array.map_axis(Axis(3), |weights| {
+            assert!(weights.iter().all(|&w| abs_diff_eq!(weights[0], w)));
+            weights[0]
+        });
+        let flag_array = flag_array.map_axis(Axis(3), |flags| {
+            assert!(flags.iter().all(|&w| flags[0] == w));
+            flags[0]
+        });
+        let weight_array = encode_flags(weight_array.view(), flag_array.view());
+
+        ms_writer
+            .write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
+            .unwrap();
+
+        let mut table = Table::open(&table_path, TableOpenMode::Read).unwrap();
+        let mut exp_table = Table::open(PATH_1254670392.as_path(), TableOpenMode::Read).unwrap();
+        assert_table_nrows_match!(table, exp_table);
+        // Everything but the Dysco-compressed columns is unchanged.
+        for col_name in ["ANTENNA1", "ANTENNA2", "FLAG", "FLAG_ROW", "DATA_DESC_ID"] {
+            assert_table_columns_match!(table, exp_table, col_name);
+        }
+        let (mut err2, mut sum2) = (0.0f64, 0.0f64);
+        let (mut w_err, mut w_max) = (0.0f32, 0.0f32);
+        for row in 0..table.n_rows() {
+            let data: Vec<c32> = table.get_cell_as_vec("DATA", row).unwrap();
+            let exp_data: Vec<c32> = exp_table.get_cell_as_vec("DATA", row).unwrap();
+            let flags: Vec<bool> = table.get_cell_as_vec("FLAG", row).unwrap();
+            for ((d, e), f) in data.iter().zip(exp_data.iter()).zip(flags.iter()) {
+                if !*f {
+                    err2 += (d - e).norm_sqr() as f64;
+                    sum2 += e.norm_sqr() as f64;
+                }
+            }
+            let w: Vec<f32> = table.get_cell_as_vec("WEIGHT_SPECTRUM", row).unwrap();
+            let exp_w: Vec<f32> = exp_table.get_cell_as_vec("WEIGHT_SPECTRUM", row).unwrap();
+            for (a, b) in w.iter().zip(exp_w.iter()) {
+                w_err = w_err.max((a - b).abs());
+                w_max = w_max.max(b.abs());
+            }
+        }
+        let rel_rms = (err2 / sum2).sqrt();
+        // Lossy, so not exact (which also shows Dysco was used), but close.
+        assert!(
+            rel_rms > 0.0 && rel_rms < 0.01,
+            "DATA relative RMS error {rel_rms}"
+        );
+        assert!(
+            w_err <= w_max / 1000.0,
+            "WEIGHT_SPECTRUM error {w_err} (max {w_max})"
+        );
     }
 
     #[cfg(feature = "mwalib")]

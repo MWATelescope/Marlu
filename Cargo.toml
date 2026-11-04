@@ -30,6 +30,9 @@ mwalib = ["dep:mwalib", "cfitsio"]
 # Provide measurement set IO code.
 ms = ["rubbl_casatables", "flate2"]
 
+# Write (and read) Dysco-compressed measurement sets. Needs GSL.
+dysco = ["ms", "rubbl_casatables/dysco"]
+
 # Provide approx traits on data types
 approx = ["dep:approx"]
 
@@ -64,7 +67,8 @@ mwalib = { version = "2.0.5", optional = true }
 
 # "ms" feature
 flate2 = { version = "1.0.13", optional = true }
-rubbl_casatables = { version = "0.10.0", optional = true }
+# Dysco support is not yet in a rubbl release; see pkgw/rubbl#413.
+rubbl_casatables = { git = "https://github.com/d3v-null/rubbl", branch = "dysco-writing", optional = true }
 
 # "approx" feature
 approx = { version = "0.5.0", features = ["num-complex"], optional = true }
