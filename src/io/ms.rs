@@ -79,7 +79,7 @@ pub struct MeasurementSetWriter {
     dysco: Option<DyscoSpec>,
 
     /// With Dysco, the main table is kept open between `write_vis` calls
-    /// until `finalise` (or drop): DyscoStMan can't be flushed before it has
+    /// until `finalise` (or drop): `DyscoStMan` can't be flushed before it has
     /// seen two whole timesteps, and callers often write one at a time.
     dysco_main_table: Option<SendTable>,
 }
