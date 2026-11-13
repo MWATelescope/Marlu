@@ -595,7 +595,7 @@ mod tests {
             (1320409688.0, -0.1, 6.135556501912982),
         ] {
             let epoch = Epoch::from_gpst_seconds(gps);
-            let dut1 = Duration::from_f64(dut1, Unit::Second);
+            let dut1 = Duration::from_seconds(dut1);
             let last = get_last(MWA_LONG_RAD, epoch, dut1);
             // 1e-8 rad is ~0.1 ms of time.
             assert_abs_diff_eq!(last, expected, epsilon = 1e-8);
