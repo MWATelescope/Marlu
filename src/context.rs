@@ -10,7 +10,7 @@ use crate::{LatLngHeight, RADec, XyzGeocentric, XyzGeodetic, ENH};
 cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         use std::ops::Range;
-        use mwalib::{CorrelatorContext, MetafitsContext};        
+        use mwalib::{CorrelatorContext, MetafitsContext};
         use itertools::izip;
         use ndarray::array;
     }
@@ -72,11 +72,7 @@ impl ObsContext {
         let mut ant_positions_enh = Vec::<ENH>::with_capacity(ants.len());
         let mut ant_names = Vec::<String>::with_capacity(ants.len());
         for ant in ants {
-            ant_positions_enh.push(ENH {
-                e: ant.east_m,
-                n: ant.north_m,
-                h: ant.height_m,
-            });
+            ant_positions_enh.push(ENH::from_mwalib_antenna(ant));
             ant_names.push(ant.tile_name.clone());
         }
 
@@ -395,7 +391,7 @@ impl VisContext {
 }
 
 #[cfg(test)]
-mod tests {    
+mod tests {
     use crate::constants::VEL_C;
 
     use super::*;

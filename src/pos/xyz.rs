@@ -104,14 +104,7 @@ impl XyzGeodetic {
         context
             .antennas
             .iter()
-            .map(|ant| {
-                ENH {
-                    e: ant.east_m,
-                    n: ant.north_m,
-                    h: ant.height_m,
-                }
-                .to_xyz_inner(sin_lat, cos_lat)
-            })
+            .map(|ant| ENH::from_mwalib_antenna(ant).to_xyz_inner(sin_lat, cos_lat))
             .collect()
     }
 
@@ -381,6 +374,7 @@ mod tests {
 
     use crate::constants::{
         COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
+        MWA_HEIGHT_M,
     };
 
     #[test]
@@ -528,7 +522,7 @@ mod tests {
             ENH {
                 e: 39.021,
                 n: 97.82,
-                h: 375.9,
+                h: 375.9 - MWA_HEIGHT_M,
             }
             .to_xyz(MWA_LAT_RAD),
             epsilon = 1e-5
@@ -539,7 +533,7 @@ mod tests {
             ENH {
                 e: 18.025,
                 n: 109.959,
-                h: 376.07,
+                h: 376.07 - MWA_HEIGHT_M,
             }
             .to_xyz(MWA_LAT_RAD),
             epsilon = 1e-5
