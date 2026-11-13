@@ -54,6 +54,8 @@ jobs:
       - name: Minimum-specified Rust version works
         run: |
           MIN_RUST=$(grep -m1 "rust-version" Cargo.toml | sed 's|.*\"\(.*\)\"|\1|')
+          # Use rustup from PATH: the macOS runner images now ship rustup via
+          # Homebrew, so it is no longer at ~/.cargo/bin/rustup.
           rustup install $MIN_RUST --profile minimal
           cargo +${MIN_RUST} test --no-default-features
           cargo +${MIN_RUST} test --all-features

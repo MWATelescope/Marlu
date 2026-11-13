@@ -5024,6 +5024,7 @@ mod tests {
     /// The batched, column-wise path used by `write_vis` must produce exactly
     /// the same MAIN table as the per-row `write_main_row` path.
     #[test]
+    #[allow(clippy::float_cmp, clippy::cognitive_complexity)]
     fn test_main_table_batch_matches_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let per_row_path = temp_dir.path().join("per_row.ms");
@@ -5889,7 +5890,7 @@ mod tests {
 
         let obs_ctx = ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            sched_duration: Duration::from_f64(1., Unit::Second),
+            sched_duration: Duration::from_seconds(1.),
             name: None,
             field_name: None,
             project_id: None,
@@ -5965,7 +5966,7 @@ mod tests {
         let mut vis_ctx = VisContext {
             num_sel_timesteps: vis_sel.timestep_range.len(),
             start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            int_time: Duration::from_f64(1., Unit::Second),
+            int_time: Duration::from_seconds(1.),
             num_sel_chans: vis_sel.coarse_chan_range.len() * fine_chans_per_coarse,
             start_freq_hz: 192000000.,
             freq_resolution_hz: 10000.,
@@ -5977,7 +5978,7 @@ mod tests {
 
         let obs_ctx = ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            sched_duration: Duration::from_f64(1., Unit::Second),
+            sched_duration: Duration::from_seconds(1.),
             name: None,
             field_name: None,
             project_id: None,
