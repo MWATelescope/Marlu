@@ -1217,11 +1217,11 @@ fn fits_write_int(
     unsafe {
         // ffukyj = fits_update_key_lng
         fitsio_sys::ffukyj(
-            fptr,                                                    /* I - FITS file pointer  */
-            keyname.as_ptr(),                                        /* I - keyword name       */
-            value,                                                   /* I - keyword value      */
-            comment.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()), /* I - keyword comment    */
-            &mut status,                                             /* IO - error status      */
+            fptr,                                                      /* I - FITS file pointer  */
+            keyname.as_ptr(),                                          /* I - keyword name       */
+            value,                                                     /* I - keyword value      */
+            comment.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()), /* I - keyword comment    */
+            &mut status,                                               /* IO - error status      */
         );
     }
     fits_check_status(status)?;
@@ -1243,12 +1243,12 @@ fn fits_write_double(
     unsafe {
         // ffukyd = fits_update_key_dbl
         fitsio_sys::ffukyd(
-            fptr,                                                    /* I - FITS file pointer  */
-            keyname.as_ptr(),                                        /* I - keyword name       */
-            value,                                                   /* I - keyword value      */
-            -15,                                                     /* I - no of decimals     */
-            comment.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()), /* I - keyword comment    */
-            &mut status,                                             /* IO - error status      */
+            fptr,                                                      /* I - FITS file pointer  */
+            keyname.as_ptr(),                                          /* I - keyword name       */
+            value,                                                     /* I - keyword value      */
+            -15,                                                       /* I - no of decimals     */
+            comment.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()), /* I - keyword comment    */
+            &mut status,                                               /* IO - error status      */
         );
     }
 
@@ -1272,10 +1272,10 @@ fn fits_write_string(
     unsafe {
         // ffukys = fits_update_key_str
         fitsio_sys::ffukys(
-            fptr,                                                    /* I - FITS file pointer  */
-            keyname.as_ptr(),                                        /* I - keyword name       */
-            value.as_ptr(),                                          /* I - keyword value      */
-            comment.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()), /* I - keyword comment    */
+            fptr,                                                      /* I - FITS file pointer  */
+            keyname.as_ptr(),                                          /* I - keyword name       */
+            value.as_ptr(),                                            /* I - keyword value      */
+            comment.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()), /* I - keyword comment    */
             &mut status,
         ); /* IO - error status      */
     }
