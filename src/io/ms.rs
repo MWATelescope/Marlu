@@ -26,7 +26,7 @@ use super::{
 };
 use crate::{
     average_chunk_f64, c32,
-    convention::{PolConvention, UvwFrame},
+    convention::{PolConvention, UvwFrame, VisUnits},
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, s, Array2, Array3, ArrayView, ArrayView3, ArrayViewMut2, Axis},
     num_complex::Complex,
@@ -75,8 +75,13 @@ pub struct MeasurementSetWriter {
 
     /// How the visibilities' Stokes parameters map onto XX, XY, YX, YY;
     /// recorded natively in the `FEED` table (`RECEPTOR_ANGLE`) and in the
-    /// `pyuvdata_polconv` keyword.
+    /// `pyuvdata_polconv` keyword (the latter only for calibrated
+    /// visibilities, see `vis_units`).
     pol_convention: PolConvention,
+
+    /// The units of the visibilities; recorded in the `QuantumUnits` keyword
+    /// of the `DATA` column when they are calibrated.
+    vis_units: VisUnits,
 
     /// The frame the UVWs are computed in (and the baseline sign); recorded
     /// in the `marlu_uvw_frame` keyword, the `UVW` column's `MEASINFO` and the
@@ -103,6 +108,7 @@ impl MeasurementSetWriter {
             precess_uvws,
             pol_convention: PolConvention::default(),
             uvw_frame: UvwFrame::default(),
+            vis_units: VisUnits::default(),
         }
     }
 
@@ -114,12 +120,23 @@ impl MeasurementSetWriter {
         self
     }
 
-    /// Record the conventions on the main table: the `pyuvdata_polconv`
-    /// keyword ("avg" or "sum", the keyword pyuvdata reads and writes), the
-    /// `marlu_uvw_frame` keyword, the `pyuvdata_flip_conj` keyword and the
-    /// `UVW` column's `MEASINFO` reference (J2000 when precessing, APP
-    /// otherwise). The X orientation is only in the `FEED` table's
-    /// `RECEPTOR_ANGLE`, as pyuvdata has it.
+    /// Set the units of the visibilities. The default is
+    /// [`VisUnits::Uncalib`], for which neither the `DATA` column's
+    /// `QuantumUnits` nor `pyuvdata_polconv` is written: a Stokes convention
+    /// only means something for calibrated visibilities, and pyuvdata refuses
+    /// a Measurement Set that has `pyuvdata_polconv` on uncalibrated data.
+    pub fn with_vis_units(mut self, vis_units: VisUnits) -> Self {
+        self.vis_units = vis_units;
+        self
+    }
+
+    /// Record the conventions on the main table: the `marlu_uvw_frame`
+    /// keyword, the `pyuvdata_flip_conj` keyword, the `UVW` column's
+    /// `MEASINFO` reference (J2000 when precessing, APP otherwise) and, only
+    /// when the visibilities are calibrated, the `DATA` column's
+    /// `QuantumUnits` and the `pyuvdata_polconv` keyword ("avg" or "sum", the
+    /// keyword pyuvdata reads and writes). The X orientation is only in the
+    /// `FEED` table's `RECEPTOR_ANGLE`, as pyuvdata has it.
     ///
     /// pyuvdata assumes a Measurement Set it did not write has antenna1 -
     /// antenna2 baselines (as CASA, cotter and Birli write them) and
@@ -129,8 +146,17 @@ impl MeasurementSetWriter {
     /// pyuvdata's own convention.
     pub fn add_conventions(&self) -> Result<(), MeasurementSetWriteError> {
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
-        main_table
-            .put_keyword::<String>("pyuvdata_polconv", &self.pol_convention.stokes.to_string())?;
+        if self.vis_units.is_calibrated() {
+            main_table.put_keyword::<String>(
+                "pyuvdata_polconv",
+                &self.pol_convention.stokes.to_string(),
+            )?;
+            main_table.put_column_keyword(
+                "DATA",
+                "QuantumUnits",
+                &vec![self.vis_units.to_string()],
+            )?;
+        }
         main_table.put_keyword::<String>("marlu_uvw_frame", &self.uvw_frame.to_string())?;
         main_table.put_keyword::<bool>(
             "pyuvdata_flip_conj",
@@ -5605,9 +5631,19 @@ mod tests {
         let weight_array = encode_flags(weight_array.view(), flag_array.view());
 
         let mut uvws = vec![];
-        for (name, pol, frame) in [
-            ("mwa.ms", PolConvention::MWA, UvwFrame::Hyperdrive),
-            ("casacore.ms", PolConvention::IAU, UvwFrame::Casacore),
+        for (name, pol, frame, units) in [
+            (
+                "mwa.ms",
+                PolConvention::MWA,
+                UvwFrame::Hyperdrive,
+                VisUnits::Uncalib,
+            ),
+            (
+                "casacore.ms",
+                PolConvention::IAU,
+                UvwFrame::Casacore,
+                VisUnits::Jy,
+            ),
         ] {
             let table_path = temp_dir.path().join(name);
             let mut ms_writer = MeasurementSetWriter::new(
@@ -5618,7 +5654,8 @@ mod tests {
                 Duration::default(),
                 true,
             )
-            .with_conventions(pol, frame);
+            .with_conventions(pol, frame)
+            .with_vis_units(units);
             ms_writer
                 .initialize_from_mwalib(
                     &corr_ctx,
@@ -5636,9 +5673,22 @@ mod tests {
 
             let mut main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
             let mut keywords = main_table.get_keyword_record().unwrap();
-            let stokes: String = keywords.get_field("pyuvdata_polconv").unwrap();
+            // The Stokes convention is only recorded with calibrated units:
+            // pyuvdata refuses `pyuvdata_polconv` on uncalibrated visibilities.
+            let stokes: Option<String> = keywords.get_field("pyuvdata_polconv").ok();
+            let data_units: Option<Vec<String>> = main_table
+                .get_column_keyword_record("DATA")
+                .unwrap()
+                .get_field("QuantumUnits")
+                .ok();
+            if units.is_calibrated() {
+                assert_eq!(stokes, Some(pol.stokes.to_string()));
+                assert_eq!(data_units, Some(vec![units.to_string()]));
+            } else {
+                assert_eq!(stokes, None);
+                assert_eq!(data_units, None);
+            }
             let uvw_frame: String = keywords.get_field("marlu_uvw_frame").unwrap();
-            assert_eq!(stokes, pol.stokes.to_string());
             assert_eq!(uvw_frame, frame.to_string());
             let mut col_keywords = main_table.get_column_keyword_record("UVW").unwrap();
             let mut meas_info: TableRecord = col_keywords.get_field("MEASINFO").unwrap();

@@ -24,7 +24,7 @@ use super::{
 use crate::{
     average_chunk_f64,
     constants::VEL_C,
-    convention::{PolConvention, UvwFrame},
+    convention::{PolConvention, UvwFrame, VisUnits},
     hifitime::{Duration, Epoch, Unit},
     ndarray::{ArrayView3, Axis},
     num_complex::Complex,
@@ -206,8 +206,13 @@ pub struct UvfitsWriter {
 
     /// How the visibilities' Stokes parameters map onto XX, XY, YX, YY;
     /// recorded natively in the `AIPS AN` table (`POLAA`/`POLAB`) and in the
-    /// `POLCONV` header keyword.
+    /// `POLCONV` header keyword (the latter only for calibrated
+    /// visibilities, see `vis_units`).
     pol_convention: PolConvention,
+
+    /// The units of the visibilities; recorded in the `BUNIT` header keyword
+    /// when they are calibrated.
+    vis_units: VisUnits,
 
     /// The frame the UVWs are computed in; recorded in the `marlu_uvw_frame`
     /// header keyword. uvfits baselines are always written antenna1 -
@@ -464,6 +469,7 @@ impl UvfitsWriter {
             precess_uvws,
             pol_convention: PolConvention::default(),
             uvw_frame: UvwFrame::default(),
+            vis_units: VisUnits::default(),
         };
         writer.write_convention_keys()?;
         Ok(writer)
@@ -483,18 +489,42 @@ impl UvfitsWriter {
         Ok(self)
     }
 
-    /// Write (or update) the `POLCONV` primary-header keyword ("avg" or
-    /// "sum"; the keyword pyuvdata reads and writes) and the `marlu_uvw_frame`
-    /// keyword (longer than 8 characters, so cfitsio writes it as HIERARCH).
-    /// The X orientation is only in the `AIPS AN` table's `POLAA`/`POLAB`, as
-    /// pyuvdata has it.
+    /// Set the units of the visibilities. The default is
+    /// [`VisUnits::Uncalib`], for which no `BUNIT` is written (readers take a
+    /// uvfits file without one as uncalibrated) and no `POLCONV` either: a
+    /// Stokes convention only means something for calibrated visibilities,
+    /// and pyuvdata refuses a file that has `POLCONV` without a calibrated
+    /// `BUNIT`. Call before writing the antenna table.
+    pub fn with_vis_units(mut self, vis_units: VisUnits) -> Result<Self, UvfitsWriteError> {
+        self.vis_units = vis_units;
+        self.write_convention_keys()?;
+        Ok(self)
+    }
+
+    /// Write (or update) the convention keywords of the primary header:
+    /// `marlu_uvw_frame` (longer than 8 characters, so cfitsio writes it as
+    /// HIERARCH) always, and, only when the visibilities are calibrated,
+    /// `BUNIT` and `POLCONV` ("avg" or "sum"; the keyword pyuvdata reads and
+    /// writes). The X orientation is only in the `AIPS AN` table's
+    /// `POLAA`/`POLAB`, as pyuvdata has it.
     fn write_convention_keys(&mut self) -> Result<(), UvfitsWriteError> {
-        fits_write_string(
-            self.fptr,
-            "POLCONV",
-            &self.pol_convention.stokes.to_string(),
-            Some("Stokes I = (XX+YY)/2 (avg) or XX+YY (sum)"),
-        )?;
+        if self.vis_units.is_calibrated() {
+            fits_write_string(
+                self.fptr,
+                "BUNIT",
+                &self.vis_units.to_string(),
+                Some("units of the visibilities"),
+            )?;
+            fits_write_string(
+                self.fptr,
+                "POLCONV",
+                &self.pol_convention.stokes.to_string(),
+                Some("Stokes I = (XX+YY)/2 (avg) or XX+YY (sum)"),
+            )?;
+        } else {
+            fits_delete_key(self.fptr, "BUNIT")?;
+            fits_delete_key(self.fptr, "POLCONV")?;
+        }
         fits_write_string(
             self.fptr,
             "marlu_uvw_frame",
@@ -1283,6 +1313,28 @@ fn fits_write_string(
     Ok(())
 }
 
+/// Delete a keyword from the current HDU, if it is there.
+fn fits_delete_key(
+    fptr: *mut fitsio_sys::fitsfile,
+    keyname: &str,
+) -> Result<(), FitsioOrCStringError> {
+    // cfitsio's KEY_NO_EXIST
+    const KEY_NO_EXIST: i32 = 202;
+    let mut status = 0;
+    let keyname = CString::new(keyname)?;
+    unsafe {
+        // ffdkey = fits_delete_key
+        fitsio_sys::ffdkey(fptr, keyname.as_ptr(), &mut status);
+        if status == KEY_NO_EXIST {
+            // The failed lookup is also on cfitsio's error message stack.
+            fitsio_sys::ffcmsg();
+            return Ok(());
+        }
+    }
+    fits_check_status(status)?;
+    Ok(())
+}
+
 fn fits_write_comment(
     fptr: *mut fitsio_sys::fitsfile,
     comment: &str,
@@ -1339,7 +1391,7 @@ mod tests {
     };
     use mwalib::{
         _get_fits_col, _get_required_fits_key, fits_open, fits_open_hdu, get_fits_col,
-        get_required_fits_key, CorrelatorContext,
+        get_optional_fits_key, get_required_fits_key, CorrelatorContext,
     };
     use ndarray::Array3;
     use tempfile::NamedTempFile;
@@ -2842,7 +2894,7 @@ mod tests {
     /// marlu_* HIERARCH keywords, and the casacore frame negates the UVWs.
     #[test]
     fn test_uvfits_conventions() {
-        use crate::convention::{PolConvention, UvwFrame};
+        use crate::convention::{PolConvention, UvwFrame, VisUnits};
 
         let num_timesteps = 1;
         let num_baselines = 3;
@@ -2870,9 +2922,9 @@ mod tests {
                 Complex::new(7.0, 8.0),
             ]),
         );
-        for (pol, frame) in [
-            (PolConvention::MWA, UvwFrame::Hyperdrive),
-            (PolConvention::IAU, UvwFrame::Casacore),
+        for (pol, frame, units) in [
+            (PolConvention::MWA, UvwFrame::Hyperdrive, VisUnits::Uncalib),
+            (PolConvention::IAU, UvwFrame::Casacore, VisUnits::Jy),
         ] {
             let tmp_uvfits_file = NamedTempFile::new().unwrap();
             let mut u = UvfitsWriter::new(
@@ -2895,6 +2947,8 @@ mod tests {
                 None,
             )
             .unwrap()
+            .with_vis_units(units)
+            .unwrap()
             .with_conventions(pol, frame)
             .unwrap();
             u.write_vis(
@@ -2908,10 +2962,19 @@ mod tests {
 
             let mut f = fits_open!(tmp_uvfits_file.path()).unwrap();
             let hdu = fits_open_hdu!(&mut f, 0).unwrap();
-            let stokes: String = get_required_fits_key!(&mut f, &hdu, "POLCONV").unwrap();
+            // The Stokes convention is only recorded with calibrated units:
+            // pyuvdata refuses `POLCONV` on uncalibrated visibilities.
+            let stokes: Option<String> = get_optional_fits_key!(&mut f, &hdu, "POLCONV").unwrap();
+            let bunit: Option<String> = get_optional_fits_key!(&mut f, &hdu, "BUNIT").unwrap();
             let uvw_frame: String =
                 get_required_fits_key!(&mut f, &hdu, "marlu_uvw_frame").unwrap();
-            assert_eq!(stokes, pol.stokes.to_string());
+            if units.is_calibrated() {
+                assert_eq!(stokes, Some(pol.stokes.to_string()));
+                assert_eq!(bunit, Some(units.to_string()));
+            } else {
+                assert_eq!(stokes, None);
+                assert_eq!(bunit, None);
+            }
             assert_eq!(uvw_frame, frame.to_string());
 
             // Group 2 is the first cross-correlation (group 1 is 0-0).

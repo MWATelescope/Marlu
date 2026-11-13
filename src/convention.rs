@@ -160,6 +160,66 @@ impl Display for StokesConvention {
     }
 }
 
+/// The units of visibilities, named as pyuvdata names them (uvfits `BUNIT`,
+/// the `QuantumUnits` of a Measurement Set data column, UVH5 `vis_units`).
+///
+/// A [`StokesConvention`] only means something for calibrated visibilities,
+/// and pyuvdata refuses a file that records one for uncalibrated data
+/// (`pol_convention is set but the data is uncalibrated`). So the writers
+/// only record the Stokes convention when the units say the visibilities are
+/// calibrated; the X orientation and the UVW frame are always recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum VisUnits {
+    /// Uncalibrated (correlator units).
+    #[default]
+    #[cfg_attr(feature = "serde", serde(rename = "uncalib"))]
+    Uncalib,
+    /// Janskys.
+    #[cfg_attr(feature = "serde", serde(rename = "Jy"))]
+    Jy,
+    /// Kelvin steradians.
+    #[cfg_attr(feature = "serde", serde(rename = "K str"))]
+    KStr,
+}
+
+impl VisUnits {
+    /// The names [`VisUnits::from_str`] accepts (case-insensitive).
+    pub const NAMES: &'static str = "uncalib, Jy, K str";
+
+    /// Are the visibilities in physical units?
+    pub fn is_calibrated(self) -> bool {
+        !matches!(self, VisUnits::Uncalib)
+    }
+}
+
+impl FromStr for VisUnits {
+    type Err = UnknownConvention;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "uncalib" | "uncalibrated" => Ok(VisUnits::Uncalib),
+            "jy" => Ok(VisUnits::Jy),
+            "k str" | "k sr" => Ok(VisUnits::KStr),
+            _ => Err(UnknownConvention {
+                kind: "visibility units",
+                got: s.to_string(),
+                expected: Self::NAMES,
+            }),
+        }
+    }
+}
+
+impl Display for VisUnits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            VisUnits::Uncalib => "uncalib",
+            VisUnits::Jy => "Jy",
+            VisUnits::KStr => "K str",
+        })
+    }
+}
+
 /// How Stokes I, Q, U, V map onto the instrumental polarisations XX, XY, YX,
 /// YY: an [`XOrientation`] and a [`StokesConvention`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
