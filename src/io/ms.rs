@@ -5024,6 +5024,7 @@ mod tests {
     /// The batched, column-wise path used by `write_vis` must produce exactly
     /// the same MAIN table as the per-row `write_main_row` path.
     #[test]
+    #[allow(clippy::float_cmp, clippy::cognitive_complexity)]
     fn test_main_table_batch_matches_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let per_row_path = temp_dir.path().join("per_row.ms");
