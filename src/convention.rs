@@ -639,6 +639,30 @@ mod tests {
     }
 
     #[test]
+    fn vis_units_parse_and_display() {
+        for (name, expected) in [
+            ("uncalib", VisUnits::Uncalib),
+            ("UNCALIB", VisUnits::Uncalib),
+            ("uncalibrated", VisUnits::Uncalib),
+            ("Jy", VisUnits::Jy),
+            ("JY", VisUnits::Jy),
+            ("K str", VisUnits::KStr),
+            ("k sr", VisUnits::KStr),
+        ] {
+            assert_eq!(name.parse::<VisUnits>().unwrap(), expected, "{name}");
+        }
+        assert!("mJy".parse::<VisUnits>().is_err());
+        for units in [VisUnits::Uncalib, VisUnits::Jy, VisUnits::KStr] {
+            // The names are pyuvdata's, and round trip.
+            assert_eq!(units.to_string().parse::<VisUnits>().unwrap(), units);
+            assert_eq!(units.is_calibrated(), units != VisUnits::Uncalib);
+        }
+        assert_eq!(VisUnits::default(), VisUnits::Uncalib);
+        assert_eq!(VisUnits::Jy.to_string(), "Jy");
+        assert_eq!(VisUnits::KStr.to_string(), "K str");
+    }
+
+    #[test]
     fn names_and_aliases() {
         for (name, expected) in [
             ("mwa", PolConvention::MWA),
