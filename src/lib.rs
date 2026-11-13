@@ -74,6 +74,7 @@ pub use rayon;
 // Include the generated built.rs code into our library
 pub mod built_info {
     // The file has been placed there by the build script.
+    #![allow(clippy::doc_markdown)]
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 

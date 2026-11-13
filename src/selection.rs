@@ -172,12 +172,12 @@ impl VisSelection {
                 (Some(&first), Some(&last)) if first <= last => first..last + 1,
                 (.., None) => {
                     return Err(SelectionError::NoProvidedTimesteps {
-                        hdu_info: format!("{:?}", &corr_ctx.gpubox_time_map),
+                        hdu_info: format!("{:?}", corr_ctx.gpubox_time_map),
                     })
                 }
                 _ => {
                     return Err(SelectionError::NoCommonTimesteps {
-                        hdu_info: format!("{:?}", &corr_ctx.gpubox_time_map),
+                        hdu_info: format!("{:?}", corr_ctx.gpubox_time_map),
                     })
                 }
             },
@@ -188,7 +188,7 @@ impl VisSelection {
                 (Some(&first), Some(&last)) if first <= last => (first)..(last + 1),
                 _ => {
                     return Err(SelectionError::NoCommonTimesteps {
-                        hdu_info: format!("{:?}", &corr_ctx.gpubox_time_map),
+                        hdu_info: format!("{:?}", corr_ctx.gpubox_time_map),
                     })
                 }
             },

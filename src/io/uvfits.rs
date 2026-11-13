@@ -299,7 +299,7 @@ impl UvfitsWriter {
         let mut status = 0;
         let c_path = CString::new(path.to_str().unwrap())?;
         let mut fptr = std::ptr::null_mut();
-        trace!("initialising fits file with fitsio_sys ({:?})", &path);
+        trace!("initialising fits file with fitsio_sys ({:?})", path);
         unsafe {
             // ffinit = fits_create_file
             fitsio_sys::ffinit(
@@ -318,7 +318,7 @@ impl UvfitsWriter {
             total_num_rows > 0,
             "num_timesteps * num_baselines must be > 0"
         );
-        trace!("setting group params in fits file ({:?})", &path);
+        trace!("setting group params in fits file ({:?})", path);
         unsafe {
             // ffphpr = fits_write_grphdr
             fitsio_sys::ffphpr(
@@ -1784,8 +1784,8 @@ mod tests {
                     "cells don't match in row {}, vis index {}. {:?} != {:?}",
                     row_idx,
                     vis_idx,
-                    &left_vis,
-                    &right_vis
+                    left_vis,
+                    right_vis
                 );
             }
         }
@@ -3146,6 +3146,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::identity_op)]
     fn test_encode_uvfits_baseline_miriad() {
         // Verify that encode_uvfits_baseline_miriad always uses the miriad
         // convention, even for antenna indices <= 255.
@@ -3249,8 +3250,8 @@ fn test_encode_decode_uvfits_all_baselines_512t() {
 ///
 /// pyuvdata decides which decoding convention to use for an *entire* file
 /// based on the maximum baseline value it finds:
-///   - max_bl < 65536 → standard 256 encoding  (`bl = 256*ant1 + ant2`)
-///   - max_bl ≥ 65536 → miriad 2048 encoding   (`bl = 2048*ant1 + ant2 + 65536`)
+///   - `max_bl < 65536` → standard 256 encoding  (`bl = 256*ant1 + ant2`)
+///   - `max_bl ≥ 65536` → miriad 2048 encoding   (`bl = 2048*ant1 + ant2 + 65536`)
 ///
 /// Any file that mixes the two conventions will be decoded incorrectly.
 #[cfg(test)]

@@ -43,7 +43,7 @@ all-static = ["cfitsio-static"]
 [dependencies]
 cfg-if = "1.0.0"
 erfa = "0.2.1"
-hifitime = "<4"
+hifitime = "4.3"
 itertools = "0.14"
 lazy_static = "~1.5"
 log = "0.4.14"
@@ -104,4 +104,3 @@ harness = false
 [[bench]]
 name = "bench_io"
 harness = false
-
