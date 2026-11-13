@@ -7,6 +7,7 @@ use std::{
     f64::consts::FRAC_PI_2,
     ops::Range,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
     time::SystemTime,
 };
 
@@ -72,6 +73,15 @@ pub struct MeasurementSetWriter {
 
     /// Are we going to write out precessed UVWs?
     precess_uvws: bool,
+
+    /// How many MAIN-table rows [`MeasurementSetWriter::initialize`] planned
+    /// for, i.e. how many rows the visibility writing code may add. Rows are
+    /// not created up front: casacore zero-fills and writes every tile of a
+    /// tiled column that has no data in it when the table is closed, so
+    /// creating all the rows at initialization time writes the whole
+    /// visibility volume to disk as zeros before any visibility is written.
+    /// Rows are added as they are written instead.
+    planned_main_rows: AtomicUsize,
 }
 
 impl MeasurementSetWriter {
@@ -91,6 +101,7 @@ impl MeasurementSetWriter {
             antenna_positions,
             dut1,
             precess_uvws,
+            planned_main_rows: AtomicUsize::new(0),
         }
     }
 
@@ -1411,7 +1422,10 @@ impl MeasurementSetWriter {
         main_table.put_column_keyword("TIME", "MEASINFO", &meas_info)?;
         main_table.put_column_keyword("TIME_CENTROID", "MEASINFO", &meas_info)?;
 
-        main_table.add_rows(num_avg_rows)?;
+        // Don't create the MAIN-table rows here; `write_vis` adds them as it
+        // writes them (see `planned_main_rows`).
+        self.planned_main_rows
+            .store(num_avg_rows, Ordering::Relaxed);
 
         // /////////////// //
         // Spectral Window //
@@ -1934,6 +1948,17 @@ impl MainTableBatch {
             return Ok(());
         }
 
+        // Create the rows this batch occupies, if they don't exist yet. Rows
+        // are added just before they are filled so that casacore never
+        // flushes a tile that has no data in it: a tile with no data in it is
+        // zero-filled and written out when the table is closed, which would
+        // write the whole visibility volume to disk twice.
+        let needed = start_row + n as u64;
+        let have = table.n_rows();
+        if have < needed {
+            table.add_rows((needed - have) as usize)?;
+        }
+
         table.put_column_range_scalar("TIME", start_row, &self.time[..n])?;
         table.put_column_range_scalar("TIME_CENTROID", start_row, &self.time_centroid[..n])?;
         table.put_column_range_scalar("ANTENNA1", start_row, &self.antenna1[..n])?;
@@ -1993,12 +2018,18 @@ impl VisWrite for MeasurementSetWriter {
 
         // Open the table for writing
         let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
-        let num_main_rows = main_table.n_rows();
-        if (num_main_rows - self.main_row_idx as u64) < num_avg_rows as u64 {
+        // Rows are created as they are written, so the capacity to check
+        // against is what `initialize` planned for, not the table's current
+        // row count.
+        let rows_total = self
+            .planned_main_rows
+            .load(Ordering::Relaxed)
+            .max(main_table.n_rows() as usize);
+        if rows_total - self.main_row_idx.min(rows_total) < num_avg_rows {
             return Err(IOError::MeasurementSetWriteError(MeasurementSetFull {
                 rows_attempted: num_avg_rows,
-                rows_remaining: num_main_rows as usize - self.main_row_idx,
-                rows_total: num_main_rows as usize,
+                rows_remaining: rows_total - self.main_row_idx.min(rows_total),
+                rows_total,
             }));
         }
 
@@ -4803,10 +4834,12 @@ mod tests {
             }
         }
 
+        // The MAIN-table rows are planned, but not created until they're
+        // written.
         let main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
-
+        assert_eq!(main_table.n_rows(), 0);
         assert_eq!(
-            main_table.n_rows() as usize,
+            ms_writer.planned_main_rows.load(Ordering::Relaxed),
             vis_sel.timestep_range.len() * vis_sel.baseline_idxs.len()
         );
 
