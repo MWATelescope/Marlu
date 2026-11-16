@@ -272,8 +272,7 @@ fn rotate_radec(rotation_matrix: &mut [[f64; 3]; 3], ra: f64, dec: f64) -> (f64,
 
 #[cfg(test)]
 mod tests {
-    use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
-    use hifitime::Unit;
+    use approx::{assert_abs_diff_eq, assert_abs_diff_ne};    
     use std::str::FromStr;
 
     use super::*;
@@ -536,7 +535,7 @@ mod tests {
     #[test]
     fn test_get_lst() {
         let epoch = Epoch::from_gpst_seconds(1090008642.0);
-        let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
+        let dut1 = Duration::from_seconds(-0.31295757);
         assert_abs_diff_eq!(
             get_lmst(MWA_LONG_RAD, epoch, dut1),
             6.262065126600022,
@@ -544,7 +543,7 @@ mod tests {
         );
 
         let epoch = Epoch::from_gpst_seconds(1090008643.0);
-        let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
+        let dut1 = Duration::from_seconds(-0.31295757);
         assert_abs_diff_eq!(
             get_lmst(MWA_LONG_RAD, epoch, dut1),
             6.26213804775838,
@@ -552,7 +551,7 @@ mod tests {
         );
 
         let epoch = Epoch::from_gpst_seconds(1090008647.0);
-        let dut1 = Duration::from_f64(-0.31295758, Unit::Second);
+        let dut1 = Duration::from_seconds(-0.31295758);
         assert_abs_diff_eq!(
             get_lmst(MWA_LONG_RAD, epoch, dut1),
             6.262429732391841,
@@ -560,7 +559,7 @@ mod tests {
         );
 
         let epoch = Epoch::from_gpst_seconds(1090008644.0);
-        let dut1 = Duration::from_f64(-0.31295757, Unit::Second);
+        let dut1 = Duration::from_seconds(-0.31295757);
         assert_abs_diff_eq!(
             get_lmst(MWA_LONG_RAD, epoch, dut1),
             6.262210968916753,
@@ -657,7 +656,7 @@ mod tests {
             MWA_LAT_RAD,
             phase_centre,
             j2000_epoch,
-            Duration::from_f64(0.35494706, Unit::Second),
+            Duration::from_seconds(0.35494706),
         );
         let rm0 = precession_matrix(&eor0, phase_centre, j2000_epoch);
         assert_abs_diff_eq!(rm0[0][0], 1.0, epsilon = 1e-8);
@@ -682,7 +681,7 @@ mod tests {
             MWA_LAT_RAD,
             phase_centre,
             j2000_epoch,
-            Duration::from_f64(0.35494706, Unit::Second),
+            Duration::from_seconds(0.35494706),
         );
         let rm1 = precession_matrix(&eor1, phase_centre, j2000_epoch);
         assert_abs_diff_eq!(rm1[0][0], 1.0, epsilon = 1e-8);
@@ -798,7 +797,7 @@ mod tests {
             MWA_LAT_RAD,
             phase_centre,
             epoch,
-            Duration::from_f64(-0.39623459, Unit::Second),
+            Duration::from_seconds(-0.39623459),
         );
         let rm = precession_matrix(&p, phase_centre, epoch);
         // How do I know this is right? Good question! ... I don't.

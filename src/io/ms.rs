@@ -1180,7 +1180,7 @@ impl MeasurementSetWriter {
 
     fn get_centre_freq(freqs: &[f64]) -> f64 {
         let len = freqs.len();
-        if len % 2 == 0 {
+        if len.is_multiple_of(2) {
             (freqs[len / 2] + freqs[len / 2 - 1]) * 0.5
         } else {
             freqs[len / 2]
@@ -5000,6 +5000,7 @@ mod tests {
     /// The batched, column-wise path used by `write_vis` must produce exactly
     /// the same MAIN table as the per-row `write_main_row` path.
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_main_table_batch_matches_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let per_row_path = temp_dir.path().join("per_row.ms");
@@ -5042,7 +5043,7 @@ mod tests {
                 });
                 // flag a few cells, and completely flag every 4th row
                 let flags = Array2::from_shape_fn((num_chans, num_pols), |(c, p)| {
-                    r % 4 == 3 || (r + c * p) % 5 == 0
+                    r % 4 == 3 || (r + c * p).is_multiple_of(5)
                 });
                 let flag_row = flags.iter().all(|&f| f);
 
@@ -5859,7 +5860,7 @@ mod tests {
 
         let obs_ctx = ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            sched_duration: Duration::from_f64(1., Unit::Second),
+            sched_duration: Duration::from_seconds(1.),
             name: None,
             field_name: None,
             project_id: None,
@@ -5935,7 +5936,7 @@ mod tests {
         let mut vis_ctx = VisContext {
             num_sel_timesteps: vis_sel.timestep_range.len(),
             start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            int_time: Duration::from_f64(1., Unit::Second),
+            int_time: Duration::from_seconds(1.),
             num_sel_chans: vis_sel.coarse_chan_range.len() * fine_chans_per_coarse,
             start_freq_hz: 192000000.,
             freq_resolution_hz: 10000.,
@@ -5947,7 +5948,7 @@ mod tests {
 
         let obs_ctx = ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            sched_duration: Duration::from_f64(1., Unit::Second),
+            sched_duration: Duration::from_seconds(1.),
             name: None,
             field_name: None,
             project_id: None,
