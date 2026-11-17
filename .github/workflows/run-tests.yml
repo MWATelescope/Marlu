@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-15, macos-15-intel]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
@@ -32,23 +32,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # The automake included with MacOS is seemingly old. Updating it fixes
-          # some issues.
-          if [[ "$OSTYPE" != "linux-gnu"* ]]; then
-            brew install automake pkg-config
-          fi
-
-          curl "https://codeload.github.com/HEASARC/cfitsio/tar.gz/refs/tags/cfitsio-4.6.3" -o cfitsio.tar.gz
-          tar -xf cfitsio.tar.gz
-          rm cfitsio.tar.gz
-          cd cfitsio-*
-          ./configure --prefix=/usr/local --enable-reentrant --disable-curl
-          make -j
-          sudo make install
-          cd ..
-
+          # cfitsio comes from the system package manager rather than a source
+          # tarball from heasarc.gsfc.nasa.gov, whose downloads have broken
+          # before (TLS certificate errors). Ubuntu 26.04 packages cfitsio 4.6.3
+          # (24.04 has 4.3.1); Homebrew has the latest release.
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            sudo ldconfig
+            sudo apt-get update
+            sudo apt-get install -y libcfitsio-dev pkg-config
+          else
+            brew install cfitsio pkg-config
           fi
 
       - name: Minimum-specified Rust version works
