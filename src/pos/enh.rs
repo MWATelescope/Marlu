@@ -5,6 +5,8 @@
 //! Handle East, North and Height coordinates (typically associated with MWA
 //! tiles).
 
+#[cfg(feature = "mwalib")]
+use crate::constants::MWA_HEIGHT_M;
 use crate::{constants::MWA_LAT_RAD, XyzGeodetic};
 
 /// East, North and Height coordinates.
@@ -20,6 +22,20 @@ pub struct ENH {
 }
 
 impl ENH {
+    /// The position of a metafits antenna relative to the MWA's array centre.
+    /// Metafits heights are altitudes above sea level, so [`MWA_HEIGHT_M`] is
+    /// taken off them; using them as they are would count the array's height
+    /// twice when converting to geocentric coordinates (as `cotter` did,
+    /// putting every tile ~378 m too high).
+    #[cfg(feature = "mwalib")]
+    pub fn from_mwalib_antenna(antenna: &mwalib::Antenna) -> ENH {
+        ENH {
+            e: antenna.east_m,
+            n: antenna.north_m,
+            h: antenna.height_m - MWA_HEIGHT_M,
+        }
+    }
+
     /// Convert coords in local topocentric East, North, Height units to 'local'
     /// [`XyzGeodetic`] units. Local means Z points north, X points through the
     /// equator from the geocenter along the local meridian and Y is East. This
