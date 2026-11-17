@@ -42,6 +42,21 @@ fn get_truncated_date_string(epoch: Epoch) -> String {
     format!("{year}-{month:02}-{day:02}T00:00:00.0")
 }
 
+/// IAT - UTC (a.k.a. TAI - UTC) in seconds, i.e. the accumulated leap
+/// seconds, for the AIPS AN `IATUTC` keyword. AIPS 117 says `IATUTC` applies
+/// at `RDATE`, which we write as `epoch`'s UTC date at midnight, so the value
+/// is taken there. Leap seconds are only inserted at the end of a UTC day, so
+/// it holds for the whole date. (Evaluating `epoch` itself would not be
+/// safe: hifitime switches to the new value ~TAI-UTC seconds before the leap
+/// second.) Before 1972 this is SOFA's fractional offset. UTC is undefined
+/// before 1960; 0 is written there.
+fn iat_minus_utc_s(epoch: Epoch) -> f64 {
+    let (year, month, day, _, _, _, _) = epoch.to_gregorian_utc();
+    Epoch::from_gregorian_utc_at_midnight(year, month, day)
+        .leap_seconds(false)
+        .unwrap_or(0.0)
+}
+
 /// Helper function to convert strings into pointers of C strings.
 fn rust_strings_to_c_strings<T: AsRef<str>>(
     strings: &[T],
@@ -682,7 +697,12 @@ impl UvfitsWriter {
         fits_write_int(self.fptr, "NUMORB", 0, None)?; // number of orbital parameters in table
         fits_write_int(self.fptr, "NOPCAL", 3, None)?; // Nr pol calibration values / IF(N_pcal)
         fits_write_int(self.fptr, "FREQID", -1, None)?; // Frequency setup number
-        fits_write_double(self.fptr, "IATUTC", 33.0, None)?;
+        fits_write_double(
+            self.fptr,
+            "IATUTC",
+            iat_minus_utc_s(self.start_epoch),
+            Some("IAT - UTC (sec), i.e. leap seconds at RDATE"),
+        )?;
 
         // -> EXTVER
         // ---> in AIPS117:
@@ -1674,8 +1694,9 @@ mod tests {
                 // "FREQ", // This is incorrect in Cotter. See: https://github.com/MWATelescope/Birli/issues/6
                 // "GSTIA0", // TODO: this is off from Cotter by about 5e-2
                 // "PCOUNT" // We use 2 DATEs, cotter uses 1
-                "DEGPDY", "POLARX", "POLARY", "UT1UTC", "DATUTC", "NUMORB", "NOPCAL", "FREQID",
-                "IATUTC",
+                "DEGPDY", "POLARX", "POLARY", "UT1UTC", "DATUTC", "NUMORB", "NOPCAL",
+                "FREQID",
+                // "IATUTC", // Cotter hard-codes 33, which is wrong after 2008-12-31.
             ],
             left_fptr,
             left_ant_hdu,
@@ -2067,6 +2088,29 @@ mod tests {
         let mut cotter_fptr = fits_open!(&cotter_uvfits_path).unwrap();
 
         assert_uvfits_primary_header_eq(&mut birli_fptr, &mut cotter_fptr);
+    }
+
+    #[test]
+    fn test_iat_minus_utc_s() {
+        // TAI - UTC from the IERS leap second table.
+        for ((y, mo, d, h, mi, sec), expected) in [
+            ((1999, 1, 1, 0, 0, 0), 32.0),
+            ((2008, 12, 31, 23, 59, 59), 33.0),
+            ((2009, 1, 1, 0, 0, 0), 34.0),
+            ((2015, 6, 30, 12, 0, 0), 35.0),
+            ((2015, 7, 1, 0, 0, 0), 36.0),
+            ((2016, 12, 31, 12, 0, 0), 36.0),
+            ((2016, 12, 31, 23, 59, 59), 36.0),
+            ((2017, 1, 1, 0, 0, 0), 37.0),
+            ((2017, 12, 1, 14, 54, 38), 37.0),
+            ((2026, 9, 5, 12, 0, 0), 37.0),
+        ] {
+            let epoch = Epoch::from_gregorian_utc(y, mo, d, h, mi, sec, 0);
+            assert_abs_diff_eq!(iat_minus_utc_s(epoch), expected);
+        }
+        // UTC is undefined before 1960.
+        let epoch = Epoch::from_gregorian_utc(1959, 1, 1, 0, 0, 0, 0);
+        assert_abs_diff_eq!(iat_minus_utc_s(epoch), 0.0);
     }
 
     #[test]
@@ -2548,6 +2592,11 @@ mod tests {
         let birli_ant_datutc: f32 =
             get_required_fits_key!(&mut birli_fptr, &birli_ant_hdu, "DATUTC").unwrap();
         assert_abs_diff_eq!(birli_ant_datutc, 0.);
+        // -> IATUTC = IAT - UTC (sec), the number of leap seconds at RDATE.
+        // ---> Cotter hard-codes 33, but TAI - UTC was 37 s on 2017-12-01.
+        let birli_ant_iatutc: f32 =
+            get_required_fits_key!(&mut birli_fptr, &birli_ant_hdu, "IATUTC").unwrap();
+        assert_abs_diff_eq!(birli_ant_iatutc, 37.);
 
         // -> TIMSYS/TIMESYS "Time system"
         // ---> in AIPS117:
