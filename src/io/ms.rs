@@ -4,7 +4,6 @@
 
 use std::{
     borrow::Cow,
-    f64::consts::FRAC_PI_2,
     ops::Range,
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
@@ -28,10 +27,11 @@ use super::{
 };
 use crate::{
     average_chunk_f64, c32,
+    convention::{PolConvention, UvwFrame, VisUnits},
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, s, Array2, Array3, ArrayView, ArrayView3, ArrayViewMut2, Axis},
     num_complex::Complex,
-    precession::{get_lmst, precess_time},
+    precession::{get_lmst, precess_time_in_frame},
     HADec, History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
     UVW,
 };
@@ -82,6 +82,21 @@ pub struct MeasurementSetWriter {
     /// visibility volume to disk as zeros before any visibility is written.
     /// Rows are added as they are written instead.
     planned_main_rows: AtomicUsize,
+
+    /// How the visibilities' Stokes parameters map onto XX, XY, YX, YY;
+    /// recorded natively in the `FEED` table (`RECEPTOR_ANGLE`) and in the
+    /// `pyuvdata_polconv` keyword (the latter only for calibrated
+    /// visibilities, see `vis_units`).
+    pol_convention: PolConvention,
+
+    /// The units of the visibilities; recorded in the `QuantumUnits` keyword
+    /// of the `DATA` column when they are calibrated.
+    vis_units: VisUnits,
+
+    /// The frame the UVWs are computed in (and the baseline sign); recorded
+    /// in the `marlu_uvw_frame` keyword, the `UVW` column's `MEASINFO` and the
+    /// `pyuvdata_flip_conj` keyword.
+    uvw_frame: UvwFrame,
 }
 
 impl MeasurementSetWriter {
@@ -102,7 +117,73 @@ impl MeasurementSetWriter {
             dut1,
             precess_uvws,
             planned_main_rows: AtomicUsize::new(0),
+            pol_convention: PolConvention::default(),
+            uvw_frame: UvwFrame::default(),
+            vis_units: VisUnits::default(),
         }
+    }
+
+    /// Set the conventions the visibilities follow. The default is the MWA's
+    /// (`PolConvention::MWA`, `UvwFrame::Hyperdrive`).
+    pub fn with_conventions(mut self, pol_convention: PolConvention, uvw_frame: UvwFrame) -> Self {
+        self.pol_convention = pol_convention;
+        self.uvw_frame = uvw_frame;
+        self
+    }
+
+    /// Set the units of the visibilities. The default is
+    /// [`VisUnits::Uncalib`], for which neither the `DATA` column's
+    /// `QuantumUnits` nor `pyuvdata_polconv` is written: a Stokes convention
+    /// only means something for calibrated visibilities, and pyuvdata refuses
+    /// a Measurement Set that has `pyuvdata_polconv` on uncalibrated data.
+    pub fn with_vis_units(mut self, vis_units: VisUnits) -> Self {
+        self.vis_units = vis_units;
+        self
+    }
+
+    /// Record the conventions on the main table: the `marlu_uvw_frame`
+    /// keyword, the `pyuvdata_flip_conj` keyword, the `UVW` column's
+    /// `MEASINFO` reference (J2000 when precessing, APP otherwise) and, only
+    /// when the visibilities are calibrated, the `DATA` column's
+    /// `QuantumUnits` and the `pyuvdata_polconv` keyword ("avg" or "sum", the
+    /// keyword pyuvdata reads and writes). The X orientation is only in the
+    /// `FEED` table's `RECEPTOR_ANGLE`, as pyuvdata has it.
+    ///
+    /// pyuvdata assumes a Measurement Set it did not write has antenna1 -
+    /// antenna2 baselines (as CASA, cotter and Birli write them) and
+    /// conjugates it on reading, unless `pyuvdata_flip_conj` says otherwise;
+    /// it is false for the antenna2 - antenna1 frames (`UvwFrame::Casacore`,
+    /// i.e. casacore's `derivedmscal` and DP3), which are already in
+    /// pyuvdata's own convention.
+    pub fn add_conventions(&self) -> Result<(), MeasurementSetWriteError> {
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
+        if self.vis_units.is_calibrated() {
+            main_table.put_keyword::<String>(
+                "pyuvdata_polconv",
+                &self.pol_convention.stokes.to_string(),
+            )?;
+            main_table.put_column_keyword(
+                "DATA",
+                "QuantumUnits",
+                &vec![self.vis_units.to_string()],
+            )?;
+        }
+        main_table.put_keyword::<String>("marlu_uvw_frame", &self.uvw_frame.to_string())?;
+        main_table.put_keyword::<bool>(
+            "pyuvdata_flip_conj",
+            &(self.uvw_frame.baseline_sign() > 0.0),
+        )?;
+
+        let mut meas_info = TableRecord::new()?;
+        meas_info.put_field("type", &"uvw".to_string())?;
+        let uvw_ref = if self.precess_uvws && self.uvw_frame.precesses() {
+            "J2000"
+        } else {
+            "APP"
+        };
+        meas_info.put_field("Ref", &uvw_ref.to_string())?;
+        main_table.put_column_keyword("UVW", "MEASINFO", &meas_info)?;
+        Ok(())
     }
 
     pub fn validate_path(&self, path: &Path) -> Result<(), MeasurementSetWriteError> {
@@ -516,6 +597,7 @@ impl MeasurementSetWriter {
         self.add_mwa_pointing_mods()?;
         self.add_mwa_subband_mods()?;
         self.add_dut1_value()?;
+        self.add_conventions()?;
         Ok(())
     }
 
@@ -1191,7 +1273,7 @@ impl MeasurementSetWriter {
 
     fn get_centre_freq(freqs: &[f64]) -> f64 {
         let len = freqs.len();
-        if len % 2 == 0 {
+        if len.is_multiple_of(2) {
             (freqs[len / 2] + freqs[len / 2 - 1]) * 0.5
         } else {
             freqs[len / 2]
@@ -1483,7 +1565,10 @@ impl MeasurementSetWriter {
                 name,
                 "MWA",
                 "GROUND-BASED",
-                "ALT-AZ",
+                // A zenith-pointing aperture array: pyuvdata's "phased" mount,
+                // whose feed angles are measured from north (an ALT-AZ feed
+                // angle is from the parallactic angle).
+                "phased",
                 &vec![position_geoc.x, position_geoc.y, position_geoc.z],
                 4.0,
                 false,
@@ -1646,9 +1731,13 @@ impl MeasurementSetWriter {
                     [c32::new(0., 0.), c32::new(1., 0.)]
                 ],
                 &vec![0., 0., 0.],
-                &vec![0., FRAC_PI_2],
+                &self.pol_convention.feed_angles_rad().to_vec(),
             )?;
         }
+
+        // Record the conventions on non-MWA sets too (`add_mwa_mods` does
+        // it for MWA ones).
+        self.add_conventions()?;
 
         Ok(())
     }
@@ -2066,7 +2155,8 @@ impl VisWrite for MeasurementSetWriter {
             let scan_centroid_mjd_utc_s = avg_centroid_timestamp.to_mjd_utc_seconds();
 
             let (tile_xyzs, hadec): (Cow<[XyzGeodetic]>, HADec) = if self.precess_uvws {
-                let prec_info = precess_time(
+                let prec_info = precess_time_in_frame(
+                    self.uvw_frame,
                     self.array_pos.longitude_rad,
                     self.array_pos.latitude_rad,
                     self.phase_centre,
@@ -2086,6 +2176,12 @@ impl VisWrite for MeasurementSetWriter {
                 let hadec = self.phase_centre.to_hadec(lmst);
                 (self.antenna_positions.as_slice().into(), hadec)
             };
+            // `precess_xyz` already gives the frame's baseline sign.
+            let uvw_sign = if self.precess_uvws {
+                1.0
+            } else {
+                self.uvw_frame.baseline_sign()
+            };
 
             for ((ant1_idx, ant2_idx), vis_chunk, weight_chunk) in izip!(
                 vis_ctx.sel_baselines.iter(),
@@ -2093,7 +2189,7 @@ impl VisWrite for MeasurementSetWriter {
                 weight_chunk.axis_iter(Axis(2)),
             ) {
                 let baseline_xyzs = tile_xyzs[*ant1_idx] - tile_xyzs[*ant2_idx];
-                let uvw = UVW::from_xyz(baseline_xyzs, hadec);
+                let uvw = UVW::from_xyz(baseline_xyzs, hadec) * uvw_sign;
 
                 let row = batch.push_row(
                     scan_centroid_mjd_utc_s,
@@ -2171,7 +2267,7 @@ mod tests {
 
     use super::*;
 
-    use approx::abs_diff_eq;
+    use approx::{abs_diff_eq, assert_abs_diff_eq};
     use hifitime::Epoch;
     use itertools::izip;
     use lexical::parse;
@@ -2191,6 +2287,7 @@ mod tests {
                 c32,
                 constants::{
                     COTTER_MWA_HEIGHT_METRES, COTTER_MWA_LATITUDE_RADIANS, COTTER_MWA_LONGITUDE_RADIANS,
+                    MWA_HEIGHT_M,
                 },
                 ndarray::array,
             };
@@ -2613,7 +2710,7 @@ mod tests {
                     "TYPE",
                     "DISH_DIAMETER",
                     "FLAG_ROW",
-                    "MOUNT",
+                    // MOUNT is not compared: cotter records ALT-AZ, Marlu "phased".
                     "NAME",
                     "STATION",
                 ],
@@ -2629,7 +2726,9 @@ mod tests {
                     "BEAM_OFFSET",
                     "POLARIZATION_TYPE",
                     "POL_RESPONSE",
-                    "RECEPTOR_ANGLE",
+                    // RECEPTOR_ANGLE is not compared: cotter records IAU feed angles
+                    // ([0, pi/2]) for MWA data, Marlu records X east-west ([pi/2, 0]);
+                    // see test_write_vis_conventions.
                     "ANTENNA_ID",
                     "BEAM_ID",
                     "FEED_ID",
@@ -2743,6 +2842,25 @@ mod tests {
             }
             if !table_name.is_empty() {
                 assert!(main_table_keywords.contains(&table_name.into()));
+            }
+        }
+    }
+
+    /// `cotter` took metafits heights, which are altitudes, as heights above
+    /// the array centre, so its tiles are [`MWA_HEIGHT_M`] too high (along the
+    /// array centre's vertical). Check that the `ANTENNA` table's positions
+    /// are `cotter`'s, lowered by that much.
+    #[cfg(feature = "mwalib")]
+    fn assert_positions_are_cotters_lowered(table: &mut Table, exp_table: &mut Table) {
+        assert_eq!(table.n_rows(), exp_table.n_rows());
+        let (s_lat, c_lat) = COTTER_MWA_LATITUDE_RADIANS.sin_cos();
+        let (s_long, c_long) = COTTER_MWA_LONGITUDE_RADIANS.sin_cos();
+        let up = [c_lat * c_long, c_lat * s_long, s_lat];
+        for row in 0..table.n_rows() {
+            let ours: Vec<f64> = table.get_cell_as_vec("POSITION", row).unwrap();
+            let cotter: Vec<f64> = exp_table.get_cell_as_vec("POSITION", row).unwrap();
+            for i in 0..3 {
+                assert_abs_diff_eq!(ours[i], cotter[i] - MWA_HEIGHT_M * up[i], epsilon = 1e-6);
             }
         }
     }
@@ -4659,7 +4777,7 @@ mod tests {
                     "TYPE",
                     "DISH_DIAMETER",
                     "FLAG_ROW",
-                    "MOUNT",
+                    // MOUNT is not compared: cotter records ALT-AZ, Marlu "phased".
                     "NAME",
                     "STATION",
                     "MWA_INPUT",
@@ -4681,7 +4799,9 @@ mod tests {
                     "BEAM_OFFSET",
                     "POLARIZATION_TYPE",
                     "POL_RESPONSE",
-                    "RECEPTOR_ANGLE",
+                    // RECEPTOR_ANGLE is not compared: cotter records IAU feed angles
+                    // ([0, pi/2]) for MWA data, Marlu records X east-west ([pi/2, 0]);
+                    // see test_write_vis_conventions.
                     "ANTENNA_ID",
                     "BEAM_ID",
                     "FEED_ID",
@@ -4827,6 +4947,10 @@ mod tests {
             } else {
                 assert_table_nrows_match!(table, exp_table);
                 for col_name in col_names {
+                    if table_name == "ANTENNA" && col_name == "POSITION" {
+                        assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                        continue;
+                    }
                     let epsilon = 1e-6;
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, epsilon);
@@ -5033,6 +5157,7 @@ mod tests {
     /// The batched, column-wise path used by `write_vis` must produce exactly
     /// the same MAIN table as the per-row `write_main_row` path.
     #[test]
+    #[allow(clippy::float_cmp, clippy::cognitive_complexity)]
     fn test_main_table_batch_matches_write_main_row() {
         let temp_dir = tempdir().unwrap();
         let per_row_path = temp_dir.path().join("per_row.ms");
@@ -5075,7 +5200,7 @@ mod tests {
                 });
                 // flag a few cells, and completely flag every 4th row
                 let flags = Array2::from_shape_fn((num_chans, num_pols), |(c, p)| {
-                    r % 4 == 3 || (r + c * p) % 5 == 0
+                    r % 4 == 3 || (r + c * p).is_multiple_of(5)
                 });
                 let flag_row = flags.iter().all(|&f| f);
 
@@ -5358,7 +5483,7 @@ mod tests {
                 "TYPE",
                 "DISH_DIAMETER",
                 "FLAG_ROW",
-                "MOUNT",
+                // MOUNT is not compared: cotter records ALT-AZ, Marlu "phased".
                 "NAME",
                 "STATION",
             ],
@@ -5374,7 +5499,9 @@ mod tests {
                 "BEAM_OFFSET",
                 "POLARIZATION_TYPE",
                 "POL_RESPONSE",
-                "RECEPTOR_ANGLE",
+                // RECEPTOR_ANGLE is not compared: cotter records IAU feed angles
+                // ([0, pi/2]) for MWA data, Marlu records X east-west ([pi/2, 0]);
+                // see test_write_vis_conventions.
                 "ANTENNA_ID",
                 "BEAM_ID",
                 "FEED_ID",
@@ -5482,6 +5609,149 @@ mod tests {
         ),
     ];
 
+    /// The conventions are recorded natively (FEED receptor angles, UVW
+    /// MEASINFO) and in the marlu_* keywords, and the casacore frame negates
+    /// the written UVWs relative to the hyperdrive frame.
+    #[cfg(feature = "mwalib")]
+    #[test]
+    #[serial]
+    fn test_write_vis_conventions() {
+        use crate::convention::{PolConvention, UvwFrame};
+
+        let temp_dir = tempdir().unwrap();
+        let array_pos = LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        };
+        let corr_ctx = get_mwa_avg_context();
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
+        let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
+        let antenna_positions: Vec<XyzGeodetic> = ANT_POSITIONS
+            .iter()
+            .map(|floats| {
+                XyzGeocentric {
+                    x: floats[0],
+                    y: floats[1],
+                    z: floats[2],
+                }
+                .to_geodetic_inner(geocentric_vector, s_long, c_long)
+            })
+            .collect();
+        let vis_sel = VisSelection {
+            timestep_range: 0..2,
+            baseline_idxs: vec![1],
+            ..VisSelection::from_mwalib(&corr_ctx).unwrap()
+        };
+        let (avg_time, avg_freq) = (1, 1);
+        let (jones_array, weight_array, flag_array, _, _, _) = get_test_data(
+            "tests/data/1254670392_avg/1254670392.cotter.none.trunc.ms.csv",
+            2,
+            768,
+            1,
+        );
+        let vis_ctx = VisContext::from_mwalib(
+            &corr_ctx,
+            &vis_sel.timestep_range,
+            &vis_sel.coarse_chan_range,
+            &vis_sel.baseline_idxs,
+            avg_time,
+            avg_freq,
+        );
+        let weight_array = weight_array.map_axis(Axis(3), |weights| weights[0]);
+        let flag_array = flag_array.map_axis(Axis(3), |flags| flags[0]);
+        let weight_array = encode_flags(weight_array.view(), flag_array.view());
+
+        let mut uvws = vec![];
+        for (name, pol, frame, units) in [
+            (
+                "mwa.ms",
+                PolConvention::MWA,
+                UvwFrame::Hyperdrive,
+                VisUnits::Uncalib,
+            ),
+            (
+                "casacore.ms",
+                PolConvention::IAU,
+                UvwFrame::Casacore,
+                VisUnits::Jy,
+            ),
+        ] {
+            let table_path = temp_dir.path().join(name);
+            let mut ms_writer = MeasurementSetWriter::new(
+                &table_path,
+                phase_centre,
+                array_pos,
+                antenna_positions.clone(),
+                Duration::default(),
+                true,
+            )
+            .with_conventions(pol, frame)
+            .with_vis_units(units);
+            ms_writer
+                .initialize_from_mwalib(
+                    &corr_ctx,
+                    &vis_sel.timestep_range,
+                    &vis_sel.coarse_chan_range,
+                    &vis_sel.baseline_idxs,
+                    avg_time,
+                    avg_freq,
+                    Some(&COTTER_HISTORY),
+                )
+                .unwrap();
+            ms_writer
+                .write_vis(jones_array.view(), weight_array.view(), &vis_ctx)
+                .unwrap();
+
+            let mut main_table = Table::open(&table_path, TableOpenMode::Read).unwrap();
+            let mut keywords = main_table.get_keyword_record().unwrap();
+            // The Stokes convention is only recorded with calibrated units:
+            // pyuvdata refuses `pyuvdata_polconv` on uncalibrated visibilities.
+            let stokes: Option<String> = keywords.get_field("pyuvdata_polconv").ok();
+            let data_units: Option<Vec<String>> = main_table
+                .get_column_keyword_record("DATA")
+                .unwrap()
+                .get_field("QuantumUnits")
+                .ok();
+            if units.is_calibrated() {
+                assert_eq!(stokes, Some(pol.stokes.to_string()));
+                assert_eq!(data_units, Some(vec![units.to_string()]));
+            } else {
+                assert_eq!(stokes, None);
+                assert_eq!(data_units, None);
+            }
+            let uvw_frame: String = keywords.get_field("marlu_uvw_frame").unwrap();
+            assert_eq!(uvw_frame, frame.to_string());
+            let mut col_keywords = main_table.get_column_keyword_record("UVW").unwrap();
+            let mut meas_info: TableRecord = col_keywords.get_field("MEASINFO").unwrap();
+            let uvw_ref: String = meas_info.get_field("Ref").unwrap();
+            assert_eq!(uvw_ref, "J2000");
+            let uvw: Vec<f64> = main_table.get_cell_as_vec("UVW", 0).unwrap();
+            uvws.push(uvw);
+
+            let mut feed_table = Table::open(table_path.join("FEED"), TableOpenMode::Read).unwrap();
+            let angles: Vec<f64> = feed_table.get_cell_as_vec("RECEPTOR_ANGLE", 0).unwrap();
+            assert_eq!(angles, pol.feed_angles_rad().to_vec());
+
+            // pyuvdata conjugates on reading unless the baselines are already
+            // antenna2 - antenna1.
+            let flip_conj: bool = keywords.get_field("pyuvdata_flip_conj").unwrap();
+            assert_eq!(flip_conj, frame != UvwFrame::Casacore);
+
+            let mut ant_table =
+                Table::open(table_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
+            let mount: String = ant_table.get_cell("MOUNT", 0).unwrap();
+            assert_eq!(mount, "phased");
+        }
+        // Apart from the baseline sign, the two frames are the same.
+        assert!(uvws[0].iter().any(|u| u.abs() > 1.0), "{:?}", uvws[0]);
+        for i in 0..3 {
+            let diff = (uvws[0][i] + uvws[1][i]).abs();
+            assert!(diff < 1e-6, "{:?} vs {:?}", uvws[0], uvws[1]);
+        }
+    }
+
     #[cfg(feature = "mwalib")]
     #[test]
     #[serial]
@@ -5575,7 +5845,9 @@ mod tests {
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in *col_names {
-                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                if *table_name == "ANTENNA" && *col_name == "POSITION" {
+                    assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                } else if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
@@ -5723,7 +5995,9 @@ mod tests {
             .unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in *col_names {
-                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                if *table_name == "ANTENNA" && *col_name == "POSITION" {
+                    assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                } else if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
@@ -5846,7 +6120,9 @@ mod tests {
                 Table::open(PATH_1254670392.join(table_name), TableOpenMode::Read).unwrap();
             assert_table_nrows_match!(table, exp_table);
             for col_name in *col_names {
-                if ["TIME_CENTROID", "TIME"].contains(col_name) {
+                if *table_name == "ANTENNA" && *col_name == "POSITION" {
+                    assert_positions_are_cotters_lowered(&mut table, &mut exp_table);
+                } else if ["TIME_CENTROID", "TIME"].contains(col_name) {
                     // TODO: document this discrepancy
                     assert_table_columns_match!(table, exp_table, col_name, 5e-6);
                 } else if *col_name == "UVW" {
@@ -5892,7 +6168,7 @@ mod tests {
 
         let obs_ctx = ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            sched_duration: Duration::from_f64(1., Unit::Second),
+            sched_duration: Duration::from_seconds(1.),
             name: None,
             field_name: None,
             project_id: None,
@@ -5968,7 +6244,7 @@ mod tests {
         let mut vis_ctx = VisContext {
             num_sel_timesteps: vis_sel.timestep_range.len(),
             start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            int_time: Duration::from_f64(1., Unit::Second),
+            int_time: Duration::from_seconds(1.),
             num_sel_chans: vis_sel.coarse_chan_range.len() * fine_chans_per_coarse,
             start_freq_hz: 192000000.,
             freq_resolution_hz: 10000.,
@@ -5980,7 +6256,7 @@ mod tests {
 
         let obs_ctx = ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
-            sched_duration: Duration::from_f64(1., Unit::Second),
+            sched_duration: Duration::from_seconds(1.),
             name: None,
             field_name: None,
             project_id: None,

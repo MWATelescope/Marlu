@@ -11,7 +11,6 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "mwalib")] {
         use std::ops::Range;
         use mwalib::{CorrelatorContext, MetafitsContext};
-        use hifitime::Unit::Millisecond;
         use itertools::izip;
         use ndarray::array;
     }
@@ -73,11 +72,7 @@ impl ObsContext {
         let mut ant_positions_enh = Vec::<ENH>::with_capacity(ants.len());
         let mut ant_names = Vec::<String>::with_capacity(ants.len());
         for ant in ants {
-            ant_positions_enh.push(ENH {
-                e: ant.east_m,
-                n: ant.north_m,
-                h: ant.height_m,
-            });
+            ant_positions_enh.push(ENH::from_mwalib_antenna(ant));
             ant_names.push(ant.tile_name.clone());
         }
 
@@ -85,7 +80,7 @@ impl ObsContext {
             sched_start_timestamp: Epoch::from_gpst_seconds(
                 meta_ctx.sched_start_gps_time_ms as f64 / 1e3,
             ),
-            sched_duration: Duration::from_f64(meta_ctx.sched_duration_ms as f64, Millisecond),
+            sched_duration: Duration::from_milliseconds(meta_ctx.sched_duration_ms as f64),
             name: Some(obs_name),
             field_name: Some(field_name),
             project_id: Some(meta_ctx.project_id.clone()),
@@ -273,7 +268,7 @@ impl VisContext {
         );
 
         let int_time =
-            Duration::from_f64(corr_ctx.metafits_context.corr_int_time_ms as _, Millisecond);
+            Duration::from_milliseconds(corr_ctx.metafits_context.corr_int_time_ms as f64);
 
         // Frequency axis
         let num_sel_coarse_chans = coarse_chan_range.len();
@@ -397,8 +392,6 @@ impl VisContext {
 
 #[cfg(test)]
 mod tests {
-    use hifitime::Unit;
-
     use crate::constants::VEL_C;
 
     use super::*;
@@ -407,7 +400,7 @@ mod tests {
     #[allow(clippy::needless_collect)]
     fn vis_ctx_timeseries_length() {
         let start_timestamp = Epoch::from_gpst_seconds(1090008640.);
-        let int_time = Duration::from_f64(1., Unit::Second);
+        let int_time = Duration::from_seconds(1.);
         let mut vis_ctx = VisContext {
             num_sel_timesteps: 1,
             start_timestamp,
