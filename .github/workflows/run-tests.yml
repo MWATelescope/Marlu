@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-15, macos-15-intel]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
@@ -34,7 +34,8 @@ jobs:
         run: |
           # cfitsio comes from the system package manager rather than a source
           # tarball from heasarc.gsfc.nasa.gov, whose downloads have broken
-          # before (TLS certificate errors).
+          # before (TLS certificate errors). Ubuntu 26.04 packages cfitsio 4.6.3
+          # (24.04 has 4.3.1); Homebrew has the latest release.
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             sudo apt-get update
             sudo apt-get install -y libcfitsio-dev pkg-config
