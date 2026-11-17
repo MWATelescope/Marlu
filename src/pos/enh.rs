@@ -31,25 +31,18 @@ impl ENH {
     /// The MWA database (and so the metafits) stores the 128T and hex tiles'
     /// heights as their local "up" plus the array's altitude, but the
     /// long-baseline tiles (`LB*`) as their raw surveyed heights above the
-    /// ellipsoid. The latter differ from "up" by the Earth's curvature (~1 m
-    /// at 3.5 km), so they are converted with
-    /// [`ENH::from_ellipsoidal_height`]. See the MWA wiki page "MWA Tile
-    /// coordinate errors".
+    /// ellipsoid, which differ from "up" by the Earth's curvature (~1 m at
+    /// 3.5 km). mwalib (from 4.0.0) corrects those in `height_m`, from the
+    /// metafits `Height_Code` column (see the MWA wiki page "MWA Tile
+    /// coordinate errors"), so every tile only needs `MWA_HEIGHT_M` taken off.
+    /// [`ENH::from_ellipsoidal_height`] does the same conversion for other
+    /// ellipsoidal heights.
     #[cfg(feature = "mwalib")]
     pub fn from_mwalib_antenna(antenna: &mwalib::Antenna) -> ENH {
-        if antenna.tile_name.starts_with("LB") {
-            ENH::from_ellipsoidal_height(
-                antenna.east_m,
-                antenna.north_m,
-                antenna.height_m,
-                LatLngHeight::mwa(),
-            )
-        } else {
-            ENH {
-                e: antenna.east_m,
-                n: antenna.north_m,
-                h: antenna.height_m - MWA_HEIGHT_M,
-            }
+        ENH {
+            e: antenna.east_m,
+            n: antenna.north_m,
+            h: antenna.height_m - MWA_HEIGHT_M,
         }
     }
 
@@ -216,10 +209,25 @@ mod tests {
             .iter()
             .find(|a| a.tile_name == "LBD7")
             .unwrap();
-        // The metafits has the raw survey height (376.80 m) for this tile; its
-        // local "up" is ~0.97 m lower than that minus the array's height.
+        // The metafits has the raw survey height (376.80 m) for this tile;
+        // mwalib corrects it to the local "up", ~0.97 m lower.
         let enh = ENH::from_mwalib_antenna(lbd7);
         assert_abs_diff_eq!(enh.h, 375.828 - 377.8269, epsilon = 1e-2);
-        assert!(lbd7.height_m - MWA_HEIGHT_M - enh.h > 0.9);
+        assert!(lbd7.height_uncorrected_m - MWA_HEIGHT_M - enh.h > 0.9);
+        // mwalib's correction agrees with ours.
+        let ours = ENH::from_ellipsoidal_height(
+            lbd7.east_m,
+            lbd7.north_m,
+            lbd7.height_uncorrected_m,
+            LatLngHeight::mwa(),
+        );
+        assert_abs_diff_eq!(enh.h, ours.h, epsilon = 1e-3);
+        // Core and hex tiles are unchanged by mwalib.
+        let tile = context
+            .antennas
+            .iter()
+            .find(|a| !a.tile_name.starts_with("LB"))
+            .unwrap();
+        assert_abs_diff_eq!(tile.height_m, tile.height_uncorrected_m);
     }
 }

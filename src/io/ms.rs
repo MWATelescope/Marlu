@@ -1180,7 +1180,7 @@ impl MeasurementSetWriter {
 
     fn get_centre_freq(freqs: &[f64]) -> f64 {
         let len = freqs.len();
-        if len % 2 == 0 {
+        if len.is_multiple_of(2) {
             (freqs[len / 2] + freqs[len / 2 - 1]) * 0.5
         } else {
             freqs[len / 2]
@@ -5067,7 +5067,7 @@ mod tests {
                 });
                 // flag a few cells, and completely flag every 4th row
                 let flags = Array2::from_shape_fn((num_chans, num_pols), |(c, p)| {
-                    r % 4 == 3 || (r + c * p) % 5 == 0
+                    r % 4 == 3 || (r + c * p).is_multiple_of(5)
                 });
                 let flag_row = flags.iter().all(|&f| f);
 
