@@ -97,7 +97,3 @@ harness = false
 [[bench]]
 name = "bench_io"
 harness = false
-
-[patch.crates-io]
-# mwalib 4.0.0 is not on crates.io yet; replace with the release once it is.
-mwalib = { git = "https://github.com/MWATelescope/mwalib", branch = "tile_heights" }

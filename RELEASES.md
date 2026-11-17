@@ -1,5 +1,5 @@
 <!-- markdownlint-disable=MD025 -->
-# Version 0.20.0 (2026-11-16)
+# Version 0.20.0 (2026-11-17)
 
 - dependencies:
   - MSRV updated to 1.88.0
@@ -17,6 +17,7 @@
 - Tile heights from a metafits file are now taken relative to the array centre. Metafits heights are altitudes (about 368-377 m for the MWA), but `XyzGeodetic::get_tiles` and `ObsContext::from_mwalib` used them as heights above the array centre, so the array's height was counted twice: every tile in a written Measurement Set's `ANTENNA` table (and a uvfits `AIPS AN` table) was about 378 m too high, as in cotter's files. Baselines computed from these positions (e.g. by DP3 or casacore) were out by up to 6 cm per km, and an array position averaged from them was 378 m too high. The new `ENH::from_mwalib_antenna` takes `MWA_HEIGHT_M` off the metafits height. With mwalib 4, whose `height_m` is already corrected for the Earth's curvature for tiles with ellipsoidal metafits heights (the long-baseline tiles), this gives every tile's local up. UVWs Marlu computes are unchanged, since a common height offset cancels in baselines.
 - Long-baseline (`LB*`) tile heights now include the Earth's curvature. The MWA database stores the 128T and hex tiles' heights as their local "up" plus the array's altitude, but the long-baseline tiles' as their raw surveyed heights above the ellipsoid, so these tiles were too high (relative to the array centre's tangent plane) by about (e² + n²) / 2R: 0.08 m at 1 km, 0.97 m for LBD7 at 3.5 km. Unlike the common offset above, this does not cancel in baselines, so UVWs of baselines with long-baseline tiles change. mwalib 4.0.0 makes this correction itself (`Antenna::height_m`; the metafits value is `height_uncorrected_m`), so `ENH::from_mwalib_antenna` does not repeat it. The new `ENH::from_ellipsoidal_height` does the same conversion for other ellipsoidal heights; it agrees with mwalib 4's correction to 1 mm and with the MWA wiki's survey reprocessing to 2 mm.
 - The uvfits `AIPS AN` table's `IATUTC` is now IAT - UTC (the number of leap seconds) on `RDATE`, from hifitime's leap second table, rather than a hard-coded 33 (as cotter writes; correct only from 2006 to 2008). It is 37 for every observation since 2017. Fixes [#29](https://github.com/MWATelescope/Marlu/issues/29).
+- The Measurement Set writer no longer creates every MAIN-table row in `initialize`; each `write_vis` batch adds the rows it fills. casacore zero-filled the untouched rows when `initialize` closed the table, so every MS was written to disk twice (once as zeros). The MAIN table now has 0 rows until the first `write_vis`, and an MS written with fewer rows than planned has no trailing all-zero rows.
 - Fixed many clippy lints.
 
 # Version 0.19.0 (2026-10-15)
