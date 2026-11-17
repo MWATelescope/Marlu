@@ -1,12 +1,10 @@
 # Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
 
+# Runs only on demand. This job needs a self-hosted runner, and with none
+# online every push and PR run sat queued for 24 hours, was cancelled, and
+# turned the PR's checks red.
 on:
-  push:
-    tags-ignore:
-      - "**"
-    branches:
-      - "**"
-  pull_request:
+  workflow_dispatch:
 
 name: Benchmarks
 
