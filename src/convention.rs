@@ -360,10 +360,12 @@ pub enum UvwFrame {
     /// array is precessed and nutated to J2000 and rotated with the apparent
     /// sidereal time, the annual aberration of the phase centre is taken out
     /// as in the casacore frame, and a baseline is antenna 1 minus antenna 2.
-    /// This is also the `AIPS` uvfits convention. (`cotter` and Marlu before
-    /// 0.20 used the mean sidereal time and projected onto the aberrated
-    /// phase centre.)
+    /// This is also the `AIPS` uvfits convention, and the frame of the
+    /// Measurement Sets `CASA` itself writes (`importevla`, `importuvfits`),
+    /// hence the `casa` alias. (`cotter` and Marlu before 0.20 used the mean
+    /// sidereal time and projected onto the aberrated phase centre.)
     #[default]
+    #[cfg_attr(feature = "serde", serde(alias = "casa"))]
     Hyperdrive,
 
     /// The frame of the UVWs casacore computes (`derivedmscal`'s
@@ -381,7 +383,6 @@ pub enum UvwFrame {
         feature = "serde",
         serde(
             alias = "lofar",
-            alias = "casa",
             alias = "wsclean",
             alias = "askap",
             alias = "uvh5",
@@ -407,7 +408,7 @@ pub enum UvwFrame {
 
 impl UvwFrame {
     /// The names [`UvwFrame::from_str`] accepts (case-insensitive).
-    pub const NAMES: &'static str = "hyperdrive (aliases: marlu, mwa, aips), casacore (aliases: lofar, casa, wsclean, askap, uvh5, pyuvdata), oskar, cotter";
+    pub const NAMES: &'static str = "hyperdrive (aliases: marlu, mwa, aips, casa), casacore (aliases: lofar, wsclean, askap, uvh5, pyuvdata), oskar, cotter";
 
     /// Sign of a baseline vector in this frame relative to Marlu's
     /// (antenna 1 minus antenna 2) convention.
@@ -445,8 +446,8 @@ impl FromStr for UvwFrame {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_str() {
-            "hyperdrive" | "marlu" | "mwa" | "aips" => Ok(UvwFrame::Hyperdrive),
-            "casacore" | "lofar" | "casa" | "wsclean" | "askap" | "uvh5" | "pyuvdata" => {
+            "hyperdrive" | "marlu" | "mwa" | "aips" | "casa" => Ok(UvwFrame::Hyperdrive),
+            "casacore" | "lofar" | "wsclean" | "askap" | "uvh5" | "pyuvdata" => {
                 Ok(UvwFrame::Casacore)
             }
             "oskar" => Ok(UvwFrame::Oskar),
@@ -480,15 +481,20 @@ pub enum Convention {
     /// `MWA` polarisations in the hyperdrive frame.
     #[default]
     Mwa,
-    /// `IAU` polarisations in the hyperdrive frame.
+    /// `IAU` polarisations in the hyperdrive frame (antenna 1 minus antenna 2
+    /// baselines): Measurement Sets `CASA` itself writes (`importevla`,
+    /// `importuvfits`), hence the `casa` alias.
+    #[cfg_attr(feature = "serde", serde(alias = "casa"))]
     Iau,
     /// `IAU` polarisations in the casacore frame: `DP3` and `LOFAR` data.
     Lofar,
-    /// `IAU` polarisations in the casacore frame: Measurement Sets made or
-    /// read by casacore, `CASA` and `WSClean`, and UVH5 files.
+    /// `IAU` polarisations in the casacore frame (antenna 2 minus antenna 1
+    /// baselines, as casacore's UVW calculators compute them): `WSClean`, and
+    /// UVH5 files. `CASA`'s own writers use the other sign: see
+    /// [`Convention::Iau`].
     #[cfg_attr(
         feature = "serde",
-        serde(alias = "casa", alias = "wsclean", alias = "uvh5", alias = "pyuvdata")
+        serde(alias = "wsclean", alias = "uvh5", alias = "pyuvdata")
     )]
     Casacore,
     /// `ASKAP` polarisations (I = XX + YY) in the casacore frame: `ASKAPsoft`.
@@ -503,7 +509,7 @@ pub enum Convention {
 
 impl Convention {
     /// The names [`Convention::from_str`] accepts (case-insensitive).
-    pub const NAMES: &'static str = "mwa, iau, lofar, casacore (aliases: casa, wsclean, uvh5, pyuvdata), askap (alias: askapsoft), oskar";
+    pub const NAMES: &'static str = "mwa, iau (alias: casa), lofar, casacore (aliases: wsclean, uvh5, pyuvdata), askap (alias: askapsoft), oskar";
 
     pub fn pol_convention(self) -> PolConvention {
         match self {
@@ -528,9 +534,9 @@ impl FromStr for Convention {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_str() {
             "mwa" => Ok(Convention::Mwa),
-            "iau" => Ok(Convention::Iau),
+            "iau" | "casa" => Ok(Convention::Iau),
             "lofar" => Ok(Convention::Lofar),
-            "casacore" | "casa" | "wsclean" | "uvh5" | "pyuvdata" => Ok(Convention::Casacore),
+            "casacore" | "wsclean" | "uvh5" | "pyuvdata" => Ok(Convention::Casacore),
             "askap" | "askapsoft" => Ok(Convention::Askap),
             "oskar" => Ok(Convention::Oskar),
             _ => Err(UnknownConvention {
@@ -694,6 +700,9 @@ mod tests {
         assert_eq!("lofar".parse::<UvwFrame>().unwrap(), UvwFrame::Casacore);
         assert_eq!("uvh5".parse::<UvwFrame>().unwrap(), UvwFrame::Casacore);
         assert_eq!("marlu".parse::<UvwFrame>().unwrap(), UvwFrame::Hyperdrive);
+        // CASA's own Measurement Sets have antenna 1 minus antenna 2 baselines.
+        assert_eq!("casa".parse::<UvwFrame>().unwrap(), UvwFrame::Hyperdrive);
+        assert_eq!("casa".parse::<Convention>().unwrap(), Convention::Iau);
         assert_eq!(
             "wsclean".parse::<Convention>().unwrap(),
             Convention::Casacore
@@ -747,7 +756,9 @@ mod tests {
         let f: UvwFrame = serde_json::from_str("\"askap\"").unwrap();
         assert_eq!(f, UvwFrame::Casacore);
         let c: Convention = serde_json::from_str("\"casa\"").unwrap();
-        assert_eq!(c, Convention::Casacore);
+        assert_eq!(c, Convention::Iau);
+        let f: UvwFrame = serde_json::from_str("\"casa\"").unwrap();
+        assert_eq!(f, UvwFrame::Hyperdrive);
         assert_eq!(
             serde_json::to_string(&UvwFrame::Casacore).unwrap(),
             "\"casacore\""
