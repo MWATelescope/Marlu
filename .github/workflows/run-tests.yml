@@ -32,14 +32,23 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # cfitsio comes from the system package manager rather than a source
-          # tarball from heasarc.gsfc.nasa.gov, whose downloads have broken
-          # before (TLS certificate errors).
+          # The automake included with MacOS is seemingly old. Updating it fixes
+          # some issues.
+          if [[ "$OSTYPE" != "linux-gnu"* ]]; then
+            brew install automake pkg-config
+          fi
+
+          curl "https://codeload.github.com/HEASARC/cfitsio/tar.gz/refs/tags/cfitsio-4.6.3" -o cfitsio.tar.gz
+          tar -xf cfitsio.tar.gz
+          rm cfitsio.tar.gz
+          cd cfitsio-*
+          ./configure --prefix=/usr/local --enable-reentrant --disable-curl
+          make -j
+          sudo make install
+          cd ..
+
           if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-            sudo apt-get update
-            sudo apt-get install -y libcfitsio-dev pkg-config
-          else
-            brew install cfitsio pkg-config
+            sudo ldconfig
           fi
 
       - name: Minimum-specified Rust version works
