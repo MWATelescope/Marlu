@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Unreleased
+
+- When every visibility being averaged into one output sample is flagged, the uvfits and measurement set writers (`average_chunk_f64!`) now average them by the magnitudes of their weights instead of equally. Visibilities with zero weight (no data, such as a timestep missing from the raw files) no longer dilute the others, which halved the amplitude of such samples (MWATelescope/Birli#162). The sample is still flagged with zero weight, and nothing changes when the flagged weights are equal
+
 # Version 0.20.0 (2026-11-17)
 
 - dependencies:

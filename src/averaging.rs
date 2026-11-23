@@ -114,7 +114,16 @@ macro_rules! average_chunk_for_pols_f64 {
 /// compute the weighted geometric average of unflagged visibilities for each time, and frequency
 /// in the chunks. Only weights are required, instead of flags
 ///
-/// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
+/// A negative weight means the visibility is flagged, and its magnitude is
+/// the weight the visibility would have if it were not. A weight of zero
+/// (either sign) means there is no data at all, for example a timestep that
+/// is missing from the raw files and was filled with zeros.
+///
+/// If all visibilities in the chunk are flagged, the result is flagged, has
+/// zero weight, and is the average of the flagged visibilities weighted by
+/// the magnitudes of their weights. Visibilities with zero weight therefore
+/// don't dilute the others (Birli issue #162). If every weight is zero, the
+/// result is the plain average.
 ///
 /// dimensions:
 /// - `jones_chunk` -> [at, af][pol] (each element is a complex vis array of length pol)
@@ -145,6 +154,10 @@ macro_rules! average_chunk_f64 {
         let mut weight_sum_f64 = 0_f64;
         let mut jones_sum = Jones::<f64>::default();
         let mut jones_weighted_sum = Jones::<f64>::default();
+        // for the flagged samples: the sum of the weights' magnitudes, and
+        // the visibilities weighted by them.
+        let mut flagged_weight_sum_f64 = 0_f64;
+        let mut jones_flagged_sum = Jones::<f64>::default();
         $avg_flag = true;
 
         // TODO: I think this can be done with lanes!
@@ -155,17 +168,22 @@ macro_rules! average_chunk_f64 {
             for (jones, weight) in izip!(jones_chunk.iter(), weights_chunk.iter()) {
                 let jones_c64 = Jones::<f64>::from(*jones);
                 jones_sum += jones_c64;
+                let weight_abs_f64 = (*weight as f64).abs();
                 if *weight >= 0. && weight.abs() > 0. {
-                    let weight_abs_f64 = (*weight as f64).abs();
                     weight_sum_f64 += weight_abs_f64;
                     $avg_flag = false;
                     jones_weighted_sum += jones_c64 * weight_abs_f64;
+                } else if weight_abs_f64 > 0. && weight_abs_f64.is_finite() {
+                    flagged_weight_sum_f64 += weight_abs_f64;
+                    jones_flagged_sum += jones_c64 * weight_abs_f64;
                 }
             }
         }
         // re-use jones_weighted_sum to store the averaging result
         if !$avg_flag {
             jones_weighted_sum /= weight_sum_f64;
+        } else if flagged_weight_sum_f64 > 0. {
+            jones_weighted_sum = jones_flagged_sum / flagged_weight_sum_f64;
         } else {
             jones_weighted_sum = jones_sum / chunk_size_f64;
         }
@@ -474,4 +492,75 @@ mod tess {
     }
 
     // TODO: test unflagged with zero weight.
+
+    /// Average a [time, freq] chunk with [`average_chunk_f64`].
+    fn average_chunk(vis: &Array2<Jones<f32>>, weights: &Array2<f32>) -> (Jones<f32>, f32, bool) {
+        use crate::Complex;
+        use itertools::izip;
+        let mut avg_jones = Jones::<f32>::default();
+        let avg_weight: f32;
+        let mut avg_flag: bool;
+        average_chunk_f64!(vis, weights, avg_jones, avg_weight, avg_flag);
+        (avg_jones, avg_weight, avg_flag)
+    }
+
+    /// Unflagged visibilities are averaged by weight, and flagged ones are
+    /// left out.
+    #[test]
+    fn test_average_chunk_ignores_flagged() {
+        let id = Jones::<f32>::identity();
+        let vis = array![[id * 2., id * 4.], [id * 100., id * 6.]];
+        let weights = array![[1., 3.], [-8., 0.]];
+        let (avg_jones, avg_weight, avg_flag) = average_chunk(&vis, &weights);
+        assert_abs_diff_eq!(avg_jones, id * 3.5);
+        assert_abs_diff_eq!(avg_weight, 4.);
+        assert!(!avg_flag);
+    }
+
+    /// birli issue 162 <https://github.com/MWATelescope/Birli/issues/162>:
+    /// a flagged visibility averaged with a missing one (zeros, with no
+    /// weight) keeps its amplitude.
+    #[test]
+    fn test_average_chunk_all_flagged_skips_zero_weight() {
+        let id = Jones::<f32>::identity();
+        let vis = array![[id * 42.], [id * 0.]];
+        for missing_weight in [0., -0.] {
+            let weights = array![[-8.], [missing_weight]];
+            let (avg_jones, avg_weight, avg_flag) = average_chunk(&vis, &weights);
+            assert_abs_diff_eq!(avg_jones, id * 42.);
+            assert_abs_diff_eq!(avg_weight, 0.);
+            assert!(avg_flag);
+        }
+    }
+
+    /// When every visibility is flagged, they are averaged by the weights
+    /// they would have had. Equal weights give the plain average, as before.
+    #[test]
+    fn test_average_chunk_all_flagged_weighted() {
+        let id = Jones::<f32>::identity();
+        let vis = array![[id * 2., id * 6.]];
+        let (avg_jones, avg_weight, avg_flag) = average_chunk(&vis, &array![[-8., -8.]]);
+        assert_abs_diff_eq!(avg_jones, id * 4.);
+        assert_abs_diff_eq!(avg_weight, 0.);
+        assert!(avg_flag);
+
+        let (avg_jones, ..) = average_chunk(&vis, &array![[-1., -3.]]);
+        assert_abs_diff_eq!(avg_jones, id * 5.);
+
+        // a weight that is not a number is not a weight
+        let (avg_jones, _, avg_flag) = average_chunk(&vis, &array![[-1., f32::NAN]]);
+        assert_abs_diff_eq!(avg_jones, id * 2.);
+        assert!(avg_flag);
+    }
+
+    /// With no weights at all, the result is the plain average.
+    #[test]
+    fn test_average_chunk_all_zero_weight() {
+        let id = Jones::<f32>::identity();
+        let vis = array![[id * 2., id * 6.]];
+        let (avg_jones, avg_weight, avg_flag) = average_chunk(&vis, &array![[0., 0.]]);
+        assert_abs_diff_eq!(avg_jones, id * 4.);
+        assert_abs_diff_eq!(avg_weight, 0.);
+        assert!(avg_flag);
+    }
 }
