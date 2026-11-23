@@ -143,57 +143,65 @@ macro_rules! average_chunk_f64 {
         $avg_weight:expr,
         $avg_flag:expr
     ) => {
-        let chunk_size_f64 = $jones_chunk.len() as f64;
-
-        assert_eq!(
-            $jones_chunk.shape(),
-            $weights_chunk.shape(),
-            "jones and weight arrays must have the same shape"
-        );
-
-        let mut weight_sum_f64 = 0_f64;
-        let mut jones_sum = Jones::<f64>::default();
-        let mut jones_weighted_sum = Jones::<f64>::default();
-        // for the flagged samples: the sum of the weights' magnitudes, and
-        // the visibilities weighted by them.
-        let mut flagged_weight_sum_f64 = 0_f64;
-        let mut jones_flagged_sum = Jones::<f64>::default();
-        $avg_flag = true;
-
-        // TODO: I think this can be done with lanes!
-        for (jones_chunk, weights_chunk) in izip!(
-            $jones_chunk.axis_iter(Axis(0)),
-            $weights_chunk.axis_iter(Axis(0)),
-        ) {
-            for (jones, weight) in izip!(jones_chunk.iter(), weights_chunk.iter()) {
-                let jones_c64 = Jones::<f64>::from(*jones);
-                jones_sum += jones_c64;
-                let weight_abs_f64 = (*weight as f64).abs();
-                if *weight >= 0. && weight.abs() > 0. {
-                    weight_sum_f64 += weight_abs_f64;
-                    $avg_flag = false;
-                    jones_weighted_sum += jones_c64 * weight_abs_f64;
-                } else if weight_abs_f64 > 0. && weight_abs_f64.is_finite() {
-                    flagged_weight_sum_f64 += weight_abs_f64;
-                    jones_flagged_sum += jones_c64 * weight_abs_f64;
-                }
-            }
+        let (avg_jones, avg_weight, avg_flag) =
+            $crate::averaging::average_chunk($jones_chunk.view(), $weights_chunk.view());
+        for (from, to) in avg_jones.iter().zip($avg_jones.iter_mut()) {
+            *to = *from;
         }
-        // re-use jones_weighted_sum to store the averaging result
-        if !$avg_flag {
-            jones_weighted_sum /= weight_sum_f64;
-        } else if flagged_weight_sum_f64 > 0. {
-            jones_weighted_sum = jones_flagged_sum / flagged_weight_sum_f64;
-        } else {
-            jones_weighted_sum = jones_sum / chunk_size_f64;
-        }
-
-        for (r, j) in izip!(jones_weighted_sum.iter(), $avg_jones.iter_mut()) {
-            *j = Complex::<f32>::new(r.re as f32, r.im as f32)
-        }
-
-        $avg_weight = weight_sum_f64 as f32;
+        $avg_weight = avg_weight;
+        $avg_flag = avg_flag;
+        // not every caller reads the flag
+        let _ = $avg_flag;
     };
+}
+
+/// The function behind [`average_chunk_f64`]: the average visibility, summed
+/// weight and flag of a `[time, freq]` chunk of visibilities and weights.
+///
+/// # Panics
+///
+/// Panics if the two arrays have different shapes.
+pub fn average_chunk(
+    jones_chunk: ArrayView2<Jones<f32>>,
+    weights_chunk: ArrayView2<f32>,
+) -> (Jones<f32>, f32, bool) {
+    assert_eq!(
+        jones_chunk.shape(),
+        weights_chunk.shape(),
+        "jones and weight arrays must have the same shape"
+    );
+
+    let mut weight_sum = 0_f64;
+    let mut jones_sum = Jones::<f64>::default();
+    let mut jones_weighted_sum = Jones::<f64>::default();
+    // for the flagged samples: the sum of the weights' magnitudes, and
+    // the visibilities weighted by them.
+    let mut flagged_weight_sum = 0_f64;
+    let mut jones_flagged_sum = Jones::<f64>::default();
+
+    for (jones, weight) in izip!(jones_chunk.iter(), weights_chunk.iter()) {
+        let jones_c64 = Jones::<f64>::from(*jones);
+        let weight_abs = (*weight as f64).abs();
+        jones_sum += jones_c64;
+        if *weight >= 0. && weight_abs > 0. {
+            weight_sum += weight_abs;
+            jones_weighted_sum += jones_c64 * weight_abs;
+        } else if weight_abs > 0. && weight_abs.is_finite() {
+            flagged_weight_sum += weight_abs;
+            jones_flagged_sum += jones_c64 * weight_abs;
+        }
+    }
+
+    let avg_flag = weight_sum <= 0.;
+    let avg_jones = if !avg_flag {
+        jones_weighted_sum / weight_sum
+    } else if flagged_weight_sum > 0. {
+        jones_flagged_sum / flagged_weight_sum
+    } else {
+        jones_sum / jones_chunk.len() as f64
+    };
+
+    (Jones::<f32>::from(avg_jones), weight_sum as f32, avg_flag)
 }
 
 pub type VisData344 = (Array3<Jones<f32>>, Array4<f32>, Array4<bool>);
@@ -495,11 +503,9 @@ mod tess {
 
     /// Average a [time, freq] chunk with [`average_chunk_f64`].
     fn average_chunk(vis: &Array2<Jones<f32>>, weights: &Array2<f32>) -> (Jones<f32>, f32, bool) {
-        use crate::Complex;
-        use itertools::izip;
         let mut avg_jones = Jones::<f32>::default();
         let avg_weight: f32;
-        let mut avg_flag: bool;
+        let avg_flag: bool;
         average_chunk_f64!(vis, weights, avg_jones, avg_weight, avg_flag);
         (avg_jones, avg_weight, avg_flag)
     }

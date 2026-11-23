@@ -27,10 +27,11 @@ use crate::{
     convention::{PolConvention, UvwFrame, VisUnits},
     hifitime::{Duration, Epoch, Unit},
     ndarray::{ArrayView3, Axis},
-    num_complex::Complex,
     precession::{get_lmst, precess_time_in_frame},
     HADec, History, Jones, LatLngHeight, RADec, VisContext, XyzGeodetic, UVW,
 };
+#[cfg(test)]
+use num_complex::Complex;
 
 const NUM_FLOATS_PER_POL: usize = 3;
 const GROUP_PARAMS: [&str; 7] = ["UU", "VV", "WW", "BASELINE", "DATE", "DATE", "INTTIM"];
