@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Unreleased
+
+- The uvfits writer records when a file was written, which could not be told from the file itself once filesystem metadata was lost (e.g. after an upload to object storage): `DATE` (the FITS standard's HDU creation time, UTC, `YYYY-MM-DDThh:mm:ss`) and `DATE-MAP` (AIPS 117's date of last processing, `YYYY-MM-DD`) in the primary header. Set the `SOURCE_DATE_EPOCH` environment variable (unix seconds) to fix the time for reproducible output. Fixes [Birli#117](https://github.com/MWATelescope/Birli/issues/117).
+
 # Version 0.20.0 (2026-11-17)
 
 - dependencies:
