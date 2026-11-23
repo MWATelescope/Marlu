@@ -47,15 +47,21 @@ fn get_truncated_date_string(epoch: Epoch) -> String {
 /// <https://reproducible-builds.org/docs/source-date-epoch/>) if it is set, so
 /// that files can be written reproducibly.
 fn creation_epoch() -> Epoch {
-    let unix_s = std::env::var("SOURCE_DATE_EPOCH")
-        .ok()
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0.0, |d| d.as_secs_f64())
-        });
-    Epoch::from_unix_seconds(unix_s)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64());
+    let source_date_epoch = std::env::var("SOURCE_DATE_EPOCH").ok();
+    Epoch::from_unix_seconds(creation_unix_seconds(source_date_epoch.as_deref(), now))
+}
+
+/// The unix time to record as a file's creation time: `source_date_epoch`
+/// (the value of the environment variable, if set) when it is a number,
+/// otherwise `now`.
+fn creation_unix_seconds(source_date_epoch: Option<&str>, now: f64) -> f64 {
+    match source_date_epoch.map(|s| s.trim().parse::<f64>()) {
+        Some(Ok(unix_s)) => unix_s,
+        _ => now,
+    }
 }
 
 /// The `DATE` (FITS standard, "YYYY-MM-DDThh:mm:ss" in UTC) and `DATE-MAP`
@@ -2159,6 +2165,18 @@ mod tests {
             get_creation_date_strings(epoch),
             ("2026-11-23T22:06:10".to_string(), "2026-11-23".to_string())
         );
+    }
+
+    /// `SOURCE_DATE_EPOCH` replaces the current time when it is a number.
+    #[test]
+    fn test_creation_unix_seconds() {
+        assert_abs_diff_eq!(creation_unix_seconds(None, 5.), 5.);
+        assert_abs_diff_eq!(
+            creation_unix_seconds(Some(" 1795471570\n"), 5.),
+            1_795_471_570.
+        );
+        assert_abs_diff_eq!(creation_unix_seconds(Some("yesterday"), 5.), 5.);
+        assert_abs_diff_eq!(creation_unix_seconds(Some(""), 5.), 5.);
     }
 
     /// The primary header says when the file was written.
