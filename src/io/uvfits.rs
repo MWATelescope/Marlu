@@ -431,12 +431,12 @@ impl UvfitsWriter {
         // standard's keyword for when an HDU was created, `DATE-MAP` is AIPS
         // 117's "date of last processing".
         let (date, date_map) = get_creation_date_strings(creation_epoch());
-        fits_write_string(fptr, "DATE", &date, Some("UTC time this file was written"))?;
+        fits_write_string(fptr, "DATE", &date, Some("UTC time file was written"))?;
         fits_write_string(
             fptr,
             "DATE-MAP",
             &date_map,
-            Some("UTC date this file was written"),
+            Some("UTC date file was written"),
         )?;
 
         // Dimensions.
