@@ -42,6 +42,38 @@ fn get_truncated_date_string(epoch: Epoch) -> String {
     format!("{year}-{month:02}-{day:02}T00:00:00.0")
 }
 
+/// The time a file is being written: now, or the unix time in the
+/// `SOURCE_DATE_EPOCH` environment variable (see
+/// <https://reproducible-builds.org/docs/source-date-epoch/>) if it is set, so
+/// that files can be written reproducibly.
+fn creation_epoch() -> Epoch {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64());
+    let source_date_epoch = std::env::var("SOURCE_DATE_EPOCH").ok();
+    Epoch::from_unix_seconds(creation_unix_seconds(source_date_epoch.as_deref(), now))
+}
+
+/// The unix time to record as a file's creation time: `source_date_epoch`
+/// (the value of the environment variable, if set) when it is a number,
+/// otherwise `now`.
+fn creation_unix_seconds(source_date_epoch: Option<&str>, now: f64) -> f64 {
+    match source_date_epoch.map(|s| s.trim().parse::<f64>()) {
+        Some(Ok(unix_s)) => unix_s,
+        _ => now,
+    }
+}
+
+/// The `DATE` (FITS standard, "YYYY-MM-DDThh:mm:ss" in UTC) and `DATE-MAP`
+/// (AIPS 117, "YYYY-MM-DD") strings for a file written at `epoch`.
+fn get_creation_date_strings(epoch: Epoch) -> (String, String) {
+    let (year, month, day, hour, minute, second, _) = epoch.to_gregorian_utc();
+    (
+        format!("{year}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}"),
+        format!("{year}-{month:02}-{day:02}"),
+    )
+}
+
 /// IAT - UTC (a.k.a. TAI - UTC) in seconds, i.e. the accumulated leap
 /// seconds, for the AIPS AN `IATUTC` keyword. AIPS 117 says `IATUTC` applies
 /// at `RDATE`, which we write as `epoch`'s UTC date at midnight, so the value
@@ -407,6 +439,18 @@ impl UvfitsWriter {
             &get_truncated_date_string(start_epoch),
             None,
         )?;
+
+        // When this file was written, which can't otherwise be known once the
+        // file has been copied between filesystems. `DATE` is the FITS
+        // standard's keyword for when an HDU was created, `DATE-MAP` is AIPS
+        // 117's "date of last processing".
+        let (date, date_map) = get_creation_date_strings(creation_epoch());
+        for (key, value, comment) in [
+            ("DATE", &date, "UTC time this file was written"),
+            ("DATE-MAP", &date_map, "UTC date this file was written"),
+        ] {
+            fits_write_string(fptr, key, value, Some(comment))?;
+        }
 
         // The number of timesteps and their length are not uvfits keywords,
         // but without them a reader has to read the DATE (and INTTIM) of
@@ -2132,6 +2176,78 @@ mod tests {
         // UTC is undefined before 1960.
         let epoch = Epoch::from_gregorian_utc(1959, 1, 1, 0, 0, 0, 0);
         assert_abs_diff_eq!(iat_minus_utc_s(epoch), 0.0);
+    }
+
+    #[test]
+    fn test_creation_date_strings() {
+        // 2026-11-23T22:06:10 UTC
+        let epoch = Epoch::from_unix_seconds(1_795_471_570.0);
+        assert_eq!(
+            get_creation_date_strings(epoch),
+            ("2026-11-23T22:06:10".to_string(), "2026-11-23".to_string())
+        );
+    }
+
+    /// `SOURCE_DATE_EPOCH` replaces the current time when it is a number.
+    #[test]
+    fn test_creation_unix_seconds() {
+        assert_abs_diff_eq!(creation_unix_seconds(None, 5.), 5.);
+        assert_abs_diff_eq!(
+            creation_unix_seconds(Some(" 1795471570\n"), 5.),
+            1_795_471_570.
+        );
+        assert_abs_diff_eq!(creation_unix_seconds(Some("yesterday"), 5.), 5.);
+        assert_abs_diff_eq!(creation_unix_seconds(Some(""), 5.), 5.);
+    }
+
+    /// The primary header says when the file was written.
+    #[test]
+    fn test_new_uvfits_has_creation_date() {
+        let tmp_uvfits_file = NamedTempFile::new().unwrap();
+        let before = creation_epoch();
+        let start_epoch = Epoch::from_gpst_seconds(1065880128.0);
+        let mut u = UvfitsWriter::new(
+            tmp_uvfits_file.path(),
+            1,
+            1,
+            2,
+            start_epoch,
+            None,
+            40e3,
+            170e6,
+            3,
+            RADec::from_degrees(0.0, 60.0),
+            Some("test"),
+            LatLngHeight::mwa(),
+            vec!["Tile1".into(), "Tile2".into()],
+            vec![XyzGeodetic::default(); 2],
+            Duration::default(),
+            true,
+            None,
+        )
+        .unwrap();
+        u.write_vis_row(UVW::default(), 0, 1, start_epoch, &[0.0, 1.0])
+            .unwrap();
+        u.finalise().unwrap();
+        let after = creation_epoch();
+
+        let mut fptr = fits_open!(tmp_uvfits_file.path()).unwrap();
+        let hdu = fits_open_hdu!(&mut fptr, 0).unwrap();
+        let date: String = get_required_fits_key!(&mut fptr, &hdu, "DATE").unwrap();
+        let date_map: String = get_required_fits_key!(&mut fptr, &hdu, "DATE-MAP").unwrap();
+        // the file was written between `before` and `after`, which could be
+        // either side of a second or a midnight.
+        let (before_date, before_date_map) = get_creation_date_strings(before);
+        let (after_date, after_date_map) = get_creation_date_strings(after);
+        assert!(before_date <= date && date <= after_date, "{date}");
+        assert!(
+            date_map == before_date_map || date_map == after_date_map,
+            "{date_map}"
+        );
+        assert_eq!(date.len(), "2026-11-23T22:06:10".len());
+        // the observation date is something else entirely.
+        let date_obs: String = get_required_fits_key!(&mut fptr, &hdu, "DATE-OBS").unwrap();
+        assert!(date_obs.starts_with("2013-10-15"), "{date_obs}");
     }
 
     #[test]
