@@ -268,6 +268,14 @@ impl UvfitsWriter {
     /// the time resolution of *all* incoming visibilities. If specified, it is
     /// used as the `INTTIM` group parameter, otherwise no `INTTIM` is written.
     ///
+    /// The primary header also gets two keys that are not part of the uvfits
+    /// standard, so that a reader need not read every row to find them:
+    /// `NSCANS`, the number of timesteps (`num_timesteps`), and, when
+    /// `time_resolution` is given, `INTTIME`, its length in seconds. Every
+    /// timestep has `num_baselines` rows, so timestep `i` (from zero) is rows
+    /// `i * num_baselines` to `(i + 1) * num_baselines`, and its centroid is
+    /// the first row's `DATE` plus `i * INTTIME`.
+    ///
     /// `centre_freq_hz` is center frequency of the center fine channel of the
     /// spectral window being written to this file. \[Hz\]
     ///
@@ -399,6 +407,19 @@ impl UvfitsWriter {
             &get_truncated_date_string(start_epoch),
             None,
         )?;
+
+        // The number of timesteps and their length are not uvfits keywords,
+        // but without them a reader has to read the DATE (and INTTIM) of
+        // every row to learn either. The names are the metafits' (and for
+        // NSCANS, the mwaf's). With the first row's DATE they give every
+        // timestamp of the file.
+        let nscans_comment = Some("number of timesteps in this file");
+        fits_write_int(fptr, "NSCANS", num_timesteps as i64, nscans_comment)?;
+        if let Some(time_resolution) = time_resolution {
+            let inttime_s = time_resolution.to_seconds();
+            let inttime_comment = Some("[s] integration time of each timestep");
+            fits_write_double(fptr, "INTTIME", inttime_s, inttime_comment)?;
+        }
 
         // Dimensions.
         fits_write_string(fptr, "CTYPE2", "COMPLEX", None)?;
@@ -2936,6 +2957,61 @@ mod tests {
             }
             i_inttim += 1;
             i_no_inttim += 1;
+        }
+    }
+
+    /// The primary header says how many timesteps the file has (`NSCANS`) and,
+    /// when the time resolution is known, how long each is (`INTTIME`).
+    /// See: <https://github.com/MWATelescope/Marlu/issues/2>
+    #[test]
+    fn test_new_uvfits_has_nscans_and_inttime() {
+        let num_timesteps = 3;
+        let num_baselines = 3;
+        let num_chans = 2;
+        let start_epoch = Epoch::from_gpst_seconds(1065880128.0);
+        let names: Vec<String> = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions = vec![XyzGeodetic::default(); names.len()];
+
+        for time_resolution in [None, Some(Duration::from_milliseconds(500.))] {
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let mut u = UvfitsWriter::new(
+                tmp_uvfits_file.path(),
+                num_timesteps,
+                num_baselines,
+                num_chans,
+                start_epoch,
+                time_resolution,
+                40e3,
+                170e6,
+                1,
+                RADec::from_degrees(0.0, 60.0),
+                Some("test"),
+                LatLngHeight::mwa(),
+                names.clone(),
+                positions.clone(),
+                Duration::default(),
+                true,
+                None,
+            )
+            .unwrap();
+            for timestep_index in 0..num_timesteps {
+                let epoch = start_epoch + Duration::from_milliseconds(500.) * timestep_index as f64;
+                for (tile1, tile2) in [(0, 1), (0, 2), (1, 2)] {
+                    u.write_vis_row(UVW::default(), tile1, tile2, epoch, &[0.0; 24])
+                        .unwrap();
+                }
+            }
+            u.finalise().unwrap();
+
+            let mut fptr = fits_open!(tmp_uvfits_file.path()).unwrap();
+            let hdu = fits_open_hdu!(&mut fptr, 0).unwrap();
+            let nscans: usize = get_required_fits_key!(&mut fptr, &hdu, "NSCANS").unwrap();
+            assert_eq!(nscans, num_timesteps);
+            // every timestep has the same number of rows
+            let gcount: usize = get_required_fits_key!(&mut fptr, &hdu, "GCOUNT").unwrap();
+            assert_eq!(gcount, nscans * num_baselines);
+            let inttime: Option<f64> = get_optional_fits_key!(&mut fptr, &hdu, "INTTIME").unwrap();
+            assert_eq!(inttime, time_resolution.map(|t| t.to_seconds()));
         }
     }
 

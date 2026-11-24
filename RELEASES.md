@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Unreleased
+
+- uvfits files now say how many timesteps they have: the primary header has `NSCANS` (the number of timesteps, the key metafits and mwaf files use) and, when the writer is given a time resolution, `INTTIME` (the length of each timestep in seconds, the metafits key). Neither is a uvfits standard key; readers that don't know them ignore them. Before, the only way to count the timesteps was to read the `DATE` of every row. Fixes [#2](https://github.com/MWATelescope/Marlu/issues/2).
+
 # Version 0.20.0 (2026-11-17)
 
 - dependencies:
