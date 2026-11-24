@@ -2,6 +2,7 @@
 # Unreleased
 
 - The uvfits writer records when a file was written, which could not be told from the file itself once filesystem metadata was lost (e.g. after an upload to object storage): `DATE` (the FITS standard's HDU creation time, UTC, `YYYY-MM-DDThh:mm:ss`) and `DATE-MAP` (AIPS 117's date of last processing, `YYYY-MM-DD`) in the primary header. Set the `SOURCE_DATE_EPOCH` environment variable (unix seconds) to fix the time for reproducible output. Fixes [Birli#117](https://github.com/MWATelescope/Birli/issues/117).
+- The uvfits `GITLABEL` key no longer gives this crate's version as the label of another program. `GITLABEL` describes the program in `SOFTWARE`, which is the caller's (`History::application`, e.g. Birli or hyperdrive) when one is given, but it was always `v<Marlu's version>`. Now an application sets its own label with the new `UvfitsWriter::with_git_label`; if it doesn't, `GITLABEL` is left out and a `Written with marlu v<version>` comment records this crate's version. With no `History::application`, `SOFTWARE` and `GITLABEL` are this crate's, as before. Fixes [#28](https://github.com/MWATelescope/Marlu/issues/28).
 
 # Version 0.20.0 (2026-11-17)
 
