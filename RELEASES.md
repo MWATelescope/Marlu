@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Unreleased
+
+- The Measurement Set writer can record which antennas are flagged: `MeasurementSetWriter::with_antenna_flags(Vec<bool>)` sets the `FLAG_ROW` column of the `ANTENNA` table, which was always false. From the main table alone a reader cannot tell a baseline flagged because one of its antennas is flagged from one whose every sample happens to be flagged. Nothing changes for callers that don't use it. Fixes [#20](https://github.com/MWATelescope/Marlu/issues/20).
+
 # Version 0.20.0 (2026-11-17)
 
 - dependencies:

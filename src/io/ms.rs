@@ -97,6 +97,11 @@ pub struct MeasurementSetWriter {
     /// in the `marlu_uvw_frame` keyword, the `UVW` column's `MEASINFO` and the
     /// `pyuvdata_flip_conj` keyword.
     uvw_frame: UvwFrame,
+
+    /// Whether each antenna is flagged, in the order of the `ANTENNA` table;
+    /// written to that table's `FLAG_ROW` column. `None` (the default)
+    /// flags no antenna.
+    antenna_flags: Option<Vec<bool>>,
 }
 
 impl MeasurementSetWriter {
@@ -120,6 +125,38 @@ impl MeasurementSetWriter {
             pol_convention: PolConvention::default(),
             uvw_frame: UvwFrame::default(),
             vis_units: VisUnits::default(),
+            antenna_flags: None,
+        }
+    }
+
+    /// Say which antennas are flagged: `antenna_flags[i]` is written to the
+    /// `FLAG_ROW` column of row `i` of the `ANTENNA` table. There must be one
+    /// flag for each antenna in the [`ObsContext`] the Measurement Set is
+    /// initialized with. The default is that no antenna is flagged.
+    ///
+    /// A flagged antenna's visibilities should be flagged in the main table
+    /// too, but from the main table alone a reader cannot tell a baseline
+    /// that is flagged because one of its antennas is from one whose every
+    /// sample happens to be flagged (a flagged timestep, RFI). This column
+    /// says so unambiguously, so a reader can leave the antenna out
+    /// altogether. Call before initializing the Measurement Set.
+    pub fn with_antenna_flags(mut self, antenna_flags: Vec<bool>) -> Self {
+        self.antenna_flags = Some(antenna_flags);
+        self
+    }
+
+    /// Whether each of `num_ants` antennas is flagged: the flags given to
+    /// [`MeasurementSetWriter::with_antenna_flags`], or all unflagged.
+    fn antenna_flag_rows(&self, num_ants: usize) -> Result<Vec<bool>, BadArrayShape> {
+        match &self.antenna_flags {
+            None => Ok(vec![false; num_ants]),
+            Some(flags) if flags.len() == num_ants => Ok(flags.clone()),
+            Some(flags) => Err(BadArrayShape {
+                argument: "antenna_flags",
+                function: "MeasurementSetWriter::with_antenna_flags",
+                expected: format!("one flag for each of the {num_ants} antennas"),
+                received: format!("{} flags", flags.len()),
+            }),
         }
     }
 
@@ -1468,6 +1505,9 @@ impl MeasurementSetWriter {
     ) -> Result<(), MeasurementSetWriteError> {
         trace!("initialize");
 
+        // Check the antenna flags before anything is written.
+        let antenna_flag_rows = self.antenna_flag_rows(obs_ctx.num_ants())?;
+
         // times
         let sched_start_centroid = obs_ctx.sched_start_timestamp + vis_ctx.int_time / 2.;
         let sched_end_centroid = sched_start_centroid + obs_ctx.sched_duration;
@@ -1556,8 +1596,12 @@ impl MeasurementSetWriter {
 
         ant_table.add_rows(obs_ctx.num_ants())?;
 
-        for (idx, (position_geoc, name)) in
-            izip!(obs_ctx.ant_positions_geocentric(), obs_ctx.ant_names.iter()).enumerate()
+        for (idx, (position_geoc, name, flag_row)) in izip!(
+            obs_ctx.ant_positions_geocentric(),
+            obs_ctx.ant_names.iter(),
+            antenna_flag_rows
+        )
+        .enumerate()
         {
             self.write_antenna_row(
                 &mut ant_table,
@@ -1571,7 +1615,7 @@ impl MeasurementSetWriter {
                 "phased",
                 &vec![position_geoc.x, position_geoc.y, position_geoc.z],
                 4.0,
-                false,
+                flag_row,
             )?;
         }
 
@@ -6297,5 +6341,78 @@ mod tests {
             ms_writer.write_vis(jones_array.view(), weight_array.view(), &vis_ctx),
             Err(IOError::MeasurementSetWriteError(MeasurementSetFull { .. }))
         ));
+    }
+
+    /// The `ANTENNA` table's `FLAG_ROW` says which antennas are flagged when
+    /// the writer is told, no antenna is flagged otherwise, and the number
+    /// of flags must match the number of antennas.
+    /// See: <https://github.com/MWATelescope/Marlu/issues/20>
+    #[test]
+    #[serial]
+    fn test_antenna_flags_in_antenna_table() {
+        let temp_dir = tempdir().unwrap();
+
+        let vis_ctx = VisContext {
+            num_sel_timesteps: 1,
+            start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            int_time: Duration::from_seconds(1.),
+            num_sel_chans: 2,
+            start_freq_hz: 192000000.,
+            freq_resolution_hz: 10000.,
+            sel_baselines: vec![(0, 1), (0, 2), (1, 2)],
+            avg_time: 1,
+            avg_freq: 1,
+            num_vis_pols: 4,
+        };
+        let enh = |n: f64| ENH { e: 0., n, h: 0. };
+        let obs_ctx = ObsContext {
+            sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            sched_duration: Duration::from_seconds(1.),
+            name: None,
+            field_name: None,
+            project_id: None,
+            observer: None,
+            phase_centre: RADec::default(),
+            pointing_centre: None,
+            array_pos: LatLngHeight::default(),
+            ant_positions_enh: vec![enh(0.), enh(1.), enh(2.)],
+            ant_names: vec!["ant0".into(), "ant1".into(), "ant2".into()],
+        };
+        let new_writer = |name: &str| {
+            MeasurementSetWriter::new(
+                temp_dir.path().join(name),
+                obs_ctx.phase_centre,
+                obs_ctx.array_pos,
+                obs_ctx.ant_positions_geodetic().collect(),
+                Duration::default(),
+                true,
+            )
+        };
+        let read_flags = |name: &str| -> Vec<bool> {
+            let path = temp_dir.path().join(name).join("ANTENNA");
+            let mut table = Table::open(path, TableOpenMode::Read).unwrap();
+            table.get_col_as_vec("FLAG_ROW").unwrap()
+        };
+
+        // by default no antenna is flagged
+        let ms_writer = new_writer("default.ms");
+        ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
+        assert_eq!(read_flags("default.ms"), vec![false, false, false]);
+
+        // the flags given are the flags written
+        let flags = vec![false, true, false];
+        let ms_writer = new_writer("flagged.ms").with_antenna_flags(flags.clone());
+        ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
+        assert_eq!(read_flags("flagged.ms"), flags);
+
+        // one flag too few: an error, and nothing is written
+        let ms_writer = new_writer("bad.ms").with_antenna_flags(vec![true, false]);
+        let err = ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap_err();
+        assert!(matches!(err, MeasurementSetWriteError::BadArrayShape(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("antenna_flags"), "{msg}");
+        assert!(msg.contains("one flag for each of the 3 antennas"), "{msg}");
+        assert!(msg.contains("received 2 flags"), "{msg}");
+        assert!(!temp_dir.path().join("bad.ms").exists());
     }
 }
