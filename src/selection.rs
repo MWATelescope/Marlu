@@ -18,8 +18,8 @@
 //! For more details, see the [documentation](https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html).
 //!
 //! Note: it doesn't make sense to ask aoflagger to flag non-contiguous timesteps
-//! or coarse channels, and so this interface only allows to ranges to be used.
-//! For flagging an obeservation with "picket fence" coarse channels or timesteps,
+//! or coarse channels, and so this interface only allows ranges to be used.
+//! For flagging an observation with "picket fence" coarse channels or timesteps,
 //! contiguous ranges should be flagged separately.
 //!
 //! [`marlu::mwalib::CorrelatorContext`]: https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html
@@ -85,7 +85,7 @@ pub enum SelectionError {
     #[error("bad array shape supplied to argument {argument} of function {function}. expected {expected}, received {received}")]
     /// Error for bad array shape in provided argument
     BadArrayShape {
-        /// The argument name within the funciton
+        /// The argument name within the function
         argument: String,
         /// The function name
         function: String,
@@ -110,12 +110,12 @@ pub enum SelectionError {
     Mwalib(#[from] mwalib::GpuboxError),
 }
 
-/// Keep track of which mwalib indices the values in a jones array, its' weights and its' flags
+/// Keep track of which mwalib indices the values in a jones array, its weights and its flags
 /// came from. Similar to a `VisContext`, but requires an `mwalib::CorrelatorContext` to be
 /// fully interpreted
 ///
 /// TODO: this definitely needs `fine_chans_per_coarse`
-/// TODO: what about <https://doc.rust-lang.org/std/ops/trait.RangeBounds.html> insetad of Range?
+/// TODO: what about <https://doc.rust-lang.org/std/ops/trait.RangeBounds.html> instead of Range?
 #[derive(Debug, Default, Clone)]
 pub struct VisSelection {
     /// selected range of mwalib timestep indices
@@ -127,7 +127,7 @@ pub struct VisSelection {
 }
 
 impl VisSelection {
-    /// Produce a [`VisSelection`] from a given [`marlu::mwalib::CorrelatorContext`].
+    /// Produce a [`VisSelection`] from a given [`mwalib::CorrelatorContext`].
     ///
     /// - timesteps are selected from the first [common](https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html#structfield.common_timestep_indices) to the last [provided](https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html#structfield.provided_timestep_indices).
     /// - only [common](https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html#structfield.common_coarse_chan_indices) coarse channels are selected

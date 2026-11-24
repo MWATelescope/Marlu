@@ -262,7 +262,7 @@ impl XyzGeocentric {
     /// Get a geocentric coordinate vector with the MWA's location. This
     /// function just calls [`XyzGeocentric::get_geocentric_vector`] with
     /// [`MWA_LONG_RAD`](crate::constants::MWA_LONG_RAD),
-    /// [`MWA_LAT_RAD`](crate::constants::MWA_LAT_RAD) and
+    /// [`MWA_LAT_RAD`] and
     /// [`MWA_HEIGHT_M`](crate::constants::MWA_HEIGHT_M).
     pub fn get_geocentric_vector_mwa() -> XyzGeocentric {
         Self::get_geocentric_vector(LatLngHeight::mwa())

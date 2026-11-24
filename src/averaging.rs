@@ -28,15 +28,15 @@ pub enum AveragingError {
 /// compute the weighted geometric average of unflagged visibilities for each time, frequency and
 /// pol in the chunks.
 ///
-/// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
+/// If all visibilities in the chunk are flagged, then use the geometric average without weights.
 ///
 /// dimensions:
-/// - `jones_chunk` -> [at, af][pol] (each element is a complex vis array of length pol)
-/// - `weight_chunk` -> [at, af, pol]
-/// - `flags_chunk` -> [at, af, pol]
-/// - `avg_jones` -> [pol]
-/// - `avg_weight_view` -> [pol]
-/// - `avg_flag_view` -> [pol]
+/// - `jones_chunk` -> `[at, af][pol]` (each element is a complex vis array of length pol)
+/// - `weight_chunk` -> `[at, af, pol]`
+/// - `flags_chunk` -> `[at, af, pol]`
+/// - `avg_jones` -> `[pol]`
+/// - `avg_weight_view` -> `[pol]`
+/// - `avg_flag_view` -> `[pol]`
 #[macro_export]
 macro_rules! average_chunk_for_pols_f64 {
     (
@@ -114,13 +114,13 @@ macro_rules! average_chunk_for_pols_f64 {
 /// compute the weighted geometric average of unflagged visibilities for each time, and frequency
 /// in the chunks. Only weights are required, instead of flags
 ///
-/// If all visibilities in the chunk are flagged, then use the geometric average withough weights.
+/// If all visibilities in the chunk are flagged, then use the geometric average without weights.
 ///
 /// dimensions:
-/// - `jones_chunk` -> [at, af][pol] (each element is a complex vis array of length pol)
-/// - `weight_chunk` -> [at, af]
-/// - `flag_chunk` -> [at, af]
-/// - `avg_jones` -> [pol]
+/// - `jones_chunk` -> `[at, af][pol]` (each element is a complex vis array of length pol)
+/// - `weight_chunk` -> `[at, af]`
+/// - `flag_chunk` -> `[at, af]`
+/// - `avg_jones` -> `[pol]`
 /// - `avg_weight` -> (scalar)
 /// - `avg_flag` -> (scalar)
 #[macro_export]

@@ -100,7 +100,7 @@ impl From<crate::io::uvfits::FitsioOrCStringError> for UvfitsWriteError {
 pub enum IOError {
     #[error(transparent)]
     #[cfg(feature = "ms")]
-    /// Error derived from [`io::errors::MeasurementSetWriteError`]
+    /// Error derived from [`MeasurementSetWriteError`]
     MeasurementSetWriteError(#[from] MeasurementSetWriteError),
 
     #[cfg(feature = "mwalib")]
@@ -115,7 +115,7 @@ pub enum IOError {
 
     #[error(transparent)]
     #[cfg(feature = "cfitsio")]
-    /// Error derived from [`io::errors::UvfitsWriteError`]
+    /// Error derived from [`UvfitsWriteError`]
     UvfitsWriteError(#[from] UvfitsWriteError),
 
     #[error(transparent)]

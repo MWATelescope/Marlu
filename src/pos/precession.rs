@@ -43,7 +43,7 @@ pub struct PrecessionInfo {
 }
 
 impl PrecessionInfo {
-    // Blatently stolen from cotter.
+    // Blatantly stolen from cotter.
     pub fn precess_xyz(&self, xyzs: &[XyzGeodetic]) -> Vec<XyzGeodetic> {
         let (sep, cep) = self.lmst.sin_cos();
         let (s2000, c2000) = self.lmst_j2000.sin_cos();
@@ -278,7 +278,7 @@ pub fn precess_time_cotter(
     }
 }
 
-// Blatently stolen from cotter.
+// Blatantly stolen from cotter.
 fn aber_radec_rad(eq: f64, mjd: f64, radec: RADec) -> RADec {
     let mut v1 = [0.0; 3];
     let mut v2 = [0.0; 3];
@@ -295,7 +295,7 @@ fn aber_radec_rad(eq: f64, mjd: f64, radec: RADec) -> RADec {
     }
 }
 
-// Blatently stolen from cotter.
+// Blatantly stolen from cotter.
 fn stelaber(eq: f64, mjd: f64, v1: &mut [f64; 3], v2: &mut [f64; 3]) {
     let mut amprms = [0.0; 21];
     let mut v1n = [0.0; 3];
@@ -471,7 +471,7 @@ fn normalise(v: [f64; 3]) -> [f64; 3] {
     [v[0] / n, v[1] / n, v[2] / n]
 }
 
-// Blatently stolen from cotter.
+// Blatantly stolen from cotter.
 fn rotate_radec(rotation_matrix: &mut [[f64; 3]; 3], ra: f64, dec: f64) -> (f64, f64) {
     let mut v1 = [0.0; 3];
     let mut v2 = [0.0; 3];
