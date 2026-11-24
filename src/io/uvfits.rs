@@ -35,6 +35,9 @@ use crate::{
 const NUM_FLOATS_PER_POL: usize = 3;
 const GROUP_PARAMS: [&str; 7] = ["UU", "VV", "WW", "BASELINE", "DATE", "DATE", "INTTIM"];
 
+/// The comment of the `GITLABEL` key of the primary header.
+const GITLABEL_COMMENT: &str = "git label of the program in SOFTWARE";
+
 /// From a `hifitime` [`Epoch`], get a formatted date string with the hours,
 /// minutes and seconds set to 0.
 fn get_truncated_date_string(epoch: Epoch) -> String {
@@ -438,14 +441,11 @@ impl UvfitsWriter {
         // This is apparently required...
         fits_write_history(fptr, "AIPS WTSCAL =  1.0")?;
 
-        // Add in version information
-        let software = match history {
-            Some(History {
-                application: Some(app),
-                ..
-            }) => (*app).to_string(),
-            _ => format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
-        };
+        // Add in version information. `SOFTWARE` is the application named
+        // in the history, or this crate if there is none.
+        let marlu = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        let application = history.and_then(|history| history.application);
+        let software = application.unwrap_or(&marlu);
 
         match history {
             Some(history) => {
@@ -458,13 +458,17 @@ impl UvfitsWriter {
             }
         };
 
-        fits_write_string(fptr, "SOFTWARE", &software, None)?;
-        fits_write_string(
-            fptr,
-            "GITLABEL",
-            &format!("v{}", env!("CARGO_PKG_VERSION")),
-            None,
-        )?;
+        fits_write_string(fptr, "SOFTWARE", software, None)?;
+        // `GITLABEL` is the git label of the program in `SOFTWARE`. This
+        // crate only knows its own version, so when another application is
+        // the writer, the key is left for it to set with `with_git_label`,
+        // and this crate's version goes in a comment instead.
+        if application.is_some() {
+            fits_write_comment(fptr, &format!("Written with {marlu}"))?;
+        } else {
+            let marlu_label = format!("v{}", env!("CARGO_PKG_VERSION"));
+            fits_write_string(fptr, "GITLABEL", &marlu_label, Some(GITLABEL_COMMENT))?;
+        }
 
         let mut writer = UvfitsWriter {
             path: path.to_path_buf(),
@@ -488,6 +492,19 @@ impl UvfitsWriter {
         };
         writer.write_convention_keys()?;
         Ok(writer)
+    }
+
+    /// Set the `GITLABEL` key of the primary header: the git label (e.g. the
+    /// output of `git describe`) or version of the application that is
+    /// writing the file, the one given as [`History::application`] and
+    /// written to the `SOFTWARE` key.
+    ///
+    /// Without this, `GITLABEL` is only written when there is no
+    /// [`History::application`], i.e. when `SOFTWARE` is this crate, and it
+    /// is then this crate's version. Call before writing the antenna table.
+    pub fn with_git_label(self, git_label: &str) -> Result<Self, UvfitsWriteError> {
+        fits_write_string(self.fptr, "GITLABEL", git_label, Some(GITLABEL_COMMENT))?;
+        Ok(self)
     }
 
     /// Set the conventions the visibilities follow. The default is the MWA's
@@ -2936,6 +2953,87 @@ mod tests {
             }
             i_inttim += 1;
             i_no_inttim += 1;
+        }
+    }
+
+    /// `GITLABEL` is the label of the program in `SOFTWARE`: this crate's
+    /// version when it is the writer, whatever the application says with
+    /// `with_git_label`, and absent when the application doesn't say.
+    /// See: <https://github.com/MWATelescope/Marlu/issues/28>
+    #[test]
+    fn test_uvfits_gitlabel_is_the_writers() {
+        let marlu = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        let marlu_label = format!("v{}", env!("CARGO_PKG_VERSION"));
+        let app_history = History {
+            application: Some("some_app v1.2.3"),
+            cmd_line: Some("some_app --an-option"),
+            ..Default::default()
+        };
+        let no_app_history = History {
+            message: Some("no application given"),
+            ..Default::default()
+        };
+        // (history, label given by the application) => (SOFTWARE, GITLABEL)
+        type Case<'a> = (
+            Option<&'a History<'a>>,
+            Option<&'a str>,
+            &'a str,
+            Option<&'a str>,
+        );
+        let app = "some_app v1.2.3";
+        let app_label = "v1.2.3-4-gabc1234";
+        let cases: [Case; 5] = [
+            (None, None, &marlu, Some(&marlu_label)),
+            (Some(&no_app_history), None, &marlu, Some(&marlu_label)),
+            (Some(&app_history), None, app, None),
+            (Some(&app_history), Some(app_label), app, Some(app_label)),
+            (None, Some("v9.9.9"), &marlu, Some("v9.9.9")),
+        ];
+        for (history, app_label, exp_software, exp_label) in cases {
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let names: Vec<String> = vec!["Tile1".into(), "Tile2".into()];
+            let mut u = UvfitsWriter::new(
+                tmp_uvfits_file.path(),
+                1,
+                1,
+                2,
+                Epoch::from_gpst_seconds(1065880128.0),
+                None,
+                40e3,
+                170e6,
+                1,
+                RADec::from_degrees(0.0, 60.0),
+                Some("test"),
+                LatLngHeight::mwa(),
+                names.clone(),
+                vec![XyzGeodetic::default(); names.len()],
+                Duration::default(),
+                true,
+                history,
+            )
+            .unwrap();
+            if let Some(app_label) = app_label {
+                u = u.with_git_label(app_label).unwrap();
+            }
+            let epoch = Epoch::from_gpst_seconds(1065880128.0);
+            u.write_vis_row(UVW::default(), 0, 1, epoch, &[0.0; 24])
+                .unwrap();
+            u.finalise().unwrap();
+
+            let mut fptr = fits_open!(tmp_uvfits_file.path()).unwrap();
+            let hdu = fits_open_hdu!(&mut fptr, 0).unwrap();
+            let software: String = get_required_fits_key!(&mut fptr, &hdu, "SOFTWARE").unwrap();
+            assert_eq!(software, exp_software);
+            let label: Option<String> =
+                get_optional_fits_key!(&mut fptr, &hdu, "GITLABEL").unwrap();
+            assert_eq!(label.as_deref(), exp_label);
+
+            // This crate's version is in a comment when another application
+            // is the writer, as it is no longer in GITLABEL.
+            let header = std::fs::read(tmp_uvfits_file.path()).unwrap();
+            let header = String::from_utf8_lossy(&header[..2880 * 2]).into_owned();
+            let has_marlu_comment = header.contains(&format!("Written with {marlu}"));
+            assert_eq!(has_marlu_comment, exp_software != marlu, "{header}");
         }
     }
 

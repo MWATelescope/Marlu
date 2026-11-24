@@ -1,4 +1,8 @@
 <!-- markdownlint-disable=MD025 -->
+# Unreleased
+
+- The uvfits `GITLABEL` key no longer gives this crate's version as the label of another program. `GITLABEL` describes the program in `SOFTWARE`, which is the caller's (`History::application`, e.g. Birli or hyperdrive) when one is given, but it was always `v<Marlu's version>`. Now an application sets its own label with the new `UvfitsWriter::with_git_label`; if it doesn't, `GITLABEL` is left out and a `Written with marlu v<version>` comment records this crate's version. With no `History::application`, `SOFTWARE` and `GITLABEL` are this crate's, as before. Fixes [#28](https://github.com/MWATelescope/Marlu/issues/28).
+
 # Version 0.20.0 (2026-11-17)
 
 - dependencies:
