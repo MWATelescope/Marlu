@@ -1,6 +1,7 @@
 <!-- markdownlint-disable=MD025 -->
 # Unreleased
 
+- When every visibility being averaged into one output sample is flagged, the uvfits and measurement set writers (`average_chunk_f64!`) now average them by the magnitudes of their weights instead of equally. Visibilities with zero weight (no data, such as a timestep missing from the raw files) no longer dilute the others, which halved the amplitude of such samples (MWATelescope/Birli#162). The sample is still flagged with zero weight, and nothing changes when the flagged weights are equal
 - The uvfits writer records when a file was written, which could not be told from the file itself once filesystem metadata was lost (e.g. after an upload to object storage): `DATE` (the FITS standard's HDU creation time, UTC, `YYYY-MM-DDThh:mm:ss`) and `DATE-MAP` (AIPS 117's date of last processing, `YYYY-MM-DD`) in the primary header. Set the `SOURCE_DATE_EPOCH` environment variable (unix seconds) to fix the time for reproducible output. Fixes [Birli#117](https://github.com/MWATelescope/Birli/issues/117).
 
 # Version 0.20.0 (2026-11-17)

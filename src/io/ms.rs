@@ -30,11 +30,12 @@ use crate::{
     convention::{PolConvention, UvwFrame, VisUnits},
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, s, Array2, Array3, ArrayView, ArrayView3, ArrayViewMut2, Axis},
-    num_complex::Complex,
     precession::{get_lmst, precess_time_in_frame},
     HADec, History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
     UVW,
 };
+#[cfg(test)]
+use num_complex::Complex;
 
 #[cfg(feature = "mwalib")]
 use mwalib::CorrelatorContext;
