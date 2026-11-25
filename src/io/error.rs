@@ -82,6 +82,11 @@ pub enum UvfitsWriteError {
     /// An IO error.
     #[error(transparent)]
     StdIo(#[from] std::io::Error),
+
+    /// An error when an argument does not have the expected number of
+    /// elements.
+    #[error(transparent)]
+    BadArrayShape(#[from] BadArrayShape),
 }
 
 #[cfg(feature = "cfitsio")]

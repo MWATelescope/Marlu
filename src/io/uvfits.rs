@@ -272,6 +272,20 @@ pub struct UvfitsWriter {
     /// more than 255 antennas so that readers (e.g. pyuvdata) that infer the
     /// encoding from the maximum baseline value see a consistent scheme.
     use_miriad_baselines: bool,
+
+    /// The number of timesteps in the file.
+    num_timesteps: usize,
+
+    /// The number of fine channels in the file.
+    num_chans: usize,
+
+    /// Which antennas are flagged, if the caller said. See
+    /// [`UvfitsWriter::with_antenna_flags`].
+    antenna_flags: Option<Vec<bool>>,
+
+    /// Which fine channels are flagged throughout the file, if the caller
+    /// said. See [`UvfitsWriter::with_chan_flags`].
+    chan_flags: Option<Vec<bool>>,
 }
 
 impl UvfitsWriter {
@@ -299,6 +313,14 @@ impl UvfitsWriter {
     /// `time_resolution` is an optional [`hifitime::Duration`] that specifies
     /// the time resolution of *all* incoming visibilities. If specified, it is
     /// used as the `INTTIM` group parameter, otherwise no `INTTIM` is written.
+    ///
+    /// The primary header also gets two keys that are not part of the uvfits
+    /// standard, so that a reader need not read every row to find them:
+    /// `NSCANS`, the number of timesteps (`num_timesteps`), and, when
+    /// `time_resolution` is given, `INTTIME`, its length in seconds. Every
+    /// timestep has `num_baselines` rows, so timestep `i` (from zero) is rows
+    /// `i * num_baselines` to `(i + 1) * num_baselines`, and its centroid is
+    /// the first row's `DATE` plus `i * INTTIME`.
     ///
     /// `centre_freq_hz` is center frequency of the center fine channel of the
     /// spectral window being written to this file. \[Hz\]
@@ -444,6 +466,19 @@ impl UvfitsWriter {
             fits_write_string(fptr, key, value, Some(comment))?;
         }
 
+        // The number of timesteps and their length are not uvfits keywords,
+        // but without them a reader has to read the DATE (and INTTIM) of
+        // every row to learn either. The names are the metafits' (and for
+        // NSCANS, the mwaf's). With the first row's DATE they give every
+        // timestamp of the file.
+        let nscans_comment = Some("number of timesteps in this file");
+        fits_write_int(fptr, "NSCANS", num_timesteps as i64, nscans_comment)?;
+        if let Some(time_resolution) = time_resolution {
+            let inttime_s = time_resolution.to_seconds();
+            let inttime_comment = Some("[s] integration time of each timestep");
+            fits_write_double(fptr, "INTTIME", inttime_s, inttime_comment)?;
+        }
+
         // Dimensions.
         fits_write_string(fptr, "CTYPE2", "COMPLEX", None)?;
         fits_write_double(fptr, "CRVAL2", 1.0, None)?;
@@ -529,6 +564,10 @@ impl UvfitsWriter {
             pol_convention: PolConvention::default(),
             uvw_frame: UvwFrame::default(),
             vis_units: VisUnits::default(),
+            num_timesteps,
+            num_chans,
+            antenna_flags: None,
+            chan_flags: None,
         };
         writer.write_convention_keys()?;
         Ok(writer)
@@ -558,6 +597,212 @@ impl UvfitsWriter {
         self.vis_units = vis_units;
         self.write_convention_keys()?;
         Ok(self)
+    }
+
+    /// Record the beamformer delays of the observation in the `DELAYS` key of
+    /// the primary header, in the form the MWA metafits has them (comma
+    /// separated, one per dipole). pyuvdata copies the same key from the
+    /// metafits into the uvfits files it writes. It is not a uvfits standard
+    /// key; readers that don't know it ignore it. Call before writing
+    /// visibilities.
+    pub fn with_delays(self, delays: &[u32]) -> Result<Self, UvfitsWriteError> {
+        let delays = delays.iter().join(",");
+        let comment = "beamformer delays, as in the metafits";
+        fits_write_long_string(self.fptr, "DELAYS", &delays, comment)?;
+        Ok(self)
+    }
+
+    /// Record the receiver channel numbers of the coarse channels in this
+    /// file in the `CHANNELS` key of the primary header (comma separated, as
+    /// in the MWA metafits), and the middle one in `CENTCHAN`. These should
+    /// be the coarse channels of this file, which can be fewer than the
+    /// observation's. Neither is a uvfits standard key; readers that don't
+    /// know them ignore them. Call before writing visibilities.
+    pub fn with_coarse_chans(self, coarse_chans: &[usize]) -> Result<Self, UvfitsWriteError> {
+        let channels = coarse_chans.iter().join(",");
+        let comment = "receiver channel numbers in this file";
+        fits_write_long_string(self.fptr, "CHANNELS", &channels, comment)?;
+        if let Some(&centre) = coarse_chans.get(coarse_chans.len() / 2) {
+            let comment = Some("centre receiver channel number");
+            fits_write_int(self.fptr, "CENTCHAN", centre as i64, comment)?;
+        }
+        Ok(self)
+    }
+
+    /// Say which antennas are flagged, one flag per antenna in the order of
+    /// the antenna names. Each flagged antenna becomes a row of an `AIPS FG`
+    /// table (AIPS Memo 117, section 4.5) written after the antenna table,
+    /// so that a reader can tell a flagged antenna from one whose every
+    /// sample happens to be flagged. The table is written even if no antenna
+    /// is flagged.
+    ///
+    /// # Errors
+    ///
+    /// Will return an [`UvfitsWriteError`] if there is not one flag per
+    /// antenna.
+    pub fn with_antenna_flags(
+        mut self,
+        antenna_flags: Vec<bool>,
+    ) -> Result<Self, UvfitsWriteError> {
+        let expected = self.antenna_names.len();
+        check_flag_count(
+            "antenna_flags",
+            "UvfitsWriter::with_antenna_flags",
+            expected,
+            &antenna_flags,
+        )?;
+        self.antenna_flags = Some(antenna_flags);
+        Ok(self)
+    }
+
+    /// Say which fine channels are flagged for the whole file, one flag per
+    /// channel of the file. Each run of flagged channels becomes a row of an
+    /// `AIPS FG` table (AIPS Memo 117, section 4.5) written after the antenna
+    /// table. The table is written even if no channel is flagged.
+    ///
+    /// # Errors
+    ///
+    /// Will return an [`UvfitsWriteError`] if there is not one flag per
+    /// channel.
+    pub fn with_chan_flags(mut self, chan_flags: Vec<bool>) -> Result<Self, UvfitsWriteError> {
+        check_flag_count(
+            "chan_flags",
+            "UvfitsWriter::with_chan_flags",
+            self.num_chans,
+            &chan_flags,
+        )?;
+        self.chan_flags = Some(chan_flags);
+        Ok(self)
+    }
+
+    /// The rows of the `AIPS FG` table: the `ANTS` pair, the `CHANS` range
+    /// and the `REASON` of each. Antenna and channel numbers start at 1, and
+    /// a zero means "all".
+    fn flag_table_rows(&self) -> Vec<([i32; 2], [i32; 2], &'static str)> {
+        let mut rows = vec![];
+        let antenna_flags = self.antenna_flags.iter().flatten();
+        for (ant, _) in antenna_flags.enumerate().filter(|(_, &flag)| flag) {
+            rows.push(([ant as i32 + 1, 0], [0, 0], "flagged antenna"));
+        }
+        // One row per run of flagged channels. The extra `false` ends a run
+        // that reaches the last channel.
+        let chan_flags = self.chan_flags.iter().flatten().chain([false].iter());
+        let mut run_start = None;
+        for (chan, &flag) in chan_flags.enumerate() {
+            match (run_start, flag) {
+                (None, true) => run_start = Some(chan),
+                (Some(start), false) => {
+                    rows.push(([0, 0], [start as i32 + 1, chan as i32], "flagged channel"));
+                    run_start = None;
+                }
+                _ => (),
+            }
+        }
+        rows
+    }
+
+    /// The `TIME RANGE` of every row of the `AIPS FG` table, in days from
+    /// midnight on the reference date. AIPS takes these numbers literally, so
+    /// they must span the file: one timestep either side of it when the time
+    /// resolution is known, and otherwise a range no file can exceed.
+    fn flag_table_time_range(&self) -> [f32; 2] {
+        let start_days = self.start_epoch.to_mjd_utc_days().fract();
+        match self.time_res {
+            Some(time_res) => {
+                let step_days = time_res / 86400.0;
+                let end_days = start_days + step_days * (self.num_timesteps as f64 + 1.0);
+                [(start_days - step_days) as f32, end_days as f32]
+            }
+            None => [-1e6, 1e6],
+        }
+    }
+
+    /// Write the `AIPS FG` flag table (AIPS Memo 117, section 4.5) after the
+    /// current HDU, if [`UvfitsWriter::with_antenna_flags`] or
+    /// [`UvfitsWriter::with_chan_flags`] was used. Every row applies to all
+    /// sources, subarrays, frequency setups, spectral windows and
+    /// polarisations, for the whole file.
+    fn write_uvfits_flag_table(&mut self) -> Result<(), UvfitsWriteError> {
+        if self.antenna_flags.is_none() && self.chan_flags.is_none() {
+            return Ok(());
+        }
+
+        let col_names = [
+            "SOURCE",
+            "SUBARRAY",
+            "FREQ ID",
+            "ANTS",
+            "TIME RANGE",
+            "IFS",
+            "CHANS",
+            "PFLAGS",
+            "REASON",
+        ];
+        let col_formats = ["1J", "1J", "1J", "2J", "2E", "2J", "2J", "4X", "24A"];
+        let col_units = ["", "", "", "", "DAYS", "", "", "", ""];
+        let mut c_col_names = rust_strings_to_c_strings(&col_names)?;
+        let mut c_col_formats = rust_strings_to_c_strings(&col_formats)?;
+        let mut c_col_units = rust_strings_to_c_strings(&col_units)?;
+        let extname = CString::new("AIPS FG")?;
+
+        let mut status = 0;
+        unsafe {
+            // ffcrtb = fits_create_tbl. BINARY_TBL is 2. The new table follows
+            // the current HDU and becomes the current HDU.
+            fitsio_sys::ffcrtb(
+                self.fptr,                  /* I - FITS file pointer                        */
+                2,                          /* I - type of table to create                  */
+                0,                          /* I - number of rows in the table              */
+                9,                          /* I - number of columns in the table           */
+                c_col_names.as_mut_ptr(),   /* I - name of each column                      */
+                c_col_formats.as_mut_ptr(), /* I - value of TFORMn keyword for each column  */
+                c_col_units.as_mut_ptr(),   /* I - value of TUNITn keyword for each column  */
+                extname.as_ptr(),           /* I - value of EXTNAME keyword, if any         */
+                &mut status,                /* IO - error status                            */
+            );
+        }
+        fits_check_status(status)?;
+        deallocate_rust_c_strings(c_col_names);
+        deallocate_rust_c_strings(c_col_formats);
+        deallocate_rust_c_strings(c_col_units);
+        fits_write_int(self.fptr, "EXTVER", 1, Some("Version number of table"))?;
+
+        let mut time_range = self.flag_table_time_range();
+        for (row, (mut ants, mut chans, reason)) in self.flag_table_rows().into_iter().enumerate() {
+            let row = row as i64 + 1;
+            // A source, subarray or frequency setup of zero or less, and a
+            // spectral window range of zeros, mean "all".
+            let (mut all, mut all_ifs, mut all_pols) = (0, [0, 0], [1; 4]);
+            let reason = CString::new(reason)?.into_raw();
+            // cfitsio does nothing in a call given a non-zero status, so the
+            // status only needs checking once.
+            unsafe {
+                // ffpclk, ffpcle, ffpclx, ffpcls = fits_write_col_{int,flt,bit,str}.
+                // The arguments after the file pointer are the column, the
+                // row, the first element (or bit), the number of elements (or
+                // bits), and the values.
+                fitsio_sys::ffpclk(self.fptr, 1, row, 1, 1, &mut all, &mut status);
+                fitsio_sys::ffpclk(self.fptr, 2, row, 1, 1, &mut all, &mut status);
+                fitsio_sys::ffpclk(self.fptr, 3, row, 1, 1, &mut all, &mut status);
+                fitsio_sys::ffpclk(self.fptr, 4, row, 1, 2, ants.as_mut_ptr(), &mut status);
+                fitsio_sys::ffpcle(
+                    self.fptr,
+                    5,
+                    row,
+                    1,
+                    2,
+                    time_range.as_mut_ptr(),
+                    &mut status,
+                );
+                fitsio_sys::ffpclk(self.fptr, 6, row, 1, 2, all_ifs.as_mut_ptr(), &mut status);
+                fitsio_sys::ffpclk(self.fptr, 7, row, 1, 2, chans.as_mut_ptr(), &mut status);
+                fitsio_sys::ffpclx(self.fptr, 8, row, 1, 4, all_pols.as_mut_ptr(), &mut status);
+                fitsio_sys::ffpcls(self.fptr, 9, row, 1, 1, [reason].as_mut_ptr(), &mut status);
+                drop(CString::from_raw(reason));
+            }
+            fits_check_status(status)?;
+        }
+        Ok(())
     }
 
     /// Write (or update) the convention keywords of the primary header:
@@ -916,6 +1161,8 @@ impl UvfitsWriter {
             drop(CString::from_raw(x_c_str));
             drop(CString::from_raw(y_c_str));
         }
+
+        self.write_uvfits_flag_table()?;
 
         // Close the fits file.
         trace!("closing fits file ({})", self.path.display());
@@ -1377,6 +1624,55 @@ fn fits_write_string(
     Ok(())
 }
 
+/// Write a string keyword that may be longer than the 68 characters one
+/// header card holds, using the `CONTINUE` long string convention (as the
+/// metafits does for `CHANNELS`).
+fn fits_write_long_string(
+    fptr: *mut fitsio_sys::fitsfile,
+    keyname: &str,
+    value: &str,
+    comment: &str,
+) -> Result<(), FitsioOrCStringError> {
+    let mut status = 0;
+    let keyname = CString::new(keyname)?;
+    let value = CString::new(value)?;
+    let comment = CString::new(comment)?;
+    let comment_ptr = comment.as_ptr();
+    unsafe {
+        // ffplsw = fits_write_key_longwarn: says that the file may use the
+        // long string convention. It does nothing if that is already said.
+        fitsio_sys::ffplsw(fptr, &mut status);
+        // ffukls = fits_update_key_longstr
+        fitsio_sys::ffukls(
+            fptr,
+            keyname.as_ptr(),
+            value.as_ptr(),
+            comment_ptr,
+            &mut status,
+        );
+    }
+    fits_check_status(status)?;
+    Ok(())
+}
+
+/// Check that a caller gave one flag per antenna or channel.
+fn check_flag_count(
+    argument: &'static str,
+    function: &'static str,
+    expected: usize,
+    flags: &[bool],
+) -> Result<(), BadArrayShape> {
+    if flags.len() != expected {
+        return Err(BadArrayShape {
+            argument,
+            function,
+            expected: format!("{expected}"),
+            received: format!("{}", flags.len()),
+        });
+    }
+    Ok(())
+}
+
 /// Delete a keyword from the current HDU, if it is there.
 fn fits_delete_key(
     fptr: *mut fitsio_sys::fitsfile,
@@ -1454,8 +1750,10 @@ mod tests {
         FitsFile,
     };
     use mwalib::{
-        _get_fits_col, _get_required_fits_key, fits_open, fits_open_hdu, get_fits_col,
-        get_optional_fits_key, get_required_fits_key, CorrelatorContext,
+        _get_fits_col, _get_optional_fits_key_long_string, _get_required_fits_key,
+        _get_required_fits_key_long_string, fits_open, fits_open_hdu, get_fits_col,
+        get_optional_fits_key, get_optional_fits_key_long_string, get_required_fits_key,
+        get_required_fits_key_long_string, CorrelatorContext,
     };
     use ndarray::Array3;
     use tempfile::NamedTempFile;
@@ -3053,6 +3351,312 @@ mod tests {
             i_inttim += 1;
             i_no_inttim += 1;
         }
+    }
+
+    /// The primary header says how many timesteps the file has (`NSCANS`) and,
+    /// when the time resolution is known, how long each is (`INTTIME`).
+    /// See: <https://github.com/MWATelescope/Marlu/issues/2>
+    #[test]
+    fn test_new_uvfits_has_nscans_and_inttime() {
+        let num_timesteps = 3;
+        let num_baselines = 3;
+        let num_chans = 2;
+        let start_epoch = Epoch::from_gpst_seconds(1065880128.0);
+        let names: Vec<String> = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions = vec![XyzGeodetic::default(); names.len()];
+
+        for time_resolution in [None, Some(Duration::from_milliseconds(500.))] {
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let mut u = UvfitsWriter::new(
+                tmp_uvfits_file.path(),
+                num_timesteps,
+                num_baselines,
+                num_chans,
+                start_epoch,
+                time_resolution,
+                40e3,
+                170e6,
+                1,
+                RADec::from_degrees(0.0, 60.0),
+                Some("test"),
+                LatLngHeight::mwa(),
+                names.clone(),
+                positions.clone(),
+                Duration::default(),
+                true,
+                None,
+            )
+            .unwrap();
+            for timestep_index in 0..num_timesteps {
+                let epoch = start_epoch + Duration::from_milliseconds(500.) * timestep_index as f64;
+                for (tile1, tile2) in [(0, 1), (0, 2), (1, 2)] {
+                    u.write_vis_row(UVW::default(), tile1, tile2, epoch, &[0.0; 24])
+                        .unwrap();
+                }
+            }
+            u.finalise().unwrap();
+
+            let mut fptr = fits_open!(tmp_uvfits_file.path()).unwrap();
+            let hdu = fits_open_hdu!(&mut fptr, 0).unwrap();
+            let nscans: usize = get_required_fits_key!(&mut fptr, &hdu, "NSCANS").unwrap();
+            assert_eq!(nscans, num_timesteps);
+            // every timestep has the same number of rows
+            let gcount: usize = get_required_fits_key!(&mut fptr, &hdu, "GCOUNT").unwrap();
+            assert_eq!(gcount, nscans * num_baselines);
+            let inttime: Option<f64> = get_optional_fits_key!(&mut fptr, &hdu, "INTTIME").unwrap();
+            assert_eq!(inttime, time_resolution.map(|t| t.to_seconds()));
+        }
+    }
+
+    /// A writer of a file with three antennas and five channels, for the
+    /// tests of the optional metadata.
+    fn new_metadata_test_writer(path: &Path, time_resolution: Option<Duration>) -> UvfitsWriter {
+        let names: Vec<String> = vec!["Tile1".into(), "Tile2".into(), "Tile3".into()];
+        let positions = vec![XyzGeodetic::default(); names.len()];
+        UvfitsWriter::new(
+            path,
+            2,
+            3,
+            5,
+            Epoch::from_gpst_seconds(1065880128.0),
+            time_resolution,
+            40e3,
+            170e6,
+            2,
+            RADec::from_degrees(0.0, 60.0),
+            Some("test"),
+            LatLngHeight::mwa(),
+            names,
+            positions,
+            Duration::default(),
+            true,
+            None,
+        )
+        .unwrap()
+    }
+
+    /// Write every row of a [`new_metadata_test_writer`] file and finish it.
+    fn finish_metadata_test_writer(mut u: UvfitsWriter) {
+        let start_epoch = Epoch::from_gpst_seconds(1065880128.0);
+        for timestep_index in 0..2 {
+            let epoch = start_epoch + Duration::from_seconds(2.0) * timestep_index as f64;
+            for (tile1, tile2) in [(0, 1), (0, 2), (1, 2)] {
+                u.write_vis_row(UVW::default(), tile1, tile2, epoch, &[0.0; 60])
+                    .unwrap();
+            }
+        }
+        u.finalise().unwrap();
+    }
+
+    /// The beamformer delays and the coarse channels go in the primary header
+    /// under their metafits names, however long the values are.
+    #[test]
+    fn test_uvfits_delays_and_coarse_chans() {
+        let coarse_chans: Vec<usize> = (131..155).collect();
+        for (delays, coarse_chans, centre) in [
+            (vec![0_u32; 16], coarse_chans.as_slice(), Some(143)),
+            (vec![3, 2, 1, 0], &[][..], None),
+        ] {
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let u = new_metadata_test_writer(tmp_uvfits_file.path(), None)
+                .with_delays(&delays)
+                .unwrap()
+                .with_coarse_chans(coarse_chans)
+                .unwrap()
+                // a second call replaces the first
+                .with_coarse_chans(coarse_chans)
+                .unwrap();
+            finish_metadata_test_writer(u);
+
+            let mut fptr = fits_open!(tmp_uvfits_file.path()).unwrap();
+            let hdu = fits_open_hdu!(&mut fptr, 0).unwrap();
+            let written: String =
+                get_required_fits_key_long_string!(&mut fptr, &hdu, "DELAYS").unwrap();
+            assert_eq!(written, delays.iter().join(","));
+            let written: Option<String> =
+                get_optional_fits_key_long_string!(&mut fptr, &hdu, "CHANNELS").unwrap();
+            // cfitsio reads an empty string value as no value
+            let expected = coarse_chans.iter().join(",");
+            assert_eq!(written.unwrap_or_default(), expected);
+            let written: Option<usize> =
+                get_optional_fits_key!(&mut fptr, &hdu, "CENTCHAN").unwrap();
+            assert_eq!(written, centre);
+            // no flags were given, so there is no flag table
+            assert!(fptr.hdu("AIPS FG").is_err());
+        }
+    }
+
+    /// Read `nelem` values per row of an integer column of the current HDU.
+    fn read_int_col(fptr: &mut FitsFile, col: i32, num_rows: usize, nelem: usize) -> Vec<i32> {
+        let mut values = vec![0_i32; num_rows * nelem];
+        let mut status = 0;
+        unsafe {
+            // ffgcvk = fits_read_col_int
+            fitsio_sys::ffgcvk(
+                fptr.as_raw(),
+                col,
+                1,
+                1,
+                values.len() as i64,
+                0,
+                values.as_mut_ptr(),
+                std::ptr::null_mut(),
+                &mut status,
+            );
+        }
+        fits_check_status(status).unwrap();
+        values
+    }
+
+    /// Flagged antennas and channels go in an AIPS FG table after the antenna
+    /// table.
+    #[test]
+    fn test_uvfits_flag_table() {
+        // (time resolution, antenna flags, channel flags, expected ANTS,
+        // expected CHANS, expected TIME RANGE in seconds from the first
+        // timestep)
+        type Case = (
+            Option<Duration>,
+            Option<Vec<bool>>,
+            Option<Vec<bool>>,
+            Vec<i32>,
+            Vec<i32>,
+            Option<[f64; 2]>,
+        );
+        let cases: [Case; 4] = [
+            (
+                Some(Duration::from_seconds(2.0)),
+                Some(vec![false, true, true]),
+                Some(vec![true, false, false, true, true]),
+                vec![2, 0, 3, 0, 0, 0, 0, 0],
+                vec![0, 0, 0, 0, 1, 1, 4, 5],
+                Some([-2.0, 6.0]),
+            ),
+            (
+                None,
+                None,
+                Some(vec![false, true, true, false, false]),
+                vec![0, 0],
+                vec![2, 3],
+                None,
+            ),
+            (
+                None,
+                Some(vec![true, false, false]),
+                None,
+                vec![1, 0],
+                vec![0, 0],
+                None,
+            ),
+            // nothing is flagged: the table is there, and empty
+            (
+                None,
+                Some(vec![false; 3]),
+                Some(vec![false; 5]),
+                vec![],
+                vec![],
+                None,
+            ),
+        ];
+        for (time_resolution, antenna_flags, chan_flags, ants, chans, time_range_s) in cases {
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let mut u = new_metadata_test_writer(tmp_uvfits_file.path(), time_resolution);
+            if let Some(antenna_flags) = antenna_flags {
+                u = u.with_antenna_flags(antenna_flags).unwrap();
+            }
+            if let Some(chan_flags) = chan_flags {
+                u = u.with_chan_flags(chan_flags).unwrap();
+            }
+            finish_metadata_test_writer(u);
+
+            let mut fptr = fits_open!(tmp_uvfits_file.path()).unwrap();
+            // the flag table follows the antenna table
+            let hdu = fits_open_hdu!(&mut fptr, 2).unwrap();
+            let extname: String = get_required_fits_key!(&mut fptr, &hdu, "EXTNAME").unwrap();
+            assert_eq!(extname, "AIPS FG");
+            let extver: usize = get_required_fits_key!(&mut fptr, &hdu, "EXTVER").unwrap();
+            assert_eq!(extver, 1);
+            let num_rows: usize = get_required_fits_key!(&mut fptr, &hdu, "NAXIS2").unwrap();
+            assert_eq!(num_rows, ants.len() / 2);
+
+            // all sources, subarrays, frequency setups and spectral windows
+            for (col, nelem) in [(1, 1), (2, 1), (3, 1), (6, 2)] {
+                let values = read_int_col(&mut fptr, col, num_rows, nelem);
+                assert_eq!(values, vec![0; num_rows * nelem]);
+            }
+            assert_eq!(read_int_col(&mut fptr, 4, num_rows, 2), ants);
+            assert_eq!(read_int_col(&mut fptr, 7, num_rows, 2), chans);
+
+            for row in 0..num_rows {
+                let mut time_range = [0_f32; 2];
+                let mut pols: [std::ffi::c_char; 4] = [0; 4];
+                let mut status = 0;
+                unsafe {
+                    // ffgcve, ffgcx = fits_read_col_{flt,bit}
+                    fitsio_sys::ffgcve(
+                        fptr.as_raw(),
+                        5,
+                        row as i64 + 1,
+                        1,
+                        2,
+                        0.0,
+                        time_range.as_mut_ptr(),
+                        std::ptr::null_mut(),
+                        &mut status,
+                    );
+                    fitsio_sys::ffgcx(
+                        fptr.as_raw(),
+                        8,
+                        row as i64 + 1,
+                        1,
+                        4,
+                        pols.as_mut_ptr(),
+                        &mut status,
+                    );
+                }
+                fits_check_status(status).unwrap();
+                // every polarisation
+                assert_eq!(pols, [1; 4]);
+                // days from midnight on the reference date
+                let start_days = Epoch::from_gpst_seconds(1065880128.0)
+                    .to_mjd_utc_days()
+                    .fract();
+                let expected = match time_range_s {
+                    Some([start_s, end_s]) => {
+                        [start_days + start_s / 86400.0, start_days + end_s / 86400.0]
+                    }
+                    None => [-1e6, 1e6],
+                };
+                assert_abs_diff_eq!(time_range[0] as f64, expected[0], epsilon = 1e-6);
+                assert_abs_diff_eq!(time_range[1] as f64, expected[1], epsilon = 1e-6);
+            }
+            let reasons: Vec<String> = get_fits_col!(&mut fptr, &hdu, "REASON").unwrap();
+            let num_ant_rows = ants.chunks(2).filter(|ants| ants[0] != 0).count();
+            for (row, reason) in reasons.iter().enumerate() {
+                let expected = if row < num_ant_rows {
+                    "flagged antenna"
+                } else {
+                    "flagged channel"
+                };
+                assert_eq!(reason, expected);
+            }
+        }
+    }
+
+    /// One flag is needed per antenna and per channel.
+    #[test]
+    fn test_uvfits_flags_must_match_the_file() {
+        let tmp_uvfits_file = NamedTempFile::new().unwrap();
+        let result = new_metadata_test_writer(tmp_uvfits_file.path(), None)
+            .with_antenna_flags(vec![true; 4]);
+        let message = result.err().unwrap().to_string();
+        assert!(message.contains("antenna_flags") && message.contains("expected 3, received 4"));
+
+        let tmp_uvfits_file = NamedTempFile::new().unwrap();
+        let result =
+            new_metadata_test_writer(tmp_uvfits_file.path(), None).with_chan_flags(vec![true; 4]);
+        let message = result.err().unwrap().to_string();
+        assert!(message.contains("chan_flags") && message.contains("expected 5, received 4"));
     }
 
     /// The conventions are recorded natively (AIPS AN POLAA/POLAB) and in the
