@@ -33,7 +33,7 @@ use crate::{
     num_complex::Complex,
     precession::{get_lmst, precess_time_in_frame},
     HADec, History, Jones, LatLngHeight, MwaObsContext, ObsContext, RADec, VisContext, XyzGeodetic,
-    UVW,
+    ENH, UVW,
 };
 
 #[cfg(feature = "mwalib")]
@@ -102,6 +102,12 @@ pub struct MeasurementSetWriter {
     /// written to that table's `FLAG_ROW` column. `None` (the default)
     /// flags no antenna.
     antenna_flags: Option<Vec<bool>>,
+
+    /// The offsets of the elements (dipoles) of every antenna from its
+    /// centre, and which elements are flagged, with shape
+    /// `[antenna, receptor, element]`; written to the `PHASED_ARRAY` table.
+    /// `None` (the default) writes no such table.
+    phased_array: Option<(Vec<ENH>, Array3<bool>)>,
 }
 
 impl MeasurementSetWriter {
@@ -126,6 +132,7 @@ impl MeasurementSetWriter {
             uvw_frame: UvwFrame::default(),
             vis_units: VisUnits::default(),
             antenna_flags: None,
+            phased_array: None,
         }
     }
 
@@ -158,6 +165,142 @@ impl MeasurementSetWriter {
                 received: format!("{} flags", flags.len()),
             }),
         }
+    }
+
+    /// Describe the elements (for the MWA, the dipoles) that make up every
+    /// antenna, so that a `PHASED_ARRAY` table is written: where each element
+    /// is, and which are flagged (dead).
+    ///
+    /// `element_offsets` are the positions of the elements relative to the
+    /// centre of their antenna, the same for every antenna, in the east,
+    /// north, height frame of the array position. `element_flags` has shape
+    /// `[antenna, receptor, element]`, with two receptors (X then Y), and is
+    /// true where that receptor of that element should be ignored. Call
+    /// before initializing the Measurement Set.
+    ///
+    /// The table has one row per antenna, in the order of the `ANTENNA`
+    /// table, in the layout that every reader found can read: `EveryBeam` (for
+    /// OSKAR and SKA-Low Measurement Sets, any version), `EveryBeam`'s
+    /// `add_beaminfo.py` and xradio (Measurement Set v4). `EveryBeam` 0.8.2 and
+    /// later, and OSKAR 2.13 and later, prefer the last two columns with
+    /// their axes the other way round, which xradio 1.3.1 cannot read;
+    /// `EveryBeam` tells the two apart by which axis has three (or two)
+    /// entries. The columns are
+    ///
+    /// - `ANTENNA_ID`: the row of the `ANTENNA` table;
+    /// - `POSITION`: the antenna's ITRF position, as in the `ANTENNA` table;
+    /// - `COORDINATE_AXES`, casacore shape `[3, 3]`: element `(i, j)` is the
+    ///   `i`th ITRF component of local axis `j`, where the local axes are
+    ///   east, north and up at the array position;
+    /// - `ELEMENT_OFFSET`, casacore shape `[elements, 3]`: the offset of each
+    ///   element from `POSITION` along the ITRF axes, in metres;
+    /// - `ELEMENT_FLAG`, casacore shape `[elements, 2]`.
+    ///
+    /// `EveryBeam` does not read this table for the MWA (it takes one set of
+    /// delays from `MWA_TILE_POINTING` and treats every dipole as alive), so
+    /// it does not change an MWA beam there. It is for readers that would
+    /// otherwise need the metafits to know which dipoles are dead.
+    pub fn with_phased_array(
+        mut self,
+        element_offsets: Vec<ENH>,
+        element_flags: Array3<bool>,
+    ) -> Self {
+        self.phased_array = Some((element_offsets, element_flags));
+        self
+    }
+
+    /// Check that the flags given to
+    /// [`MeasurementSetWriter::with_phased_array`] are for `num_ants`
+    /// antennas, two receptors and as many elements as there are offsets.
+    fn check_phased_array(&self, num_ants: usize) -> Result<(), BadArrayShape> {
+        match &self.phased_array {
+            Some((offsets, flags)) if flags.dim() != (num_ants, 2, offsets.len()) => {
+                Err(BadArrayShape {
+                    argument: "element_flags",
+                    function: "MeasurementSetWriter::with_phased_array",
+                    expected: format!("{:?}", (num_ants, 2, offsets.len())),
+                    received: format!("{:?}", flags.dim()),
+                })
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Create and fill the `PHASED_ARRAY` table, if
+    /// [`MeasurementSetWriter::with_phased_array`] was used. See there for
+    /// the layout.
+    fn write_phased_array_table(
+        &self,
+        obs_ctx: &ObsContext,
+    ) -> Result<(), MeasurementSetWriteError> {
+        let Some((element_offsets, element_flags)) = &self.phased_array else {
+            return Ok(());
+        };
+
+        let mut table_desc = TableDesc::new("PHASED_ARRAY", TableDescCreateMode::TDM_SCRATCH)?;
+        let (int, double) = (GlueDataType::TpInt, GlueDataType::TpDouble);
+        table_desc.add_scalar_column(int, "ANTENNA_ID", Some("Antenna ID"), false, false)?;
+        for (name, comment, dims) in [
+            ("POSITION", "Position of antenna field", Some(&[3][..])),
+            (
+                "COORDINATE_AXES",
+                "Local coordinate system",
+                Some(&[3, 3][..]),
+            ),
+            ("ELEMENT_OFFSET", "Offset per element", None),
+        ] {
+            table_desc.add_array_column(double, name, Some(comment), dims, false, false)?;
+            // EveryBeam reads all three as quantities in metres, and its
+            // example script gives the unitless axes this unit too.
+            table_desc.put_column_keyword(name, "QuantumUnits", &vec!["m".to_string(); 3])?;
+        }
+        let comment = Some("Flag of elements in array");
+        let boolean = GlueDataType::TpBool;
+        table_desc.add_array_column(boolean, "ELEMENT_FLAG", comment, None, false, false)?;
+        for (name, measure_type) in [
+            ("POSITION", "position"),
+            ("ELEMENT_OFFSET", "position"),
+            ("COORDINATE_AXES", "direction"),
+        ] {
+            let mut meas_info = TableRecord::new()?;
+            meas_info.put_field("type", &measure_type.to_string())?;
+            meas_info.put_field("Ref", &"ITRF".to_string())?;
+            table_desc.put_column_keyword(name, "MEASINFO", &meas_info)?;
+        }
+
+        let num_ants = obs_ctx.num_ants();
+        let table_path = self.path.join("PHASED_ARRAY");
+        let mut table = Table::new(table_path, table_desc, num_ants, TableCreateMode::New)?;
+
+        // The ITRF components of an east, north, height offset from the array
+        // position, with the same conversion as the antenna positions.
+        let array_pos = obs_ctx.array_pos;
+        let origin = XyzGeodetic::default().to_geocentric(array_pos);
+        let to_itrf = |enh: &ENH| {
+            let itrf = enh.to_xyz(array_pos.latitude_rad).to_geocentric(array_pos);
+            [itrf.x - origin.x, itrf.y - origin.y, itrf.z - origin.z]
+        };
+        // rubbl writes an ndarray with its axes reversed, so the rows of
+        // `axes` are the last casacore axis, the local axes, and the rows of
+        // `offsets` are the ITRF components.
+        let unit = |e: f64, n: f64, h: f64| to_itrf(&ENH { e, n, h });
+        let axes = Array2::from(vec![unit(1., 0., 0.), unit(0., 1., 0.), unit(0., 0., 1.)]);
+        let offsets = Array2::from(element_offsets.iter().map(to_itrf).collect::<Vec<_>>());
+        let offsets = offsets.t().as_standard_layout().into_owned();
+
+        for (idx, position) in obs_ctx.ant_positions_geocentric().enumerate() {
+            let flags = element_flags.index_axis(Axis(0), idx).to_owned();
+            let position = vec![position.x, position.y, position.z];
+            table.put_cell("ANTENNA_ID", idx as u64, &(idx as i32))?;
+            table.put_cell("POSITION", idx as u64, &position)?;
+            table.put_cell("COORDINATE_AXES", idx as u64, &axes)?;
+            table.put_cell("ELEMENT_OFFSET", idx as u64, &offsets)?;
+            table.put_cell("ELEMENT_FLAG", idx as u64, &flags)?;
+        }
+
+        let mut main_table = Table::open(&self.path, TableOpenMode::ReadWrite)?;
+        main_table.put_table_keyword("PHASED_ARRAY", table)?;
+        Ok(())
     }
 
     /// Set the conventions the visibilities follow. The default is the MWA's
@@ -1507,6 +1650,7 @@ impl MeasurementSetWriter {
 
         // Check the antenna flags before anything is written.
         let antenna_flag_rows = self.antenna_flag_rows(obs_ctx.num_ants())?;
+        self.check_phased_array(obs_ctx.num_ants())?;
 
         // times
         let sched_start_centroid = obs_ctx.sched_start_timestamp + vis_ctx.int_time / 2.;
@@ -1618,6 +1762,8 @@ impl MeasurementSetWriter {
                 flag_row,
             )?;
         }
+        drop(ant_table);
+        self.write_phased_array_table(obs_ctx)?;
 
         // //////////// //
         // Polarization //
@@ -6414,5 +6560,153 @@ mod tests {
         assert!(msg.contains("one flag for each of the 3 antennas"), "{msg}");
         assert!(msg.contains("received 2 flags"), "{msg}");
         assert!(!temp_dir.path().join("bad.ms").exists());
+    }
+
+    /// `with_phased_array` writes a `PHASED_ARRAY` table in the layout
+    /// `EveryBeam` (any version) and xradio read: ITRF element offsets, local
+    /// axes as the columns of `COORDINATE_AXES`, and flags per receptor and
+    /// element.
+    #[test]
+    fn test_phased_array_table() {
+        let temp_dir = tempdir().unwrap();
+
+        let vis_ctx = VisContext {
+            num_sel_timesteps: 1,
+            start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            int_time: Duration::from_seconds(1.),
+            num_sel_chans: 2,
+            start_freq_hz: 192000000.,
+            freq_resolution_hz: 10000.,
+            sel_baselines: vec![(0, 1)],
+            avg_time: 1,
+            avg_freq: 1,
+            num_vis_pols: 4,
+        };
+        let enh = |e: f64, n: f64, h: f64| ENH { e, n, h };
+        let obs_ctx = ObsContext {
+            sched_start_timestamp: Epoch::from_gpst_seconds(1254670392.),
+            sched_duration: Duration::from_seconds(1.),
+            name: None,
+            field_name: None,
+            project_id: None,
+            observer: None,
+            phase_centre: RADec::default(),
+            pointing_centre: None,
+            array_pos: LatLngHeight::mwa(),
+            ant_positions_enh: vec![enh(0., 0., 0.), enh(100., 200., 1.)],
+            ant_names: vec!["ant0".into(), "ant1".into()],
+        };
+        let new_writer = |name: &str| {
+            MeasurementSetWriter::new(
+                temp_dir.path().join(name),
+                obs_ctx.phase_centre,
+                obs_ctx.array_pos,
+                obs_ctx.ant_positions_geodetic().collect(),
+                Duration::default(),
+                true,
+            )
+        };
+
+        // without the call there is no table
+        new_writer("default.ms")
+            .initialize(&vis_ctx, &obs_ctx, None)
+            .unwrap();
+        assert!(!temp_dir.path().join("default.ms/PHASED_ARRAY").exists());
+
+        // four elements: to the east, to the north, above, and to the west
+        let offsets = vec![
+            enh(1.1, 0., 0.),
+            enh(0., 2.2, 0.),
+            enh(0., 0., 0.3),
+            enh(-1.1, 0., 0.),
+        ];
+        let mut flags = Array3::from_elem((2, 2, 4), false);
+        // antenna 1: the Y receptor of the last element is dead
+        flags[(1, 1, 2)] = true;
+        let ms_writer = new_writer("elements.ms").with_phased_array(offsets.clone(), flags);
+        ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap();
+
+        let ms_path = temp_dir.path().join("elements.ms");
+        let mut main_table = Table::open(&ms_path, TableOpenMode::Read).unwrap();
+        let keywords = main_table.table_keyword_names().unwrap();
+        assert!(keywords.contains(&"PHASED_ARRAY".into()));
+        let mut table = Table::open(ms_path.join("PHASED_ARRAY"), TableOpenMode::Read).unwrap();
+        assert_eq!(table.n_rows(), 2);
+        let ids: Vec<i32> = table.get_col_as_vec("ANTENNA_ID").unwrap();
+        assert_eq!(ids, vec![0, 1]);
+
+        // the unit vectors to the east, north and zenith at the MWA, in ITRF
+        let (s_lat, c_lat) = obs_ctx.array_pos.latitude_rad.sin_cos();
+        let (s_long, c_long) = obs_ctx.array_pos.longitude_rad.sin_cos();
+        let east = [-s_long, c_long, 0.];
+        let north = [-s_lat * c_long, -s_lat * s_long, c_lat];
+        let up = [c_lat * c_long, c_lat * s_long, s_lat];
+
+        let mut ant_table = Table::open(ms_path.join("ANTENNA"), TableOpenMode::Read).unwrap();
+        for row in 0..2 {
+            // the antenna's own position
+            let position: Vec<f64> = table.get_cell_as_vec("POSITION", row).unwrap();
+            let ant_position: Vec<f64> = ant_table.get_cell_as_vec("POSITION", row).unwrap();
+            assert_eq!(position, ant_position);
+
+            // rubbl reverses the casacore axes, so a row here is a local axis
+            let axes: Vec<f64> = table.get_cell_as_vec("COORDINATE_AXES", row).unwrap();
+            let axes = Array2::from_shape_vec((3, 3), axes).unwrap();
+            let offsets_itrf: Vec<f64> = table.get_cell_as_vec("ELEMENT_OFFSET", row).unwrap();
+            let offsets_itrf = Array2::from_shape_vec((3, 4), offsets_itrf).unwrap();
+            for (i, axis) in [east, north, up].iter().enumerate() {
+                for itrf in 0..3 {
+                    assert_abs_diff_eq!(axes[(i, itrf)], axis[itrf], epsilon = 1e-9);
+                }
+            }
+            // each element is along one local axis
+            let elements = [(east, 1.1), (north, 2.2), (up, 0.3), (east, -1.1)];
+            for (i, (axis, length)) in elements.iter().enumerate() {
+                for itrf in 0..3 {
+                    let expected = axis[itrf] * length;
+                    assert_abs_diff_eq!(offsets_itrf[(itrf, i)], expected, epsilon = 1e-9);
+                }
+            }
+
+            // (receptor, element), which casacore sees as [elements, 2]
+            let flags: Vec<bool> = table.get_cell_as_vec("ELEMENT_FLAG", row).unwrap();
+            let flags = Array2::from_shape_vec((2, 4), flags).unwrap();
+            let mut expected = Array2::from_elem((2, 4), false);
+            expected[(1, 2)] = row == 1;
+            assert_eq!(flags, expected);
+        }
+
+        for (name, measure_type) in [
+            ("POSITION", "position"),
+            ("ELEMENT_OFFSET", "position"),
+            ("COORDINATE_AXES", "direction"),
+        ] {
+            let mut keywords = table.get_column_keyword_record(name).unwrap();
+            let units: Vec<String> = keywords.get_field("QuantumUnits").unwrap();
+            assert_eq!(units, vec!["m"; 3]);
+            let mut meas_info: TableRecord = keywords.get_field("MEASINFO").unwrap();
+            let written: String = meas_info.get_field("type").unwrap();
+            assert_eq!(written, measure_type);
+            let written: String = meas_info.get_field("Ref").unwrap();
+            assert_eq!(written, "ITRF");
+        }
+
+        // flags for the wrong number of antennas, receptors or elements: an
+        // error, and nothing is written
+        for (name, dim) in [
+            ("ants.ms", (3, 2, 4)),
+            ("pols.ms", (2, 1, 4)),
+            ("elems.ms", (2, 2, 3)),
+        ] {
+            let flags = Array3::from_elem(dim, false);
+            let ms_writer = new_writer(name).with_phased_array(offsets.clone(), flags);
+            let err = ms_writer.initialize(&vis_ctx, &obs_ctx, None).unwrap_err();
+            assert!(matches!(err, MeasurementSetWriteError::BadArrayShape(_)));
+            let msg = err.to_string();
+            assert!(msg.contains("element_flags"), "{msg}");
+            assert!(msg.contains("expected (2, 2, 4)"), "{msg}");
+            assert!(msg.contains(&format!("received {dim:?}")), "{msg}");
+            assert!(!temp_dir.path().join(name).exists());
+        }
     }
 }
