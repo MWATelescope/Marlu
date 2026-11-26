@@ -136,10 +136,10 @@ impl History<'_> {
     }
 }
 
-/// An extension of [`ObsContext`] that for MWA-specific metadata that is not
+/// An extension of [`ObsContext`] for MWA-specific metadata that is not
 /// present in some file types like uvfits.
 pub struct MwaObsContext {
-    /// Antenna input numbers. [`ant_idx`][pol]
+    /// Antenna input numbers, with shape `[ant_idx, pol]`
     pub ant_inputs: Array2<usize>,
 
     /// Antenna tile numbers
@@ -148,10 +148,10 @@ pub struct MwaObsContext {
     /// Antenna receiver numbers
     pub ant_receivers: Vec<usize>,
 
-    /// Antenna slot numbers. [`ant_idx`][pol]
+    /// Antenna receiver slot numbers, with shape `[ant_idx, pol]`
     pub ant_slots: Array2<usize>,
 
-    /// Antenna slot numbers. [`ant_idx`][pol]
+    /// Antenna electrical (cable) lengths \[m\], with shape `[ant_idx, pol]`
     pub ant_cable_lengths: Array2<f64>,
 
     /// Coarse Channel Receiver Numbers
@@ -160,7 +160,8 @@ pub struct MwaObsContext {
     /// Whether the observation has a calibrator
     pub has_calibrator: bool,
 
-    /// MWA Observation Mode. See: [`mwalib::MetafitsContext::obs_mode`]
+    /// MWA Observation Mode. See:
+    /// [`mwalib::MetafitsContext::mode`](https://docs.rs/mwalib/latest/mwalib/struct.MetafitsContext.html#structfield.mode)
     pub mode: String,
 
     /// Tile pointing delays
@@ -218,7 +219,8 @@ impl MwaObsContext {
 ///
 /// This is intended to describe an accompanying visibility and weight ndarray.
 ///
-/// This is similar to, and can be derived from [`mwalib::CorrelatorContext`],
+/// This is similar to, and can be derived from
+/// [`mwalib::CorrelatorContext`](https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html),
 /// but applies to a specific selection of baselines from a contiguous range of
 /// timesteps and frequencies with a given configuration of averaging, and other
 /// pre-processing settings.
@@ -234,9 +236,9 @@ pub struct VisContext {
     pub int_time: Duration,
     /// The number of selected channels (Axis 1) in the accompanying visibility and weight ndarrays.
     pub num_sel_chans: usize,
-    /// The centre frequency of the first selected pre-averaging channel [Hz]
+    /// The centre frequency of the first selected pre-averaging channel \[Hz\]
     pub start_freq_hz: f64,
-    /// The bandwidth between each pre-averaging channel [Hz]
+    /// The bandwidth between each pre-averaging channel \[Hz\]
     pub freq_resolution_hz: f64,
     /// The tile index pairs for each selected baseline
     pub sel_baselines: Vec<(usize, usize)>,
@@ -321,7 +323,7 @@ impl VisContext {
         )
     }
 
-    /// Whether this context corresponds with the the case where the time and
+    /// Whether this context corresponds with the case where the time and
     /// frequency averaging factors are both 1, and no averaging is performed.
     pub fn trivial_averaging(&self) -> bool {
         self.avg_time == 1 && self.avg_freq == 1

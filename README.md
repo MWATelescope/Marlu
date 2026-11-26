@@ -9,27 +9,32 @@
 <img src="https://github.com/MWATelescope/Marlu/workflows/Cross-platform%20tests/badge.svg" alt="Cross-platform%20tests">
 <a href="https://codecov.io/gh/MWATelescope/Marlu">
   <img src="https://codecov.io/gh/MWATelescope/Marlu/branch/main/graph/badge.svg?token=CYMROMUKRI" alt="codecov"/>
-<a href="https://crates.io/crates/marlu"><img src="https://img.shields.io/badge/rustc-1.65-orange.svg" alt="rustc"/></a>
 </a>
+<a href="https://crates.io/crates/marlu"><img src="https://img.shields.io/badge/rustc-1.88-orange.svg" alt="rustc"/></a>
 </div>
 
 Convenience Rust code that handles coordinate transformations, Jones matrices,
-etc.
+visibility averaging, and writing visibilities to uvfits files and Measurement
+Sets. It is the shared base of [Birli](https://github.com/MWATelescope/Birli)
+and [hyperdrive](https://github.com/MWATelescope/mwa_hyperdrive).
+
+API documentation is on [docs.rs](https://docs.rs/marlu), and changes between
+versions are listed in [RELEASES.md](RELEASES.md).
 
 ## Prerequisites
 
-- Cargo version >= 1.85.0
+- Rust (and Cargo) version >= 1.88.0, the `rust-version` in `Cargo.toml`
 
 ```bash
-$ cargo -V
-cargo 1.85.0 (d73d2caf9 2024-12-31)
+cargo -V
 ```
 
 <https://www.rust-lang.org/tools/install>
 
 ### Optional prerequisites
 
-If using the `mwalib` feature (true by default):
+If using the `cfitsio` feature, which the `mwalib` feature (on by default)
+turns on:
 
 - [cfitsio](https://heasarc.gsfc.nasa.gov/docs/software/fitsio/)
   - Ubuntu: `libcfitsio-dev`
@@ -40,10 +45,26 @@ If using the `mwalib` feature (true by default):
   - Use `--features=cfitsio-static` to build the library automatically. Requires
     a C compiler and `autoconf`.
 
+If using the `ms` feature (on by default), a C++ compiler is needed to build
+the casacore tables code bundled with
+[rubbl_casatables](https://crates.io/crates/rubbl_casatables).
+
 To link a system-provided static library, use e.g. `CFITSIO_STATIC=1`. To link
 all system-provided static libraries, use `PKG_CONFIG_ALL_STATIC=1`. To build
 all C libraries and link statically (currently only `cfitsio`), use the
 `all-static` feature.
+
+## Features
+
+| Feature | Default | What it provides |
+|---|---|---|
+| `mwalib` | yes | Conversions from [mwalib](https://github.com/MWATelescope/mwalib) contexts. Turns on `cfitsio`. |
+| `ms` | yes | The Measurement Set writer. |
+| `cfitsio` | through `mwalib` | The uvfits writer. Links against cfitsio. |
+| `approx` | no | `approx` traits on data types. |
+| `serde` | no | `Serialize` and `Deserialize` on data types. |
+| `cfitsio-static` | no | Builds cfitsio from source and links it statically. |
+| `all-static` | no | Builds and statically links every C library (currently only cfitsio). |
 
 ## Acknowledgement
 

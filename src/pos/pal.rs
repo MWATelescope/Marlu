@@ -155,7 +155,7 @@ pub unsafe fn palDvn(v: *mut f64, uv: *mut f64, vm: *mut f64) {
 ///
 /// # Safety
 ///
-/// [`erfa_sys::eraPdp`] requires `va` and `vb` to be mutable, even though
+/// [`eraPdp`] requires `va` and `vb` to be mutable, even though
 /// they are not mutated.
 pub unsafe fn palDvdv(va: *mut f64, vb: *mut f64) -> f64 {
     let va: [f64; 3] = std::slice::from_raw_parts(va, 3).try_into().unwrap();
@@ -341,7 +341,7 @@ pub unsafe fn palMappa(eq: f64, date: f64, amprms: *mut f64) {
     let mut ehd = [0.0; 3];
     let mut eh = [0.0; 3];
 
-    /* Initialise so that unsused values are returned holding zero */
+    /* Initialise so that unused values are returned holding zero */
     let amprms = std::slice::from_raw_parts_mut(amprms, 21);
     amprms.fill(0.0);
 

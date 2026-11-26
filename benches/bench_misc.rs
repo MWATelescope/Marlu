@@ -17,7 +17,7 @@ use marlu::{
 };
 
 // /////////////////////// //
-// Miscelaneous Benchmarks //
+// Miscellaneous Benchmarks //
 // /////////////////////// //
 
 #[inline]

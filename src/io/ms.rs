@@ -1330,8 +1330,8 @@ impl MeasurementSetWriter {
     /// Initialize a measurement set, including the extended MWA tables from a [`VisContext`],
     /// [`ObsContext`] and [`MwaObsContext`].
     ///
-    /// A typicaly measurement set is initialized with [`MeasurementSetWriter::initialize()`],
-    /// then the MWA extension tables are createed and initialized.
+    /// A typical measurement set is initialized with [`MeasurementSetWriter::initialize()`],
+    /// then the MWA extension tables are created and initialized.
     pub fn initialize_mwa(
         &self,
         vis_ctx: &VisContext,

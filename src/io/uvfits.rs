@@ -279,7 +279,9 @@ impl UvfitsWriter {
     ///
     /// This will destroy any existing uvfits file at that path.
     ///
-    /// If you have a [`mwalib::CorrelatorContext`], then it would be more
+    /// If you have a
+    /// [`mwalib::CorrelatorContext`](https://docs.rs/mwalib/latest/mwalib/struct.CorrelatorContext.html),
+    /// then it would be more
     /// convenient to use the `from_mwalib` method.
     ///
     /// `num_timesteps`, `num_baselines` and `num_chans` are the number of
@@ -304,7 +306,7 @@ impl UvfitsWriter {
     /// spectral window being written to this file. \[Hz\]
     ///
     /// `centre_freq_chan` is the index (from zero) of the center frequency of
-    /// the center fine channel of the spectral] window being written to this
+    /// the center fine channel of the spectral window being written to this
     /// file.
     ///
     /// `phase_centre` is a [`RADec`] of the observation's phase center, used to
@@ -631,8 +633,13 @@ impl UvfitsWriter {
         )
     }
 
-    /// Write the antenna table to a uvfits file. This consumes the
-    /// [`UvfitsWriter`], preventing any further modifications.
+    /// Write the antenna table to a uvfits file, then close the file. Nothing
+    /// more can be written with this [`UvfitsWriter`] afterwards, and
+    /// [`UvfitsWriter::close`] must not be called on it (the file is already
+    /// closed, so that would return an error).
+    ///
+    /// All of the visibility rows promised to [`UvfitsWriter::new`] must have
+    /// been written first.
     ///
     /// `Self` must have only have a single HDU when this function is called
     /// (true when using methods only provided by `Self`).
@@ -1055,10 +1062,12 @@ impl UvfitsWriter {
         Ok(())
     }
 
-    /// Close this [`UvfitsWriter`], even if it is not appropriate to do so (the
-    /// writer should have the antenna table written before closing). It would
-    /// be nice to have this code inside the `Drop` method, but `Drop` code
-    /// cannot fail.
+    /// Close this [`UvfitsWriter`] without writing the antenna table, leaving
+    /// an incomplete uvfits file. Only use this to abandon a file:
+    /// [`UvfitsWriter::write_uvfits_antenna_table`] (which
+    /// [`VisWrite::finalise`] calls) already closes the file, and calling this
+    /// afterwards returns an error. It would be nice to have this code inside
+    /// the `Drop` method, but `Drop` code cannot fail.
     pub fn close(self) -> Result<(), fitsio::errors::Error> {
         trace!("closing fits file ({})", self.path.display());
         let mut status = 0;
@@ -1703,7 +1712,7 @@ mod tests {
                 "EPOCH", "OBSRA",
                 "OBSDEC",
                 // "FIBRFACT"
-                // the velocity factor of electic fields in RG-6 like coax.
+                // the velocity factor of electric fields in RG-6 like coax.
                 // this is incorrect in Cotter. It writes 2.0 instead of 1.204
             ],
             left_fptr,
