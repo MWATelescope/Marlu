@@ -40,6 +40,28 @@ pub trait VisWrite {
     ///     of the double is the flag. Assumes all weights and flags are the same
     ///     for a given pol. The dimensions of the array are `[timestep][channel][baseline]`
     ///
+    /// # Weight convention
+    ///
+    /// - A positive weight is an unflagged visibility.
+    /// - A negative weight is a flagged visibility, and its magnitude is the
+    ///   weight it would have if it were not flagged.
+    /// - A weight of zero, either sign, means no data at all (for example a
+    ///   timestep missing from the raw files, filled with zeros), and so does a
+    ///   weight that is not finite. Such a visibility is flagged, and is left
+    ///   out of every weighted average.
+    ///
+    /// ([`is_weight_unflagged`](crate::averaging::is_weight_unflagged) and
+    /// [`normalise_weight`](crate::averaging::normalise_weight) apply these
+    /// rules.) The writers record weights and flags the same way whether or
+    /// not the visibilities are averaged, see [`average_chunk_f64`](crate::average_chunk_f64):
+    ///
+    /// - uvfits: the weight is written as is, apart from a flagged weight
+    ///   with no magnitude being written as `-0.0`. A flagged average has
+    ///   the negative of the summed weights of its flagged visibilities.
+    /// - measurement set: `WEIGHT_SPECTRUM` (and `WEIGHT`, its sum over
+    ///   channels) holds the magnitude and is never negative; the sign goes to
+    ///   `FLAG`. (`cotter` writes zero weight for a flagged average.)
+    ///
     /// `vis_ctx` - a [`VisContext`] which contextualises each axis of the visibilities.
     ///
     fn write_vis(

@@ -26,7 +26,9 @@ use super::{
     VisWrite,
 };
 use crate::{
-    average_chunk_f64, c32,
+    average_chunk_f64,
+    averaging::normalise_weight,
+    c32,
     convention::{PolConvention, UvwFrame, VisUnits},
     io::error::{IOError, MeasurementSetWriteError::MeasurementSetFull},
     ndarray::{array, s, Array2, Array3, ArrayView, ArrayView3, ArrayViewMut2, Axis},
@@ -2216,7 +2218,9 @@ impl VisWrite for MeasurementSetWriter {
                     weights_row.outer_iter_mut(),
                     flags_row.outer_iter_mut()
                 ) {
-                    avg_weight = weight_chunk[[0, 0]];
+                    // the sign is the flag, and a weight that is zero or not
+                    // finite is flagged too.
+                    avg_weight = normalise_weight(weight_chunk[[0, 0]]);
                     avg_flag = avg_weight.is_sign_negative();
                     if vis_ctx.trivial_averaging() {
                         data_view.assign(&ArrayView::from(vis_chunk[[0, 0]].as_slice()));
@@ -2230,10 +2234,8 @@ impl VisWrite for MeasurementSetWriter {
                             avg_flag
                         );
                     }
-                    if avg_flag {
-                        avg_weight = avg_weight.abs();
-                    }
-                    weights_view.fill(avg_weight);
+                    // MS weights are never negative: the flag column has the sign.
+                    weights_view.fill(avg_weight.abs());
                     flags_view.fill(avg_flag);
                 }
 
@@ -2845,6 +2847,55 @@ mod tests {
                 assert!(main_table_keywords.contains(&table_name.into()));
             }
         }
+    }
+
+    /// `cotter` writes zero weight for an averaged visibility that is flagged
+    /// (it has no unflagged visibilities to add up), and Marlu writes the
+    /// weight it would have had, as the magnitude of the weight of the
+    /// flagged visibilities, so that it is the same as with no averaging (and
+    /// what hyperdrive reads: flagged weights are the negative of these). Check
+    /// that, and that the unflagged weights are the same. `FLAG`, `WEIGHT` and
+    /// `WEIGHT_SPECTRUM` are in the main table.
+    #[cfg(feature = "mwalib")]
+    fn assert_weights_are_cotters_except_flagged(table: &mut Table, exp_table: &mut Table) {
+        assert_eq!(table.n_rows(), exp_table.n_rows());
+        let mut num_flagged = 0;
+        let mut num_unflagged = 0;
+        for row in 0..table.n_rows() {
+            // all [chan][pol], flattened
+            let flags: Vec<bool> = table.get_cell_as_vec("FLAG", row).unwrap();
+            let weights: Vec<f32> = table.get_cell_as_vec("WEIGHT_SPECTRUM", row).unwrap();
+            let exp_weights: Vec<f32> = exp_table.get_cell_as_vec("WEIGHT_SPECTRUM", row).unwrap();
+            assert_eq!(flags.len(), weights.len());
+            assert_eq!(flags.len(), exp_weights.len());
+            let mut flagged_weight = 0_f32;
+            for (i, (&flag, &weight, &exp_weight)) in
+                izip!(flags.iter(), weights.iter(), exp_weights.iter()).enumerate()
+            {
+                // MS weights are never negative
+                assert!(weight >= 0., "row {row} element {i}");
+                if flag {
+                    num_flagged += 1;
+                    assert_abs_diff_eq!(exp_weight, 0.);
+                    flagged_weight += weight;
+                } else {
+                    num_unflagged += 1;
+                    assert_abs_diff_eq!(weight, exp_weight, epsilon = 1e-7);
+                    assert!(weight > 0., "row {row} element {i}");
+                }
+            }
+            // `WEIGHT` is the sum of `WEIGHT_SPECTRUM` over the channels
+            let row_weight: Vec<f32> = table.get_cell_as_vec("WEIGHT", row).unwrap();
+            let exp_row_weight: Vec<f32> = exp_table.get_cell_as_vec("WEIGHT", row).unwrap();
+            let num_pols = row_weight.len() as f32;
+            assert_abs_diff_eq!(
+                row_weight.iter().sum::<f32>(),
+                exp_row_weight.iter().sum::<f32>() + flagged_weight,
+                epsilon = 1e-4 * num_pols * row_weight[0].abs().max(1.)
+            );
+        }
+        assert!(num_flagged > 0, "the test should have flagged data");
+        assert!(num_unflagged > 0, "the test should have unflagged data");
     }
 
     /// `cotter` took metafits heights, which are altitudes, as heights above
@@ -6008,8 +6059,150 @@ mod tests {
                     // equinoxes (see `precess_time`): 4 mm on these 55 m
                     // baselines.
                     assert_table_columns_match!(table, exp_table, col_name, 0.01);
+                } else if table_name.is_empty() && ["WEIGHT", "WEIGHT_SPECTRUM"].contains(col_name)
+                {
+                    // checked below, as cotter does not write the weight of
+                    // flagged averages.
                 } else {
                     assert_table_columns_match!(table, exp_table, col_name);
+                }
+            }
+            if table_name.is_empty() {
+                assert_weights_are_cotters_except_flagged(&mut table, &mut exp_table);
+            }
+        }
+    }
+
+    /// The weights and flags written are the same whether or not the
+    /// visibilities are averaged, for every kind of weight (see
+    /// [`crate::averaging::test_scenarios`]): flagged is a flag with the weight
+    /// it would have had, and missing, or weights that aren't weights, are
+    /// flagged with no weight. `WEIGHT_SPECTRUM` is never negative.
+    #[cfg(feature = "mwalib")]
+    #[test]
+    #[serial]
+    fn test_write_vis_weight_conventions_with_and_without_averaging() {
+        use crate::averaging::test_scenarios::{arrays, scenarios, unaveraged};
+
+        let array_pos = LatLngHeight {
+            longitude_rad: COTTER_MWA_LONGITUDE_RADIANS,
+            latitude_rad: COTTER_MWA_LATITUDE_RADIANS,
+            height_metres: COTTER_MWA_HEIGHT_METRES,
+        };
+        let corr_ctx = get_mwa_avg_context();
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+        let geocentric_vector = XyzGeocentric::get_geocentric_vector(array_pos);
+        let (s_long, c_long) = array_pos.longitude_rad.sin_cos();
+        let antenna_positions: Vec<_> = ANT_POSITIONS
+            .iter()
+            .map(|floats| {
+                XyzGeocentric {
+                    x: floats[0],
+                    y: floats[1],
+                    z: floats[2],
+                }
+                .to_geodetic_inner(geocentric_vector, s_long, c_long)
+            })
+            .collect();
+
+        let scenarios = scenarios();
+        let num_baselines = scenarios.len();
+        let baseline_idxs: Vec<usize> = (0..num_baselines).collect();
+        let timestep_range = 0..2;
+
+        for (avg_time, avg_freq) in [(1, 1), (2, 2), (2, 1), (1, 2)] {
+            let temp_dir = tempdir().unwrap();
+            let table_path = temp_dir.path().join("test.ms");
+            let ms_writer = MeasurementSetWriter::new(
+                &table_path,
+                phase_centre,
+                array_pos,
+                antenna_positions.clone(),
+                Duration::default(),
+                true,
+            );
+            ms_writer
+                .initialize_from_mwalib(
+                    &corr_ctx,
+                    &timestep_range,
+                    &(0..1),
+                    &baseline_idxs,
+                    avg_time,
+                    avg_freq,
+                    None,
+                )
+                .unwrap();
+            let vis_ctx = VisContext::from_mwalib(
+                &corr_ctx,
+                &timestep_range,
+                &(0..1),
+                &baseline_idxs,
+                avg_time,
+                avg_freq,
+            );
+            let (vis, weights) =
+                arrays(&scenarios, vis_ctx.num_sel_timesteps, vis_ctx.num_sel_chans);
+            let mut ms_writer = ms_writer;
+            ms_writer
+                .write_vis(vis.view(), weights.view(), &vis_ctx)
+                .unwrap();
+
+            let mut table = Table::open(&table_path, TableOpenMode::Read).unwrap();
+            let num_avg_timesteps = 2 / avg_time;
+            let num_avg_chans = vis_ctx.num_sel_chans / avg_freq;
+            assert_eq!(table.n_rows() as usize, num_avg_timesteps * num_baselines);
+            for row in 0..table.n_rows() {
+                let (avg_t, b) = (row as usize / num_baselines, row as usize % num_baselines);
+                let scenario = &scenarios[b];
+                let flags: Vec<bool> = table.get_cell_as_vec("FLAG", row).unwrap();
+                let weights: Vec<f32> = table.get_cell_as_vec("WEIGHT_SPECTRUM", row).unwrap();
+                let data: Vec<c32> = table.get_cell_as_vec("DATA", row).unwrap();
+                let num_pols = 4;
+                assert_eq!(flags.len(), num_avg_chans * num_pols);
+                assert_eq!(weights.len(), flags.len());
+                for (i, (&flag, &weight)) in flags.iter().zip(weights.iter()).enumerate() {
+                    let chan = i / num_pols;
+                    let ctx = format!(
+                        "{} with avg_time={avg_time} avg_freq={avg_freq}, \
+                         row {row}, element {i}",
+                        scenario.name
+                    );
+                    // MS weights are never negative, the sign is the flag
+                    assert!(
+                        weight.is_sign_positive() && !weight.is_nan(),
+                        "{ctx}: {weight}"
+                    );
+                    if (avg_time, avg_freq) == (2, 2) {
+                        // everything is averaged: all of the chunk
+                        assert_eq!(flag, scenario.avg_flag(), "{ctx}");
+                        assert_abs_diff_eq!(weight, scenario.avg_weight.abs(), epsilon = 1e-5);
+                    } else if (avg_time, avg_freq) == (1, 1) {
+                        let (exp_flag, exp_weight) = unaveraged(scenario.weights[avg_t][chan % 2]);
+                        assert_eq!(flag, exp_flag, "{ctx}");
+                        assert_abs_diff_eq!(weight, exp_weight.abs(), epsilon = 1e-5);
+                    } else {
+                        // part averaged: whatever averaging that chunk gives
+                        let avg_chan = chan;
+                        let chunk_vis = Array2::from_shape_fn((avg_time, avg_freq), |(t, c)| {
+                            Jones::<f32>::identity()
+                                * scenario.vis[(avg_t * avg_time + t) % 2]
+                                    [(avg_chan * avg_freq + c) % 2]
+                        });
+                        let chunk_weights =
+                            Array2::from_shape_fn((avg_time, avg_freq), |(t, c)| {
+                                scenario.weights[(avg_t * avg_time + t) % 2]
+                                    [(avg_chan * avg_freq + c) % 2]
+                            });
+                        let (_, exp_weight, exp_flag) =
+                            crate::averaging::average_chunk(chunk_vis.view(), chunk_weights.view());
+                        assert_eq!(flag, exp_flag, "{ctx}");
+                        assert_abs_diff_eq!(weight, exp_weight.abs(), epsilon = 1e-5);
+                    }
+                }
+                // the averaged visibility keeps its amplitude when it is the
+                // same in every unflagged, or every flagged, sample
+                if (avg_time, avg_freq) == (2, 2) {
+                    assert_abs_diff_eq!(data[0].re, scenario.avg_vis, epsilon = 1e-4);
                 }
             }
         }

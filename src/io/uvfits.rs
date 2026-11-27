@@ -23,6 +23,7 @@ use super::{
 };
 use crate::{
     average_chunk_f64,
+    averaging::normalise_weight,
     constants::VEL_C,
     convention::{PolConvention, UvwFrame, VisUnits},
     hifitime::{Duration, Epoch, Unit},
@@ -1246,7 +1247,10 @@ impl VisWrite for UvfitsWriter {
                     self.buffer[num_group_params..]
                         .chunks_exact_mut(NUM_FLOATS_PER_POL * num_vis_pols),
                 ) {
-                    avg_weight = weight_chunk[[0, 0]];
+                    // the sign is the flag, and a weight that is zero or not
+                    // finite is flagged too, so write it the same way
+                    // whether or not it was averaged.
+                    avg_weight = normalise_weight(weight_chunk[[0, 0]]);
                     avg_jones = jones_chunk[[0, 0]];
 
                     if !vis_ctx.trivial_averaging() {
@@ -3053,6 +3057,147 @@ mod tests {
             }
             i_inttim += 1;
             i_no_inttim += 1;
+        }
+    }
+
+    /// The weights written are the same whether or not the visibilities are
+    /// averaged, for every kind of weight (see
+    /// [`crate::averaging::test_scenarios`]): flagged is a negative weight with
+    /// the magnitude it would have had, and missing, or weights that aren't
+    /// weights, are `-0.0`.
+    #[test]
+    fn test_write_vis_weight_conventions_with_and_without_averaging() {
+        use crate::averaging::{
+            average_chunk,
+            test_scenarios::{arrays, scenarios, unaveraged},
+        };
+        use ndarray::Array2;
+
+        let corr_ctx = get_mwa_legacy_context();
+        let array_pos = LatLngHeight::mwa();
+        let phase_centre = RADec::from_mwalib_phase_or_pointing(&corr_ctx.metafits_context);
+        let (names, positions): (Vec<String>, Vec<XyzGeodetic>) = corr_ctx
+            .metafits_context
+            .antennas
+            .iter()
+            .map(|antenna| {
+                let position_enh = ENH {
+                    e: antenna.east_m,
+                    n: antenna.north_m,
+                    h: antenna.height_m,
+                };
+                (
+                    antenna.tile_name.clone(),
+                    position_enh.to_xyz(array_pos.latitude_rad),
+                )
+            })
+            .unzip();
+
+        let scenarios = scenarios();
+        let num_baselines = scenarios.len();
+        let baseline_idxs: Vec<usize> = (0..num_baselines).collect();
+        let timestep_range = 0..2;
+
+        for (avg_time, avg_freq) in [(1, 1), (2, 2), (2, 1), (1, 2)] {
+            let vis_ctx = VisContext::from_mwalib(
+                &corr_ctx,
+                &timestep_range,
+                &(0..1),
+                &baseline_idxs,
+                avg_time,
+                avg_freq,
+            );
+            let tmp_uvfits_file = NamedTempFile::new().unwrap();
+            let mut u = UvfitsWriter::from_marlu(
+                tmp_uvfits_file.path(),
+                &vis_ctx,
+                array_pos,
+                phase_centre,
+                Duration::default(),
+                None,
+                names.clone(),
+                positions.clone(),
+                true,
+                None,
+            )
+            .unwrap();
+            let (vis, weights) =
+                arrays(&scenarios, vis_ctx.num_sel_timesteps, vis_ctx.num_sel_chans);
+            u.write_vis(vis.view(), weights.view(), &vis_ctx).unwrap();
+            u.finalise().unwrap();
+            drop(u);
+
+            let num_avg_timesteps = 2 / avg_time;
+            let num_avg_chans = vis_ctx.num_sel_chans / avg_freq;
+            let mut f = fits_open!(tmp_uvfits_file.path()).unwrap();
+            for group in 0..num_avg_timesteps * num_baselines {
+                let (avg_t, b) = (group / num_baselines, group % num_baselines);
+                let scenario = &scenarios[b];
+                // 4 pols of re, im, weight per channel
+                let mut data = vec![0_f32; num_avg_chans * 12];
+                let mut status = 0;
+                let mut any_null = 0;
+                unsafe {
+                    fitsio_sys::ffgpve(
+                        f.as_raw(),
+                        group as i64 + 1,
+                        1,
+                        data.len() as i64,
+                        0.0,
+                        data.as_mut_ptr(),
+                        &mut any_null,
+                        &mut status,
+                    );
+                }
+                fits_check_status(status).unwrap();
+
+                for chan in 0..num_avg_chans {
+                    let ctx = format!(
+                        "{} with avg_time={avg_time} avg_freq={avg_freq}, group {group}, chan {chan}",
+                        scenario.name
+                    );
+                    let sample = &data[chan * 12..(chan + 1) * 12];
+                    // the same weight for every pol
+                    let weight = sample[2];
+                    for pol in 0..4 {
+                        assert_eq!(sample[pol * 3 + 2].to_bits(), weight.to_bits(), "{ctx}");
+                    }
+                    let (exp_weight, exp_vis) = if (avg_time, avg_freq) == (1, 1) {
+                        let (_, w) = unaveraged(scenario.weights[avg_t][chan % 2]);
+                        (w, scenario.vis[avg_t][chan % 2])
+                    } else {
+                        // whatever averaging that chunk gives
+                        let chunk_vis = Array2::from_shape_fn((avg_time, avg_freq), |(t, c)| {
+                            Jones::<f32>::identity()
+                                * scenario.vis[(avg_t * avg_time + t) % 2]
+                                    [(chan * avg_freq + c) % 2]
+                        });
+                        let chunk_weights =
+                            Array2::from_shape_fn((avg_time, avg_freq), |(t, c)| {
+                                scenario.weights[(avg_t * avg_time + t) % 2]
+                                    [(chan * avg_freq + c) % 2]
+                            });
+                        let (jones, w, flag) =
+                            average_chunk(chunk_vis.view(), chunk_weights.view());
+                        assert_eq!(w.is_sign_negative(), flag, "{ctx}");
+                        (w, jones[0].re)
+                    };
+                    if (avg_time, avg_freq) == (2, 2) {
+                        // the whole chunk, as in the scenario
+                        assert_eq!(exp_weight.to_bits(), scenario.avg_weight.to_bits(), "{ctx}");
+                        assert_abs_diff_eq!(exp_vis, scenario.avg_vis, epsilon = 1e-4);
+                    }
+                    // the sign is the flag, and a flagged weight with no
+                    // magnitude is -0.0
+                    assert_eq!(
+                        weight.is_sign_negative(),
+                        exp_weight.is_sign_negative(),
+                        "{ctx}"
+                    );
+                    assert_abs_diff_eq!(weight, exp_weight, epsilon = 1e-5);
+                    assert_abs_diff_eq!(sample[0], exp_vis, epsilon = 1e-4);
+                }
+            }
         }
     }
 
